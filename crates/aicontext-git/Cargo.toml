@@ -1,0 +1,18 @@
+[package]
+name = "aicontext-git"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "A narrow, safe wrapper over git plumbing for AI Context OS"
+
+[lints]
+workspace = true
+
+[dependencies]
+aicontext-core = { path = "../aicontext-core" }
+
+[dev-dependencies]
+aicontext-testkit = { path = "../aicontext-testkit" }

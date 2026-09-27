@@ -1,0 +1,52 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# Local, git-ignored machine state. Committed knowledge lives in .ai/ and is NOT ignored.
+# See ARCHITECTURE.md 3.1.
+.aicontext/
+
+# Nothing in .ai/ may ever hold a credential. Enforced by `aicontext doctor` (CTX-016) and, from
+# TASK-019, by a repository scan in CI. Listed here so an accidental .env is never committed even
+# before that check exists.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Credentials from common tooling and cloud SDKs
+.aws/
+.azure/
+.gcloud/
+.terraform/
+**/.terraform.lock.hcl
+**/.npmrc
+**/.pypirc
+**/.netrc
+
+# Build and coverage artefacts
+/coverage
+*.profraw
+*.profdata
+/criterion
+
+# Editors and IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.history/
+.clang-format
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/

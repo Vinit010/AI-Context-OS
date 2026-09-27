@@ -1,0 +1,20 @@
+[package]
+name = "aicontext-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Discovery, parsing, indexing, retrieval, and validation of AI Context OS project knowledge"
+
+[lints]
+workspace = true
+
+[dependencies]
+aicontext-core = { path = "../aicontext-core" }
+
+# NOTE: this crate must never depend on aicontext-providers. It assembles a ContextPacket and
+# stops; a model call happens above it. See ARCHITECTURE.md 3.2 rule 3.
+[dev-dependencies]
+aicontext-testkit = { path = "../aicontext-testkit" }

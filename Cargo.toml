@@ -1,0 +1,60 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/aicontext-core",
+    "crates/aicontext-context",
+    "crates/aicontext-git",
+    "crates/aicontext-cli",
+    "crates/aicontext-testkit",
+]
+# Crates added as their tasks land, per ARCHITECTURE.md 3:
+#   aicontext-permissions      (TASK-071)
+#   aicontext-audit            (TASK-075)
+#   aicontext-plugin-sdk       (TASK-070)
+#   aicontext-plugin-runtime   (TASK-073)
+#   aicontext-providers        (TASK-050)
+# Adding a member without adding it to the boundary matrix in
+# crates/aicontext-testkit/tests/crate_boundaries.rs fails `cargo test`.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/Vinit010/AI-Context-OS"
+authors = ["AI Context OS contributors"]
+description = "Git-native context, memory, governance, and tool-integration layer for AI-assisted development"
+readme = "README.md"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "warn"
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+# Lint groups must be declared at a lower priority than individual lints, or Cargo rejects the
+# manifest. priority = -1 is the documented arrangement.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Documented deviations from pedantic. Each needs a reason, per RULES.md 3.
+#   missing_errors_doc  - our error types document remediation in code, not in a doc table
+#   module_name_repetitions - `context::ContextError` is clearer than `context::Error`
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+
+# [workspace.dependencies] is intentionally empty. Every dependency is added by the task that
+# needs it, with a written justification in ARCHITECTURE.md 2.2. Nothing is added speculatively.
+[workspace.dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+# Test and development profiles keep debug assertions, which catch logic errors the
+# release build would silently perform.
+[profile.dev]
+debug = 1

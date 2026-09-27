@@ -1,0 +1,24 @@
+[package]
+name = "aicontext-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The aicontext command-line interface"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "aicontext"
+path = "src/main.rs"
+
+[dependencies]
+aicontext-context = { path = "../aicontext-context" }
+aicontext-core = { path = "../aicontext-core" }
+aicontext-git = { path = "../aicontext-git" }
+
+[dev-dependencies]
+aicontext-testkit = { path = "../aicontext-testkit" }

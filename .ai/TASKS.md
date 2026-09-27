@@ -11,7 +11,7 @@ updated: 2026-09-27
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-010
+**Current task:** TASK-011
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -117,7 +117,7 @@ acceptance:
 ```yaml
 id: TASK-005
 title: Write README, CONTRIBUTING, and issue templates
-status: BACKLOG
+status: IN_PROGRESS
 priority: MEDIUM
 phase: 1
 depends_on: [TASK-010]
@@ -125,6 +125,9 @@ spec: null
 touches: ["README.md", "CONTRIBUTING.md", ".github/**"]
 acceptance:
   - A new contributor can build, test, and submit a change from the README alone
+progress:
+  - README.md written with TASK-010, including honest status, layout, build and test commands
+  - Still to do: CONTRIBUTING.md and the issue templates
 ```
 
 ---
@@ -139,17 +142,22 @@ fresh repository with no network.
 ```yaml
 id: TASK-010
 title: Create the Rust workspace and CI pipeline
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 1
 depends_on: [TASK-004]
 spec: null
-touches: ["Cargo.toml", "rust-toolchain.toml", ".github/**", ".gitignore"]
+touches: ["Cargo.toml", "rust-toolchain.toml", ".github/**", ".gitignore", "crates/**"]
 acceptance:
   - Workspace builds with cargo build --workspace
   - Every crate root carries forbid(unsafe_code)
   - CI runs fmt, clippy -D warnings, test, and a dependency audit
   - CI enforces the crate dependency direction from ARCHITECTURE.md 3.2
+done:
+  - Cargo workspace with 5 crates, resolver 3, edition 2024, MSRV 1.85
+  - Workspace lints: missing_docs deny, unsafe_code forbid, clippy all + pedantic
+  - 23 tests pass, including the crate boundary matrix that enforces ARCHITECTURE.md 3.2
+  - CI: fmt, build, test, doc on 3 OSes; clippy, MSRV 1.85, audit, release binary on Linux
 ```
 
 ### TASK-011 — Define the core domain types and error model

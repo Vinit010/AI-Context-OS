@@ -1,0 +1,9 @@
+# Pinned for reproducible builds. The local toolchain, CI, and release artefacts must agree.
+# Update deliberately, in its own commit, with the resulting version bump noted in the message.
+#
+# MSRV is 1.85 (see the `msrv` CI job). Contributors on a newer stable toolchain are not forced
+# onto this version, but CI and releases are.
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

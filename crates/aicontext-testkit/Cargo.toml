@@ -1,0 +1,15 @@
+[package]
+name = "aicontext-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Fixtures and workspace policy checks for AI Context OS"
+
+[lints]
+workspace = true
+
+# Intentionally empty. See src/lib.rs.
+[dependencies]

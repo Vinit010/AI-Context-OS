@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # The gates that must pass on every push, on every supported platform. The boundary matrix in
+  # crates/aicontext-testkit/tests/crate_boundaries.rs, which enforces ARCHITECTURE.md 3.2, runs
+  # as part of `cargo test` here.
+  verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # rust-toolchain.toml pins the version, so rustup installs it on first use.
+      - name: Show the active toolchain
+        run: rustup show active-toolchain
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Documentation
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  # Lint once, on the platform with the best signal. Warnings are errors.
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  # Proves the declared MSRV in Cargo.toml is real, not aspirational.
+  msrv:
+    name: msrv (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the minimum supported toolchain
+        run: rustup toolchain install 1.85 --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-1.85
+
+      - name: Build on the MSRV
+        run: cargo +1.85 build --workspace --all-targets --locked
+
+      - name: Test on the MSRV
+        run: cargo +1.85 test --workspace --locked
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The workspace has no third-party dependencies yet, so this passes trivially. It is here so
+      # that adding one cannot silently skip the check.
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # A release build must stay a single static file with no runtime surprises.
+  binary:
+    name: release binary
+    runs-on: ubuntu-latest
+    needs: [verify, clippy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the release binary
+        run: cargo build --release --locked -p aicontext-cli
+
+      - name: Inspect the binary
+        run: |
+          file target/release/aicontext
+          ldd target/release/aicontext || true
+          test -x target/release/aicontext

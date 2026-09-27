@@ -163,6 +163,39 @@ impressive it is.
 
 ---
 
+## MEM-009 - The workspace starts with zero third-party dependencies
+
+```yaml
+id: MEM-009
+category: decision
+scope: project
+status: active
+confidence: high
+recorded: 2026-09-27
+supersedes: null
+```
+
+As of TASK-010 the workspace has **no** third-party Rust dependencies, and `[workspace.dependencies]`
+is empty on purpose. Every dependency is added by the task that needs it, with a written
+justification in `ARCHITECTURE.md` 2.2 (RULES.md 6).
+
+Consequences already in place:
+
+- The one place that reads `Cargo.toml` is `aicontext-testkit`, and it does so with a ~200-line
+  hand-rolled reader rather than `toml`. That reader is a liability the moment a real parser is
+  added, so it is confined to one module and its scope is documented. Replace it when Q-1/Q-2
+  force a YAML or JSON Schema dependency anyway.
+- The crate dependency direction in `ARCHITECTURE.md` 3.2 is enforced by a test, not by review
+  discipline. Adding a workspace member without adding it to the boundary matrix fails
+  `cargo test`.
+- `Cargo.lock` is committed, and CI builds with `--locked`.
+
+The toolchain is pinned to 1.95.0 in `rust-toolchain.toml`, while the declared MSRV is 1.85. The
+gap is intentional: the pin gives reproducible local runs, the MSRV is the compatibility floor, and
+a CI job builds and tests on 1.85 so the floor cannot rot unnoticed.
+
+---
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

@@ -1,0 +1,15 @@
+[package]
+name = "aicontext-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core domain types, identifiers, and the error model for AI Context OS"
+
+[lints]
+workspace = true
+
+# Intentionally empty. This crate is the dependency floor of the workspace (ARCHITECTURE.md 3.2).
+[dependencies]
