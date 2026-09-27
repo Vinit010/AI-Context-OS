@@ -11,7 +11,7 @@ updated: 2026-09-27
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-016
+**Current task:** TASK-012
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -267,7 +267,7 @@ acceptance:
 ```yaml
 id: TASK-016
 title: Implement the front matter parser
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 1
 depends_on: [TASK-011]
@@ -278,7 +278,81 @@ acceptance:
   - Never parses Markdown body structure
   - Malformed input returns a typed error with a line number, never a panic
   - Round-trip and property tests over generated documents
+done:
+  - Document::parse splits the leading --- block and never looks inside the body; FrontMatter holds
+    the well-known keys typed and keeps type-specific keys in extras, so rule 5 loses nothing
+  - type and status stay strings, and dates stay validated YYYY-MM-DD strings: the vocabulary belongs
+    to TASK-015 and a date type belongs in aicontext-core, so neither was invented here
+  - 64 KiB block and 1 MiB document caps are hard refusals, per RULES 11; the catalogue rates
+    CTX-018 a warning, but a parser has no document to attach a warning to
+  - ContextError is #[non_exhaustive], every variant carries a line, a stable code and a
+    remediation hint, and converts into AicontextError with the cause chain intact
+  - yaml_serde 0.10 is reached only through a private two-method YamlCodec, so no YAML type is
+    public; this is R-1's mitigation, implemented rather than noted
+  - A repeated key, a non-string key, a tag, a non-finite float, and an integer beyond i64 are each
+    refused by name rather than coerced, dropped, or rounded
+  - render() is fallible: a value with no YAML spelling is reported instead of written as an empty
+    block, which would delete a document's metadata while leaving a file that still parses
+  - tags: [] and an absent tags key survive a round-trip as the different facts they are
+  - A bare CR, NEL, LS, or PS in a block is refused by name (MEM-011): YAML counts all five as line
+    breaks, so the reported line would land past the end of the file. CRLF files still parse
+    - CONTEXT_SPEC 2.1 inline entity blocks are deliberately not read: that needs Markdown structure,
+      which this task forbids, and it belongs to doctor in TASK-014, which already walks bodies
+    - `Value` is `#[non_exhaustive]`, so it cannot be constructed outside this crate: the only source
+      of one is a parsed document, and the set of values in memory is exactly the set the parser can
+      produce. Nothing in phase 1 needs to build a document by hand, and a later variant is additive
+    - A test scans `src/` and fails if `yaml_serde` reaches any module but `codec.rs`, so R-1's
+      mitigation is enforced rather than asserted; it was checked by planting a reference and
+      watching it fail
+    - Round-trip fixtures are built from this file's own `Shape` type rather than the crate's `Value`,
+      so the property compares two independent descriptions of the format instead of agreeing with
+      itself. Floats are included, generated with a `u32` whole part and a short fraction so the
+      fixture and the renderer cannot disagree about notation
+    - A float keeps its decimal point across a rewrite (`phase: 2.0` stays a float, does not return as
+      an integer); CONTEXT_SPEC §2 rule 7 now states that a value's type survives a rewrite
+    - 89 tests in the crate (42 unit, 43 integration of which 7 are properties, 4 doc) and 152 across
+      the workspace; the properties were also run at 50,000 cases each, and the whole suite passes on
+      the declared MSRV toolchain 1.85, not only on current stable
+    - `cargo audit` reports no vulnerabilities across the 57 locked dependencies
 ```
+
+**Dependency: `yaml_serde` 0.10.** `RULES.md` §6 requires writing the ~30 lines a dependency
+replaces. This is what that would have been — a reader for the subset of YAML our own files happen
+to use:
+
+```rust
+fn read_block(text: &str) -> Result<Vec<(String, String)>, ContextError> {
+    let mut pairs = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (key, value) = line.split_once(':').ok_or(ContextError::Malformed {
+            line: index + 2, reason: "expected `key: value`".into(),
+        })?;
+        pairs.push((key.trim().to_string(), unquote(value.trim()).to_string()));
+    }
+    Ok(pairs)
+}
+
+fn unquote(value: &str) -> &str {
+    value.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(value)
+}
+```
+
+That is genuinely less code, and it is wrong in ways our own documents would hit. It cannot hold a
+value that is not a flat scalar, so `depends_on: [TASK-014, TASK-015]` — a list of strings, in
+`extras`, in the first week — has nowhere to go. It resolves a duplicate key by last-one-wins, which
+`rule 5` forbids outright. `a: b: c` splits on the first colon and yields the key `a`, which is a
+YAML syntax error. It cannot tell `title: 2026-09-27` (a date) from `title: 0755` (an octal integer
+in YAML 1.1) or from `title: no` (a boolean), so the type of every value is a guess. A `#` inside a
+quoted string starts a comment and truncates the value. And it has no line numbers beyond the one it
+just read, which is the one thing `ContextError` exists to provide.
+
+The decisive argument is not line count. `docs/CONTEXT_SPEC.md` §2 is a **published storage
+contract** that an external tool reads without running our binary. A subset parser makes `.ai`
+documents readable only by us, so "we accept slightly different YAML" would become a permanent,
+invisible fork of the format the spec claims to be YAML. `ADR-007` records the full candidate
+comparison; `MEM-010` records the dependency state.
 
 ### TASK-017 — Implement the Git wrapper
 

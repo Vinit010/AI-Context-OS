@@ -68,7 +68,7 @@ list for Phase 1–2:
 |-------|---------|---------------|
 | `clap` (derive) | CLI parsing, completions | De-facto standard; hand-rolling is a bad use of effort |
 | `serde`, `serde_json` | Wire + file formats | Ubiquitous; schema-first serialisation is required anyway |
-| YAML 1.2 implementation (crate pinned at implementation time) | Front matter | Required by the storage contract. **Selection risk: see RISK R-1** |
+| `yaml_serde` (0.10) | Front matter | Required by the storage contract, and it is the only maintained crate that is published by a steward rather than an individual. Pinned in `ADR-007`; reached only through the internal `YamlCodec` trait, so a swap is contained |
 | `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2** |
 | `thiserror` | Error types | Removes boilerplate; errors must be typed (RULES §5) |
 | `anyhow` | CLI boundary only | Contextual error chaining at the top, nowhere else |
@@ -196,6 +196,9 @@ Hard rules, checked in CI:
 5. `aicontext-plugin-sdk` must not depend on the runtime or the CLI. Plugin authors get the SDK,
    never our internals.
 6. No crate may `use` another crate's private module. Public surfaces are `pub` and documented.
+7. `aicontext-context` owns the front-matter value type and keeps the YAML library to itself. `Value`
+   is `#[non_exhaustive]`, so only a parsed document can produce one, and a test scans `src/` and
+   fails if `yaml_serde` appears in any module but `codec.rs`. See `ADR-007` and `MEM-012`.
 
 ---
 
@@ -547,7 +550,7 @@ Empty abstractions are worse than absent ones (RULES §2).
 
 | # | Risk | Impact | Likelihood | Mitigation | Owner task |
 |---|------|--------|------------|------------|-----------|
-| R-1 | **YAML crate maintenance.** The mainstream Rust YAML crate has had churn in maintenance; a bad choice forces a late swap | Parser rewrite across the storage contract | Medium | `YamlCodec` trait; the contract depends on the trait, not the crate | TASK-016 |
+| R-1 | **YAML crate maintenance.** The mainstream Rust YAML crate has had churn in maintenance; a bad choice forces a late swap | Parser rewrite across the storage contract | Low | **Mitigated in `TASK-016`**: `yaml_serde` 0.10 chosen in `ADR-007` and reached only through the `YamlCodec` trait, which is now implemented rather than merely planned. No YAML type appears in a public signature, so a swap touches one module. Residual risk is an incompatible 1.0 release; Cargo package renaming is the escape | TASK-016 |
 | R-2 | **JSON Schema validator weight.** A Draft 2020-12 validator pulls a large transitive tree, against D8 | Build time, binary size, supply-chain surface | Medium | `Validator` trait; consider validating only the subset we emit | TASK-015 |
 | R-3 | **Plugin sandbox strength is OS-dependent.** Path and network enforcement differs across Linux, macOS, and Windows | Weaker isolation than documented on some platforms | High | Declare the guarantee per platform; fail closed where it cannot be enforced; document the gap rather than imply parity | TASK-076 |
 | R-4 | **Context relevance without semantics.** Lexical retrieval will miss paraphrased intent | Agents re-read too much or miss the right document | Medium | Accept it in the MVP and measure: log which documents were retrieved vs. used, then let evidence pick the next retriever | TASK-033, TASK-038 |

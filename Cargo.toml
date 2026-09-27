@@ -48,8 +48,15 @@ module_name_repetitions = "allow"
 #
 #   thiserror  - error types must be enums deriving thiserror::Error (RULES.md 4.2). Added by
 #                TASK-011, which defines the error model.
+#   yaml_serde - the YAML front matter parser. Pinned in ADR-007 and reached only through the
+#                private YamlCodec trait in aicontext-context, so R-1 is contained. TASK-016.
+#   proptest   - dev-only. Generators for the round-trip tests, which is the only way to show the
+#                parser survives documents nobody wrote by hand. Pre-justified in 2.2 as
+#                dev-only. Added by TASK-016.
 [workspace.dependencies]
 thiserror = "2"
+yaml_serde = "0.10"
+proptest = "1.6"
 
 [profile.release]
 opt-level = 3

@@ -64,15 +64,17 @@ Human-readable body. Never parsed.
 4. Key order: `id`, `type`, `title`, `status`, type-specific keys, `created`, `updated`, `tags`.
 5. Unknown keys are **warnings** (`CTX-006`), not errors, so a newer schema does not break an older
    binary. Unknown keys are preserved on read and preserved on write.
-6. Dates are ISO-8601 `YYYY-MM-DD`. Timestamps are RFC-3339 with an explicit offset.
-7. `created` is immutable. `updated` is set by the tool when it writes the file, never guessed.
-8. The body is free text and is never parsed. A human may restructure it freely.
-9. The `spec` key holds either a `SPEC-*` entity ID or a path to a normative specification under
-   `docs/` (`docs/CONTEXT_SPEC.md`, `docs/SECURITY.md`, `docs/PLUGIN_SPEC.md`,
-   `docs/AI_PROVIDER_SPEC.md`). Both forms are resolved by `doctor`; an unresolvable value is
-   `CTX-007`.
-10. Line endings are normalised to `\n` on write. A file is written atomically (temp file + rename).
-11. Maximum front-matter size: 64 KiB. Maximum document size: 1 MiB, and the excess is reported
+6. Dates are ISO-8601 `YYYY-MM-DD`. Timestamps are RFC 3339 with an explicit offset.
+7. A value's *type* survives a rewrite. `phase: 2` comes back as an integer and `phase: 2.0` comes
+   back as a float, so a renderer never drops the decimal point that distinguishes them.
+8. `created` is immutable. `updated` is set by the tool when it writes the file, never guessed.
+9. The body is free text and is never parsed. A human may restructure it freely.
+10. The `spec` key holds either a `SPEC-*` entity ID or a path to a normative specification under
+    `docs/` (`docs/CONTEXT_SPEC.md`, `docs/SECURITY.md`, `docs/PLUGIN_SPEC.md`,
+    `docs/AI_PROVIDER_SPEC.md`). Both forms are resolved by `doctor`; an unresolvable value is
+    `CTX-007`.
+11. Line endings are normalised to `\n` on write. A file is written atomically (temp file + rename).
+12. Maximum front-matter size: 64 KiB. Maximum document size: 1 MiB, and the excess is reported
     rather than silently truncated.
 
 ### 2.1 Inline entity blocks

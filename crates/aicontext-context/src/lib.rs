@@ -23,3 +23,12 @@
 //! Modules arrive in `TASK-016` (parser), `TASK-030` (discovery), and `TASK-031` (index).
 
 #![forbid(unsafe_code)]
+
+mod codec;
+mod error;
+mod frontmatter;
+mod value;
+
+pub use error::ContextError;
+pub use frontmatter::{DOCUMENT_MAX_BYTES, Document, FRONT_MATTER_MAX_BYTES, FrontMatter};
+pub use value::Value;

@@ -13,8 +13,14 @@ workspace = true
 
 [dependencies]
 aicontext-core = { path = "../aicontext-core" }
+# Error types are enums deriving thiserror::Error (RULES.md 4.2). Already in the tree since
+# TASK-011; ContextError is the first outside aicontext-core.
+thiserror = { workspace = true }
+# The only crate in the workspace that knows about YAML. See codec.rs and ADR-007.
+yaml_serde = { workspace = true }
 
 # NOTE: this crate must never depend on aicontext-providers. It assembles a ContextPacket and
 # stops; a model call happens above it. See ARCHITECTURE.md 3.2 rule 3.
 [dev-dependencies]
 aicontext-testkit = { path = "../aicontext-testkit" }
+proptest = { workspace = true }

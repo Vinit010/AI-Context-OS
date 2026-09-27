@@ -202,11 +202,120 @@ a CI job builds and tests on 1.85 so the floor cannot rot unnoticed.
 
 ---
 
+## MEM-010 - YAML is parsed through yaml_serde behind a thin YamlCodec trait
+
+```yaml
+id: MEM-010
+category: decision
+scope: project
+status: active
+confidence: high
+recorded: 2026-09-27
+supersedes: null
+```
+
+`yaml_serde` 0.10 is the YAML implementation, chosen in `ADR-007`. It is the actively maintained
+fork of `serde_yaml`, published by the official YAML organisation, pure Rust, MIT OR Apache-2.0, and
+MSRV 1.82 - comfortably inside our 1.85 floor. `serde_yaml` itself is archived; `serde_yml` is
+deprecated and carries `RUSTSEC-2025-0068`; `serde_norway` is plausible but had gone 21 months
+without a release. Full comparison in the ADR.
+
+The part that matters more than the crate is the seam. No YAML type appears in a public signature:
+the parser speaks our own `Value` enum, and `yaml_serde` is reachable only through the private
+`YamlCodec` trait. That is `RISK R-1`'s mitigation, which was previously an intention and is now
+implemented.
+
+Consequences:
+
+- The trait must stay thin. If it grows into a general YAML abstraction layer it has become the
+  risk instead of the mitigation, and the right move is to delete it and call the crate directly.
+  This is stated in the trait's own documentation so the next agent does not inherit a layer that
+  grew for its own sake.
+- `R-1` likelihood is downgraded Medium to Low. Residual risk is an incompatible 1.0 release; Cargo
+  package renaming is the planned escape.
+- State as of TASK-016: two production third-party dependencies - `thiserror`, already pre-justified in
+  `ARCHITECTURE.md` 2.2, and `yaml_serde` - plus dev-only `proptest`. `serde` is deliberately **not** a
+  direct dependency: the parser walks `yaml_serde`'s own value tree into our `Value` rather than
+  deriving `Deserialize`, because a derived mapping would drop a repeated key without naming it, and
+  rule 5 says nothing written by hand may be silently lost. `serde_json`, `clap`, and the rest stay
+  unadded until their task needs them.
+- `MEM-009` noted that the ~200-line hand-rolled TOML reader in `aicontext-testkit` should be
+  replaced by a real parser "when Q-1/Q-2 force a YAML or JSON Schema dependency anyway." That
+  condition is now met for YAML, but replacing it is not `TASK-016`'s scope; it is left as a
+  follow-up rather than quietly absorbed into a front-matter task.
+
+---
+
+## MEM-011 — Front matter refuses line endings the file cannot express
+
+```yaml
+id: MEM-011
+category: decision
+scope: project
+status: active
+confidence: high
+recorded: 2026-09-27
+supersedes: null
+```
+
+YAML ends a line on LF, CR, NEL, LS, and PS. A file's lines are separated by LF alone, so a block
+containing a bare CR - or one of the three exotic ones - has *more* lines for the YAML layer than for
+the file, and every line number that layer reports after the offender is one or more too high. The
+author would be sent past the end of their own document, which is worse than a slightly vague message
+because it looks authoritative.
+
+`TASK-016` therefore refuses a bare CR, NEL, LS, or PS anywhere in a block, naming the character and
+its line. A CR immediately before the LF is the ordinary CRLF ending and is left alone, so a
+Windows-authored document still parses and still renders with LF endings as rule 10 asks. This was
+found by fuzzing, not by review: the property that asserts a reported line is never past the end of
+the file produced the failing case, and it is the test that keeps it fixed.
+
+The alternative - accepting the input and reporting a line the author cannot use - was rejected. A
+title containing a bare LS cannot survive a YAML round-trip in any case, because a quoted scalar
+holding one is folded across two lines, so refusing is closer to the truth than accepting and
+silently changing the text.
+
+---
+
+## MEM-012 - Front matter is read-only in phase 1, and `Value` is sealed to keep it that way
+
+```yaml
+id: MEM-012
+category: decision
+scope: project
+status: active
+created: 2026-09-27
+tags: [frontmatter, api, boundary]
+```
+
+`Value` is `#[non_exhaustive]`, so no crate outside `aicontext-context` can construct one. The only
+way to obtain a value is to read it out of a parsed document.
+
+The reason is an invariant rather than a style preference: the set of values in memory is then
+exactly the set the parser can produce. A fabricated value - one no block could ever have contained -
+cannot turn up in a document, and a variant added later is additive instead of a breaking change
+(`RULES.md` §3). Making the type sealed now is cheap; making it sealed after something constructs
+values is not.
+
+The cost is that a future command which *edits* one front-matter field, `aicontext task set
+phase=3` being the obvious case, cannot build a `Value` and will need a way in. That is the moment
+to add one, deliberately and with tests, rather than to have shaped the API around a guess. Nothing
+in phase 1 needs it: `init` writes template text from `templates/` and reads documents to decide
+whether to leave them alone, and `doctor` and `status` only read. No constructor is invented now
+(`RULES.md` §2).
+
+The other half of the same boundary is enforced rather than promised. A test in
+`crates/aicontext-context/tests/frontmatter.rs` scans `src/` and fails if `yaml_serde` appears in any
+module other than `codec.rs`, so the `ADR-007` condition cannot rot unnoticed. It was checked by
+planting a reference in `error.rs` and confirming the test failed, rather than by assuming it worked.
+
+---
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
 |---|----------|--------|-----------|
-| Q-1 | Which YAML crate? `serde_yaml` is widely used but its maintenance status needs checking; a maintained fork may be required | TASK-016 | Phase 1 |
+| Q-1 | Which YAML crate? `serde_yaml` is widely used but its maintenance status needs checking; a maintained fork may be required | TASK-016 | **RESOLVED in TASK-016: `yaml_serde` 0.10, see `ADR-007` and `MEM-010`** |
 | Q-2 | JSON Schema validator crate choice, and whether we accept its transitive weight | TASK-015 | Phase 1 |
 | Q-3 | Should `doctor` fail the build on a deprecation warning, or only on errors? | TASK-014 | Phase 1 |
 | Q-4 | Is the approval prompt a full-screen TUI, or a line-based prompt that composes with pipes? | TASK-072 | Phase 4 |

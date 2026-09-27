@@ -38,6 +38,12 @@ binary.
 register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is being built, in
 what order, and what "done" means for each item.
 
+The foundation is landing before the commands are. The front-matter engine in `aicontext-context` is
+complete and tested: it splits a document, reads its block into typed values, and renders it back so
+that a rewrite preserves the author's meaning rather than the author's formatting. It is covered by
+unit tests, hand-written cases, and property tests over documents nobody wrote by hand. `init` is
+the next task.
+
 ---
 
 ## How it works
@@ -103,23 +109,41 @@ without declaring what it may depend on fails the build.
 
 ## Requirements
 
-- Rust 1.85 or newer. The exact toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml),
-  so `rustup` installs it for you.
+- Rust 1.85 or newer. That is the **MSRV**, declared as `rust-version` in the workspace
+  `Cargo.toml` and proved real by a dedicated CI job, not by assertion.
+- [`rust-toolchain.toml`](rust-toolchain.toml) pins the toolchain that local builds, CI, and
+  release artefacts all use — currently 1.95.0 — so `rustup` installs it for you, and a
+  contributor is never forced off their own stable to match. Update the pin deliberately, in its
+  own commit.
 - `git` on `PATH`.
 
-There are no third-party Rust dependencies yet, and none will be added without a written
-justification in [`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md).
+No C compiler and no system library are needed: every dependency is pure Rust.
+
+Third-party crates are added only with a written justification in
+[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries
+two in production, `thiserror` for typed errors and `yaml_serde` for YAML, plus `proptest` for
+testing parsers. The YAML library is reached only through a private two-method trait, so no YAML
+type appears in a public signature and a future swap touches one module; see
+[`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
 
 ## Build and test
 
 ```sh
-cargo build --workspace           # build everything
-cargo test --workspace            # run the test suite
-cargo fmt --all -- --check        # formatting must be clean
-cargo clippy --workspace --all-targets -- -D warnings
-cargo doc --workspace --no-deps   # documentation must build without warnings
+cargo build --workspace --locked                       # build everything
+cargo test --workspace --locked                        # run the test suite
+cargo fmt --all --check                                # formatting must be clean
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo audit                                            # no known vulnerabilities
 ```
 
+Parser properties run 1,000 cases by default. To run them hard:
+
+```sh
+PROPTEST_CASES=50000 cargo test -p aicontext-context --test frontmatter
+```
+
+The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks both.
 `cargo run -p aicontext-cli` runs the stub binary. The first real commands arrive with Phase 1.
 
 ---
