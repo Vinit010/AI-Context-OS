@@ -153,8 +153,10 @@ commands never touch the network, and anything that writes supports `--dry-run`.
 
 ## Contributing
 
-Read [`.ai/AI.md`](.ai/AI.md) first; it defines the agent workflow. Then
-[`.ai/RULES.md`](.ai/RULES.md), which states the engineering rules and the reason each one exists.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the practical guide: setup, the checks your change must pass,
+how to add a dependency, and what needs a decision record. Read [`.ai/AI.md`](.ai/AI.md) first; it
+defines the agent workflow. Then [`.ai/RULES.md`](.ai/RULES.md), which states the engineering rules
+and the reason each one exists.
 
 The short version:
 
@@ -163,7 +165,8 @@ The short version:
 2. If a task changes the architecture, write an ADR in `.ai/decisions/` first, with the
    alternatives you rejected.
 3. Keep the workspace building: `fmt`, `clippy -D warnings`, and `test` all pass before review.
-4. Explain the change in the pull request: what changed, why, and what you verified.
+4. Explain the change in the pull request: what changed, why, what you verified, and what you
+   deliberately did not do. The template asks for all four.
 
 ## Documentation
 

@@ -11,5 +11,7 @@ description = "Core domain types, identifiers, and the error model for AI Contex
 [lints]
 workspace = true
 
-# Intentionally empty. This crate is the dependency floor of the workspace (ARCHITECTURE.md 3.2).
+# The dependency floor of the workspace (ARCHITECTURE.md 3.2). One dependency, justified in
+# ARCHITECTURE.md 2.2: errors must be typed and derive `thiserror::Error` (RULES.md 4.2).
 [dependencies]
+thiserror = { workspace = true }

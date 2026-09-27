@@ -11,7 +11,7 @@ updated: 2026-09-27
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-011
+**Current task:** TASK-016
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -117,7 +117,7 @@ acceptance:
 ```yaml
 id: TASK-005
 title: Write README, CONTRIBUTING, and issue templates
-status: IN_PROGRESS
+status: DONE
 priority: MEDIUM
 phase: 1
 depends_on: [TASK-010]
@@ -125,9 +125,13 @@ spec: null
 touches: ["README.md", "CONTRIBUTING.md", ".github/**"]
 acceptance:
   - A new contributor can build, test, and submit a change from the README alone
-progress:
-  - README.md written with TASK-010, including honest status, layout, build and test commands
-  - Still to do: CONTRIBUTING.md and the issue templates
+done:
+  - README.md: honest status, layout, build/test commands, documentation index
+  - CONTRIBUTING.md: setup, the gate, dependency rules, what needs an ADR
+  - Issue templates: bug report, feature request, documentation correction
+  - config.yml routes security findings to private advisories, blank issues disabled
+  - Pull request template carries the RULES.md 14 pre-flight checklist
+  - README and CONTRIBUTING cross-link, so the README alone is a usable entry point
 ```
 
 ---
@@ -165,16 +169,25 @@ done:
 ```yaml
 id: TASK-011
 title: Define the core domain types and error model
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 1
 depends_on: [TASK-010]
 spec: null
-touches: ["crates/aicontext-core/**"]
+touches: ["crates/aicontext-core/**", "Cargo.toml"]
 acceptance:
   - DocumentId, TaskId, DecisionId, BugId, ChangeId, PermissionMode, Severity are defined
   - AicontextError carries a code, message, cause, and remediation hint
   - Crate depends on no internal crate and no async runtime or CLI framework
+done:
+  - TaskId, DecisionId, BugId, ChangeId as distinct newtypes; DocumentId as the union form
+  - DocumentId enforces CONTEXT_SPEC 1 exactly: only SPEC, CTX, WF, AGENT take a slug suffix,
+    so TASK-014-extra and the spec placeholders ARCH-NNN and MEMORY-REG are rejected
+  - ErrorCode transcribes the CTX-001 to CTX-020 catalogue; AicontextError carries all four fields
+  - Severity defaults to Error so an unannotated finding fails closed
+  - PermissionMode defaults to Deny, which is invariant I3
+  - One dependency added: thiserror, already justified in ARCHITECTURE.md 2.2, required by RULES 4.2
+  - 40 tests in the crate, plus the workspace suite, all passing
 ```
 
 ### TASK-012 — Implement aicontext init

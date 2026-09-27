@@ -43,9 +43,13 @@ pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 module_name_repetitions = "allow"
 
-# [workspace.dependencies] is intentionally empty. Every dependency is added by the task that
-# needs it, with a written justification in ARCHITECTURE.md 2.2. Nothing is added speculatively.
+# Dependencies are added by the task that needs one, never speculatively. Each needs a written
+# justification in ARCHITECTURE.md 2.2.
+#
+#   thiserror  - error types must be enums deriving thiserror::Error (RULES.md 4.2). Added by
+#                TASK-011, which defines the error model.
 [workspace.dependencies]
+thiserror = "2"
 
 [profile.release]
 opt-level = 3

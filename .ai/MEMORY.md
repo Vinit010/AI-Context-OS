@@ -163,7 +163,7 @@ impressive it is.
 
 ---
 
-## MEM-009 - The workspace starts with zero third-party dependencies
+## MEM-009 - Dependencies are added one at a time, with the justification already written down
 
 ```yaml
 id: MEM-009
@@ -175,9 +175,15 @@ recorded: 2026-09-27
 supersedes: null
 ```
 
-As of TASK-010 the workspace has **no** third-party Rust dependencies, and `[workspace.dependencies]`
-is empty on purpose. Every dependency is added by the task that needs it, with a written
-justification in `ARCHITECTURE.md` 2.2 (RULES.md 6).
+The workspace does not accumulate dependencies. Each one is added by the task that needs it, and
+`ARCHITECTURE.md` 2.2 carries the written justification in advance. "It is popular" is not a
+justification, and neither is a future need (RULES.md 6).
+
+State as of TASK-011: **one** third-party dependency, `thiserror`, added by the task that defines
+the error model, because `RULES.md` 4.2 requires error types to be enums deriving
+`thiserror::Error` and hand-rolling `Display` and `source` for every variant would be strictly
+worse code for a strictly worse reason. The other Phase 1-2 candidates stay unadded until their
+task needs them.
 
 Consequences already in place:
 

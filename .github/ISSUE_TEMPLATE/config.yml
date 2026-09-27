@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security finding
+    url: https://github.com/Vinit010/AI-Context-OS/security/advisories/new
+    about: >
+      Report a vulnerability privately. Do not open a public issue for a security finding, and do
+      not include a working exploit in a public issue.
+  - name: Question or discussion
+    url: https://github.com/Vinit010/AI-Context-OS/discussions
+    about: >
+      Ask a usage question. If the answer belongs in the documentation, propose the change as an
+      issue instead.
