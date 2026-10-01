@@ -1,10 +1,10 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
-//! Only `init` is declared to `clap`. The rest of the tree is listed in [`PENDING`] with the task
-//! that will provide it, so `--help` shows what exists and what does not, and an unimplemented
-//! command exits 2 naming its task instead of a usage error about an unknown word. Declaring the
-//! tree as stub subcommands would put a second copy of every command name in this file, and the two
-//! copies would drift.
+//! Only `init` and `doctor` are declared to `clap`. The rest of the tree is listed in [`PENDING`]
+//! with the task that will provide it, so `--help` shows what exists and what does not, and an
+//! unimplemented command exits 2 naming its task instead of a usage error about an unknown word.
+//! Declaring the tree as stub subcommands would put a second copy of every command name in this
+//! file, and the two copies would drift.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -323,7 +323,7 @@ pub(crate) fn pending(name: &str) -> Option<&'static PendingCommand> {
 
 /// The first argument that is not a global flag or a flag's value, which is the command word.
 ///
-/// This is what makes `aicontext doctor --json` report "not implemented, TASK-014" rather than a
+/// This is what makes `aicontext diff --json` report "not implemented, TASK-027" rather than a
 /// complaint about the flag: the command is read before the flags are validated.
 pub(crate) fn first_command_word<I: IntoIterator<Item = OsString>>(args: I) -> Option<String> {
     let mut expecting_value = false;
@@ -537,39 +537,33 @@ mod tests {
 
     #[test]
     fn only_takes_a_prefix_so_a_family_of_checks_can_be_asked_for_at_once() {
-        let mut doctor = DoctorArgs::default();
-        doctor.only = Some("CTX-01".to_string());
+        let doctor = |only: &str| DoctorArgs {
+            only: Some(only.to_string()),
+            ..DoctorArgs::default()
+        };
         assert!(
-            doctor.selects("CTX-012"),
+            doctor("CTX-01").selects("CTX-012"),
             "a prefix selects a family, not one code"
         );
-        assert!(doctor.selects("CTX-018"));
+        assert!(doctor("CTX-01").selects("CTX-018"));
         assert!(
-            !doctor.selects("CTX-007"),
+            !doctor("CTX-01").selects("CTX-007"),
             "CTX-007 does not start with CTX-01"
         );
-        assert!(!doctor.selects("CTX-001"));
-        assert!(!doctor.selects("PRD-001"));
-
-        doctor.only = Some("ctx-01".to_string());
+        assert!(!doctor("CTX-01").selects("CTX-001"));
+        assert!(!doctor("CTX-01").selects("PRD-001"));
         assert!(
-            doctor.selects("CTX-012"),
+            doctor("ctx-01").selects("CTX-012"),
             "the catalogue spells codes uppercase; typing them otherwise is the same request"
         );
-
-        doctor.only = Some("CTX-0".to_string());
-        assert!(doctor.selects("CTX-001"));
-        assert!(doctor.selects("CTX-002"));
-        assert!(doctor.selects("CTX-007"));
-        assert!(doctor.selects("CTX-012"));
-
-        doctor.only = Some("CTX-007".to_string());
-        assert!(doctor.selects("CTX-007"));
-        assert!(!doctor.selects("CTX-012"));
-
-        doctor.only = Some("  ".to_string());
+        assert!(doctor("CTX-0").selects("CTX-001"));
+        assert!(doctor("CTX-0").selects("CTX-002"));
+        assert!(doctor("CTX-0").selects("CTX-007"));
+        assert!(doctor("CTX-0").selects("CTX-012"));
+        assert!(doctor("CTX-007").selects("CTX-007"));
+        assert!(!doctor("CTX-007").selects("CTX-012"));
         assert!(
-            !doctor.selects("CTX-012"),
+            !doctor("  ").selects("CTX-012"),
             "a blank filter selects nothing, rather than everything"
         );
     }

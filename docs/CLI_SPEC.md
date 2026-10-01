@@ -104,7 +104,9 @@ Schemas are materialised into `.ai/schemas/` by `TASK-015`: all 20 files, copied
 source at compile time, so a scaffolded project receives exactly the bytes CI validated against the
 Draft 2020-12 meta-schema. They are ordinary documents, so all the guarantees above apply to them —
 in particular an edited schema is preserved and reported as CTX-017. `doctor` compares the copy
-against the source (CTX-012) in `TASK-014`.
+against the source (CTX-012): a missing or edited copy is a warning, and a project with no copies at
+all is one finding against the directory rather than one per schema, because that is one problem
+with one fix.
 
 ### `aicontext status`
 
@@ -119,6 +121,13 @@ Degrades gracefully outside a Git repository.
 | `--explain <code>` | Explain a check and how to fix it |
 | `--rebuild-index` | Discard the cache and re-index |
 | `--only <code-prefix>` | Run a subset, e.g. `--only CTX-01` |
+
+`--only` and `--explain` match a code prefix without regard to case, and an empty value is a usage
+error rather than a silent run of everything. `--strict` raises warnings to errors and informational
+findings to warnings, so the exit code is unchanged by findings that are not errors to begin with.
+`--rebuild-index` is accepted and reports that there is no cache yet, because the index arrives with
+TASK-031; it is not silently ignored. A document that produced a finding is never also listed as
+checked, including when the finding comes from a check that reads the document as part of the tree.
 
 ### `aicontext health`
 
@@ -202,7 +211,7 @@ wherever honest.
   "data": { "…": "command specific" },
   "findings": [
     { "code": "CTX-007", "severity": "error", "path": ".ai/TASKS.md",
-      "message": "TASK-014 references SPEC-auth-missing, which does not exist",
+      "message": "TASK-042 references SPEC-auth-missing, which does not exist",
       "remediation": "create .ai/specs/auth-missing.md or fix the reference" }
   ],
   "warnings": [],
@@ -225,11 +234,10 @@ $ aicontext doctor
 
 AI Context OS  ·  my-project  ·  branch feature/context-engine
 
-  ✗ error    TASKS.md: TASK-014 references SPEC-auth-missing, which does not exist
+  ✗ error    TASKS.md: TASK-042 references SPEC-auth-missing, which does not exist
   ✗ error    ARCHITECTURE.md names MongoDB; project config indicates PostgreSQL
   ⚠ warn     ADR-004 is deprecated with no successor
   ✓ ok       RULES.md valid
-  ✓ ok       TASKS.md valid  (24 tasks, 3 in progress)
 
   2 errors, 1 warning  ·  exit 3
   next: aicontext doctor --explain CTX-007

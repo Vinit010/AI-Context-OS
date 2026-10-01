@@ -1,18 +1,18 @@
 //! The `doctor` checks: what is wrong with this `.ai/` tree, and what to do about it.
 //!
 //! A validation command is only useful if it is the *only* place a rule lives. Every finding carries
-//! a code from `docs/CONTEXT_SPEC.md` §8, a severity from that same table, and a remediation, so a
+//! a code from `docs/CONTEXT_SPEC.md` Â§8, a severity from that same table, and a remediation, so a
 //! developer never has to read the source to know whether something matters or how to fix it.
 //!
 //! # Scope of v1
 //!
 //! `TASK-014`'s acceptance names six behaviours, and this module implements exactly those:
-//! `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`, and `CTX-014`. The rest of the §8
+//! `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`, and `CTX-014`. The rest of the Â§8
 //! catalogue is deliberately absent rather than stubbed, because a check that cannot fail is worse
-//! than a missing one — it advertises a guarantee the code does not make. Each omission is listed in
+//! than a missing one â€” it advertises a guarantee the code does not make. Each omission is listed in
 //! [`UNIMPLEMENTED`] so `doctor --explain` says so rather than inventing a rationale.
 //!
-//! One check outside that list is here anyway: `CTX-018`, and only its reporting half. §2 rule 12
+//! One check outside that list is here anyway: `CTX-018`, and only its reporting half. Â§2 rule 12
 //! requires the excess past the 1 MiB maximum to be *reported* rather than silently truncated, so a
 //! document that size cannot be left out of the report without breaking the format contract. Nothing
 //! is configurable about the cap, because nothing configures it yet.
@@ -45,15 +45,15 @@ const MAX_DOCUMENTS: usize = 512;
 /// The deepest directory nesting walked below `.ai/`.
 const MAX_DEPTH: usize = 16;
 
-/// The entity ID prefixes an inline entity may declare (`docs/CONTEXT_SPEC.md` §2.1).
+/// The entity ID prefixes an inline entity may declare (`docs/CONTEXT_SPEC.md` Â§2.1).
 ///
 /// A heading that does not start with one of these opens a prose section rather than an entity, which
 /// is what lets a register document itself without every heading becoming a task.
 const ENTITY_PREFIXES: &[&str] = &["TASK-", "MEM-", "ADR-", "SPEC-", "BUG-", "CHG-"];
 
-/// The locations `docs/CONTEXT_SPEC.md` §1 gives a kind, a schema, and an ID convention to.
+/// The locations `docs/CONTEXT_SPEC.md` Â§1 gives a kind, a schema, and an ID convention to.
 ///
-/// A document at one of these must carry front matter, because §2 rule 1 requires it everywhere except
+/// A document at one of these must carry front matter, because Â§2 rule 1 requires it everywhere except
 /// `AI.md` and free-form notes, and rule 2 then requires its `id` to match the convention of exactly
 /// these locations. A Markdown file *outside* them has no schema to validate against and no ID
 /// convention to match, which is what makes it a free-form note and exempt: requiring an `id` there
@@ -78,8 +78,8 @@ const CATALOGUE_LOCATIONS: &[(&str, &str)] = &[
 
 /// The keys whose values must resolve to something that exists (`CTX-007`).
 ///
-/// `spec` is included because §2 rule 10 requires both its forms resolved: a `SPEC-*` entity and a
-/// path under `docs/`. `epic` is deliberately absent — a free-text grouping label is not obliged to
+/// `spec` is included because Â§2 rule 10 requires both its forms resolved: a `SPEC-*` entity and a
+/// path under `docs/`. `epic` is deliberately absent â€” a free-text grouping label is not obliged to
 /// be an existing ID, and checking it would report every project that has not written
 /// `TASK-900-epic.md`.
 const REFERENCE_KEYS: &[&str] = &[
@@ -110,30 +110,60 @@ const LANGUAGES: &[&str] = &[
     "cpp",
 ];
 
-/// The §8 checks `TASK-014` does not implement, and why each is absent.
+/// The Â§8 checks `TASK-014` does not implement, and why each is absent.
 pub const UNIMPLEMENTED: &[(&str, &str)] = &[
     (
         "CTX-003",
         "schema validation needs the runtime Validator, deferred here from TASK-015",
     ),
-    ("CTX-004", "ID-versus-location checking lands with the task register commands"),
+    (
+        "CTX-004",
+        "ID-versus-location checking lands with the task register commands",
+    ),
     ("CTX-005", "type-versus-schema checking needs CTX-003 first"),
-    ("CTX-006", "unknown-key warnings come with schema comparison in CTX-003"),
-    ("CTX-008", "deprecated-reference warnings follow CTX-007's resolution pass"),
-    ("CTX-009", "waiver checking arrives with the task register commands"),
-    ("CTX-010", "cycle detection needs the whole dependency graph, not one pass"),
-    ("CTX-011", "status-transition history needs git history, owned by TASK-017"),
-    ("CTX-015", "memory-versus-file freshness needs file modification times"),
+    (
+        "CTX-006",
+        "unknown-key warnings come with schema comparison in CTX-003",
+    ),
+    (
+        "CTX-008",
+        "deprecated-reference warnings follow CTX-007's resolution pass",
+    ),
+    (
+        "CTX-009",
+        "waiver checking arrives with the task register commands",
+    ),
+    (
+        "CTX-010",
+        "cycle detection needs the whole dependency graph, not one pass",
+    ),
+    (
+        "CTX-011",
+        "status-transition history needs git history, owned by TASK-017",
+    ),
+    (
+        "CTX-015",
+        "memory-versus-file freshness needs file modification times",
+    ),
     ("CTX-016", "the credential scan is TASK-019"),
-    ("CTX-017", "hand-edit detection needs the index, owned by TASK-031"),
-    ("CTX-019", "index staleness needs the index, owned by TASK-031"),
-    ("CTX-020", "the inline-to-split suggestion needs entity counts, owned by TASK-031"),
+    (
+        "CTX-017",
+        "hand-edit detection needs the index, owned by TASK-031",
+    ),
+    (
+        "CTX-019",
+        "index staleness needs the index, owned by TASK-031",
+    ),
+    (
+        "CTX-020",
+        "the inline-to-split suggestion needs entity counts, owned by TASK-031",
+    ),
 ];
 
-/// One thing wrong with the tree, in the shape `docs/CLI_SPEC.md` §6 publishes.
+/// One thing wrong with the tree, in the shape `docs/CLI_SPEC.md` Â§6 publishes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Finding {
-    /// Stable code from the §8 catalogue, safe to branch on.
+    /// Stable code from the Â§8 catalogue, safe to branch on.
     pub code: String,
     /// How serious it is, from the same table.
     pub severity: Severity,
@@ -243,7 +273,7 @@ struct Entity {
     heading_id: String,
     /// The fenced block, wrapped and parsed as a document so one YAML dialect serves both.
     block: Option<Document>,
-    /// Whether a fenced block was found at all, which §2.1 requires rather than guesses past.
+    /// Whether a fenced block was found at all, which Â§2.1 requires rather than guesses past.
     had_block: bool,
 }
 
@@ -278,6 +308,18 @@ pub fn run(inputs: &Inputs<'_>) -> Report {
     check_architecture(inputs, &documents, &mut findings);
     check_decisions(&documents, &mut findings);
 
+    // The checks that read a document as part of a whole tree report against that document's path:
+    // a dangling reference in `RULES.md`, a declared stack that contradicts `ARCHITECTURE.md`, a
+    // deprecated ADR. Those run after `check_documents` has already listed their file as clean, and
+    // "ok" beside a finding for the same file is worse than saying nothing. The tree-wide checks
+    // cannot suppress the row as they run, because they see other documents, so the row is dropped
+    // once every finding is known.
+    let blamed: BTreeSet<&str> = findings
+        .iter()
+        .map(|finding| finding.path.as_str())
+        .collect();
+    checked.retain(|row| !blamed.contains(row.path.as_str()));
+
     Report { findings, checked }
 }
 
@@ -300,13 +342,9 @@ fn check_entry_point(root: &Path, findings: &mut Vec<Finding>) {
 /// parseable block cannot be indexed, referenced, or validated.
 ///
 /// `CTX-018` gets a branch of its own rather than a finding under this code: a file past the size cap
-/// is not malformed, and §2 rule 12 asks for the excess to be *reported*, which is a different
+/// is not malformed, and Â§2 rule 12 asks for the excess to be *reported*, which is a different
 /// statement from the one `CTX-002` makes.
-fn check_documents(
-    documents: &[Loaded],
-    findings: &mut Vec<Finding>,
-    checked: &mut Vec<Checked>,
-) {
+fn check_documents(documents: &[Loaded], findings: &mut Vec<Finding>, checked: &mut Vec<Checked>) {
     for document in documents {
         if document.oversize {
             findings.push(Finding::new(
@@ -387,7 +425,7 @@ fn check_documents(
     }
 }
 
-/// `CTX-002` for inline entities: §2.1 makes a missing or duplicated block an error, not a guess, so
+/// `CTX-002` for inline entities: Â§2.1 makes a missing or duplicated block an error, not a guess, so
 /// a heading that names an entity but carries no readable block is reported against the document.
 fn check_entity_blocks(document: &Loaded, findings: &mut Vec<Finding>) {
     for entity in &document.entities {
@@ -463,9 +501,7 @@ fn check_one(
                     Severity::Error,
                     path,
                     format!("`{key}` references {candidate}, which does not exist"),
-                    format!(
-                        "create the document for {candidate}, or remove it from `{key}`"
-                    ),
+                    format!("create the document for {candidate}, or remove it from `{key}`"),
                 ));
             }
             if *key == "spec" && looks_like_a_path(&candidate) && !root.join(&candidate).is_file() {
@@ -486,6 +522,23 @@ fn check_one(
 fn check_schemas(inputs: &Inputs<'_>, findings: &mut Vec<Finding>) {
     let dir = inputs.root.join(SCHEMA_DIR);
     let expected: BTreeSet<&str> = inputs.schema_source.iter().map(|(name, _)| *name).collect();
+
+    // One finding for the whole directory rather than one per schema. A project with no copies at all
+    // has one problem and one fix, and a report that lists the same line twenty times buries whatever
+    // else is wrong in a list the reader has to scroll past.
+    if !dir.is_dir() {
+        findings.push(Finding::new(
+            ErrorCode::CTX_012,
+            Severity::Warning,
+            SCHEMA_DIR,
+            format!(
+                "no schema copies at all, so none of the {} documents can be validated",
+                expected.len()
+            ),
+            "run `aicontext init` to copy them",
+        ));
+        return;
+    }
 
     for (name, text) in inputs.schema_source {
         let path = format!("{SCHEMA_DIR}/{name}");
@@ -530,7 +583,7 @@ fn check_schemas(inputs: &Inputs<'_>, findings: &mut Vec<Finding>) {
 /// `CTX-013`: a declared stack that contradicts what is actually in the repository.
 ///
 /// The comparison is between the declared stack and the observed languages, and only when discovery
-/// produced something. A store contradiction of the kind `docs/CLI_SPEC.md` §7 illustrates needs store
+/// produced something. A store contradiction of the kind `docs/CLI_SPEC.md` Â§7 illustrates needs store
 /// detection, which is `TASK-030`; until then this check compares what it can see and says nothing
 /// about what it cannot.
 fn check_architecture(inputs: &Inputs<'_>, documents: &[Loaded], findings: &mut Vec<Finding>) {
@@ -610,7 +663,7 @@ fn check_decisions(documents: &[Loaded], findings: &mut Vec<Finding>) {
 
 /// Every scalar string a value holds: one for a scalar, each element for a list, nothing for a map.
 ///
-/// An explicit `null` yields nothing, which is the point: §2 rule 9 requires `doctor` to treat
+/// An explicit `null` yields nothing, which is the point: Â§2 rule 9 requires `doctor` to treat
 /// `spec: null` as "no specification" rather than as a reference that fails to resolve.
 fn scalar_values(value: &Value) -> Vec<String> {
     match value {
@@ -654,7 +707,7 @@ fn is_json(name: &str) -> bool {
 
 /// Whether a declared stack entry is a language, and so comparable with what discovery observed.
 ///
-/// An entry that is not a language — a store, a tool, a framework — is left alone, because
+/// An entry that is not a language â€” a store, a tool, a framework â€” is left alone, because
 /// contradicting an unobserved store would report the absence of a check as a finding.
 fn is_language(name: &str) -> bool {
     LANGUAGES.contains(&fold(name).as_str())
@@ -719,7 +772,7 @@ fn read_document(relative: &str, path: &Path) -> Loaded {
     };
     if metadata.len() > DOCUMENT_MAX_BYTES as u64 {
         // Bounded before the read, so a file far past the cap cannot be loaded in order to be
-        // complained about. §2 rule 12 asks for the excess to be reported rather than silently
+        // complained about. Â§2 rule 12 asks for the excess to be reported rather than silently
         // truncated, and a `CTX-018` warning says exactly that.
         return Loaded {
             path: relative.to_string(),
@@ -740,27 +793,36 @@ fn read_document(relative: &str, path: &Path) -> Loaded {
         Err(error) => (None, Some(error.to_string())),
     };
 
+    // The document's own identifier, which is not an inline entity: a standalone decision is its own
+    // entity, and its heading repeats the id rather than opening a section that must carry a block.
+    let own_id = parsed
+        .as_ref()
+        .and_then(|document| document.front_matter())
+        .and_then(|front| front.id())
+        .map(DocumentId::as_str)
+        .map(str::to_string);
+
     Loaded {
         path: relative.to_string(),
         parsed,
         failure,
         oversize: false,
-        entities: inline_entities(&text),
+        entities: inline_entities(&text, own_id.as_deref()),
         requires_front_matter,
     }
 }
 
-/// Whether a document at this location may omit front matter (`docs/CONTEXT_SPEC.md` §2 rule 1).
+/// Whether a document at this location may omit front matter (`docs/CONTEXT_SPEC.md` Â§2 rule 1).
 ///
 /// Two locations may: `AI.md`, which is the fixed entry point and has no ID, and a Markdown file the
-/// §1 catalogue does not describe, which is a free-form note. The second is not a convenience — §2
+/// Â§1 catalogue does not describe, which is a free-form note. The second is not a convenience â€” Â§2
 /// rule 2 then requires the `id` to match the location convention, and a location with no convention
 /// could never satisfy that, so demanding an `id` there would make the contract unsatisfiable.
 fn requires_front_matter(relative: &str) -> bool {
     relative != ENTRY_POINT && is_catalogue_location(relative)
 }
 
-/// Whether §1 gives this path a kind, a schema, and an ID convention.
+/// Whether Â§1 gives this path a kind, a schema, and an ID convention.
 fn is_catalogue_location(relative: &str) -> bool {
     CATALOGUE_LOCATIONS
         .iter()
@@ -784,8 +846,13 @@ fn unreadable(relative: &str, reason: &str) -> Loaded {
 /// The heading level is not consulted. `TASKS.md` documents itself and so puts entity headings at a
 /// different level from `MEMORY.md`, and a parser that insisted on one level would silently skip
 /// every task in the register while reporting nothing. What identifies an entity is that its heading
-/// text begins with an entity ID (`docs/CONTEXT_SPEC.md` §2.1).
-fn inline_entities(text: &str) -> Vec<Entity> {
+/// text begins with an entity ID (`docs/CONTEXT_SPEC.md` Â§2.1).
+///
+/// `own_id` is the document's own identifier. A heading that repeats it is the document's title, not
+/// an entity section: a standalone decision is `ADR-001` in its front matter, and its `# ADR-001 â€¦`
+/// heading introduces prose, so reporting it as an entity with no block would fail every decision
+/// this repository owns.
+fn inline_entities(text: &str, own_id: Option<&str>) -> Vec<Entity> {
     let lines: Vec<&str> = text.lines().collect();
     let fenced = fenced_lines(&lines);
     let mut entities = Vec::new();
@@ -793,7 +860,7 @@ fn inline_entities(text: &str) -> Vec<Entity> {
 
     while index < lines.len() {
         // A `#` inside a fenced block is a YAML comment or shell code, not a heading. Treating it as
-        // one would end the section early and hide the block that follows it — which is exactly what
+        // one would end the section early and hide the block that follows it â€” which is exactly what
         // a `notes:` list in a task block looks like.
         if fenced[index] {
             index += 1;
@@ -804,18 +871,23 @@ fn inline_entities(text: &str) -> Vec<Entity> {
             continue;
         };
         let end = section_end(&lines, index, level);
-        let block = first_yaml_block(&lines[index + 1..end]);
-        entities.push(block_entity(heading_id, block));
+        match own_id {
+            Some(own) if own == heading_id => {}
+            _ => {
+                let block = first_yaml_block(&lines[index + 1..end]);
+                entities.push(block_entity(heading_id, block));
+            }
+        }
         index = end.max(index + 1);
     }
 
     entities
 }
 
-/// Which lines sit inside a fenced code block, as CommonMark counts them: a fence opens until the
+/// Which lines sit inside a fenced code block, as `CommonMark` counts them: a fence opens until the
 /// next fence of the same kind, and nothing inside is structure.
 ///
-/// Only backtick fences, because that is what §2.1's `yaml` blocks are written with. A document that
+/// Only backtick fences, because that is what Â§2.1's `yaml` blocks are written with. A document that
 /// fences with `~~~` still has its entities found; its fences are simply not tracked, which is the
 /// conservative direction to be wrong in.
 fn fenced_lines(lines: &[&str]) -> Vec<bool> {
@@ -850,8 +922,8 @@ fn entity_heading(line: &str) -> Option<(usize, String)> {
 
 /// The line at which a heading's section ends: the next heading at the same or a higher level.
 ///
-/// Headings inside a fenced code block do not count. CommonMark says a fence wins over a heading, and
-/// a `yaml` block carrying `# comments` would otherwise close its own section one line early.
+/// Headings inside a fenced code block do not count. `CommonMark` says a fence wins over a heading,
+/// and a ``yaml`` block carrying ``#`` comments would otherwise close its own section one line early.
 fn section_end(lines: &[&str], start: usize, level: usize) -> usize {
     let fenced = fenced_lines(lines);
     let mut index = start + 1;
@@ -875,7 +947,8 @@ fn heading_level(line: &str) -> Option<(usize, &str)> {
         return None;
     }
     let rest = &line[hashes..];
-    rest.starts_with([' ', '\t']).then_some((hashes, rest.trim_start()))
+    rest.starts_with([' ', '\t'])
+        .then_some((hashes, rest.trim_start()))
 }
 
 /// The first fenced `yaml` block within a section, as its inner text.
@@ -966,6 +1039,7 @@ impl Explanation {
 ///
 /// Case-insensitive, because a code is uppercase in `docs/CONTEXT_SPEC.md` and a person typing
 /// `--explain ctx-007` has not made a different request than the one that is spelled out.
+#[must_use]
 pub fn explain(code: &str) -> Explanation {
     let code = code.trim().to_uppercase();
     match code.as_str() {
@@ -1003,7 +1077,10 @@ pub fn explain(code: &str) -> Explanation {
              answer to a file that is too large to load. Split it, or raise the cap; the checks below \
              it did not run.",
         ),
-        other => match UNIMPLEMENTED.iter().find(|(candidate, _)| *candidate == other) {
+        other => match UNIMPLEMENTED
+            .iter()
+            .find(|(candidate, _)| *candidate == other)
+        {
             Some((_, reason)) => Explanation::Deferred(reason),
             None => Explanation::Unknown,
         },
@@ -1048,10 +1125,14 @@ mod tests {
         write(root, ".ai/AI.md", "# AI.md\n\nEntry point.\n");
         register(
             root,
-            "### TASK-001 — First task\n\n```yaml\nid: TASK-001\nstatus: TODO\n\
+            "### TASK-001 â€” First task\n\n```yaml\nid: TASK-001\nstatus: TODO\n\
              depends_on: []\nspec: docs/CONTEXT_SPEC.md\n```\n\nBody.\n",
         );
         write(root, "docs/CONTEXT_SPEC.md", "# CONTEXT_SPEC\n");
+        // A scaffolded project always has this directory, so a healthy fixture does too: otherwise
+        // every test that does not care about schemas would inherit a CTX-012 finding about their
+        // absence rather than the thing it is testing.
+        fs::create_dir_all(root.join(".ai/schemas")).expect("schema dir");
     }
 
     fn inputs<'a>(
@@ -1108,7 +1189,11 @@ mod tests {
         // the test, so the call sites read as the project root they are.
         let root = root.path();
         healthy(root);
-        write(root, ".ai/RULES.md", "---\nid: RULES-001\n  bad: [unclosed\n---\n");
+        write(
+            root,
+            ".ai/RULES.md",
+            "---\nid: RULES-001\n  bad: [unclosed\n---\n",
+        );
         let report = run(&inputs(root, &[], &[]));
         let found = finding(&report, "CTX-002");
         assert_eq!(found.path, ".ai/RULES.md");
@@ -1141,7 +1226,11 @@ mod tests {
         // the test, so the call sites read as the project root they are.
         let root = root.path();
         healthy(root);
-        write(root, ".ai/RULES.md", "---\nid: RULES-001\ntype: rules\n---\n");
+        write(
+            root,
+            ".ai/RULES.md",
+            "---\nid: RULES-001\ntype: rules\n---\n",
+        );
         let report = run(&inputs(root, &[], &[]));
         let found = finding(&report, "CTX-002");
         assert!(found.message.contains("title"), "{found:?}");
@@ -1154,7 +1243,7 @@ mod tests {
         // the test, so the call sites read as the project root they are.
         let root = root.path();
         healthy(root);
-        register(root, "### TASK-001 — One\n\nJust prose.\n");
+        register(root, "### TASK-001 â€” One\n\nJust prose.\n");
         let report = run(&inputs(root, &[], &[]));
         let found = finding(&report, "CTX-002");
         assert!(found.message.contains("TASK-001"), "{found:?}");
@@ -1170,12 +1259,47 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — First task\n\n```yaml\nid: TASK-001\ndepends_on: [TASK-099]\n```\n",
+            "### TASK-001 â€” First task\n\n```yaml\nid: TASK-001\ndepends_on: [TASK-099]\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         let found = finding(&report, "CTX-007");
         assert!(found.message.contains("TASK-099"), "{found:?}");
         assert_eq!(found.severity, Severity::Error);
+    }
+
+    #[test]
+    fn a_document_named_by_a_tree_wide_finding_is_not_also_listed_as_checked() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        // `RULES.md` parses, so the per-document pass is ready to call it clean; the reference
+        // resolution pass then fails it. The register is reported, so the contradiction is visible
+        // here, which is the point.
+        write(
+            root,
+            ".ai/RULES.md",
+            "---\nid: RULES-001\ntype: rules\nstatus: ACTIVE\nspec: docs/NOPE.md\n---\n\n# RULES\n",
+        );
+        let report = run(&inputs(root, &[], &[]));
+        assert!(
+            finding(&report, "CTX-007").message.contains("NOPE"),
+            "{:?}",
+            report.findings
+        );
+        assert!(
+            !report.checked.iter().any(|row| row.path == ".ai/RULES.md"),
+            "and a file cannot be ok and failed in the same report: {:?}",
+            report.checked
+        );
+        // The documents the failing check had nothing to say about are still listed, because
+        // suppressing the whole report would hide that the rest of the tree was read.
+        assert!(
+            report.checked.iter().any(|row| row.path == ".ai/AI.md"),
+            "{:?}",
+            report.checked
+        );
     }
 
     #[test]
@@ -1187,7 +1311,7 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — First\n\n```yaml\nid: TASK-001\nspec: SPEC-auth-missing\n```\n",
+            "### TASK-001 â€” First\n\n```yaml\nid: TASK-001\nspec: SPEC-auth-missing\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         assert!(
@@ -1208,7 +1332,7 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — First\n\n```yaml\nid: TASK-001\nspec: docs/NOPE.md\n```\n",
+            "### TASK-001 â€” First\n\n```yaml\nid: TASK-001\nspec: docs/NOPE.md\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         assert!(
@@ -1227,7 +1351,7 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — First\n\n```yaml\nid: TASK-001\nspec: null\n```\n",
+            "### TASK-001 â€” First\n\n```yaml\nid: TASK-001\nspec: null\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         assert!(
@@ -1246,8 +1370,8 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — First\n\n```yaml\nid: TASK-001\ndepends_on: []\n```\n\n\
-             ### TASK-002 — Second\n\n```yaml\nid: TASK-002\ndepends_on: [TASK-001]\n```\n",
+            "### TASK-001 â€” First\n\n```yaml\nid: TASK-001\ndepends_on: []\n```\n\n\
+             ### TASK-002 â€” Second\n\n```yaml\nid: TASK-002\ndepends_on: [TASK-001]\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         assert!(
@@ -1278,12 +1402,38 @@ mod tests {
         // the test, so the call sites read as the project root they are.
         let root = root.path();
         healthy(root);
-        let report = run(&inputs(root, &[], &[("task.schema.json", "{}")]));
-        assert!(
-            finding(&report, "CTX-012").message.contains("missing"),
-            "{:?}",
-            report.findings
-        );
+        // The directory exists and holds one of the two schemas, so the other is missing on its own
+        // rather than as part of a directory that was never written.
+        write(root, ".ai/schemas/memory.schema.json", "{}");
+        let report = run(&inputs(
+            root,
+            &[],
+            &[("task.schema.json", "{}"), ("memory.schema.json", "{}")],
+        ));
+        let found = finding(&report, "CTX-012");
+        assert_eq!(found.path, ".ai/schemas/task.schema.json");
+        assert!(found.message.contains("missing"), "{:?}", report.findings);
+    }
+
+    #[test]
+    fn a_directory_with_no_schema_copies_at_all_is_one_finding() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        // The fixture is healthy, so the directory is there; this is the project that never ran
+        // `init`, so it goes.
+        fs::remove_dir_all(root.join(".ai/schemas")).expect("remove schema dir");
+        let report = run(&inputs(
+            root,
+            &[],
+            &[("task.schema.json", "{}"), ("memory.schema.json", "{}")],
+        ));
+        // One problem with one fix, not one finding per schema: the repository that skips `init`
+        // would otherwise open its report with twenty identical lines.
+        assert_eq!(finding(&report, "CTX-012").path, ".ai/schemas");
+        assert_eq!(report.findings.len(), 1, "{:?}", report.findings);
     }
 
     #[test]
@@ -1432,7 +1582,11 @@ mod tests {
     #[test]
     fn a_heading_at_any_level_opens_an_entity_section() {
         // The two shapes this repository actually uses: TASKS.md at level 3, MEMORY.md at level 2.
-        for line in ["## MEM-001 — One", "### TASK-001 — One", "#### ADR-001 — One"] {
+        for line in [
+            "## MEM-001 â€” One",
+            "### TASK-001 â€” One",
+            "#### ADR-001 â€” One",
+        ] {
             let (level, _) = entity_heading(line).unwrap_or_else(|| panic!("{line}"));
             assert!(level >= 2, "{line}");
         }
@@ -1445,7 +1599,7 @@ mod tests {
     #[test]
     fn an_entity_id_is_read_up_to_the_first_whitespace() {
         for heading in [
-            "### TASK-014 — Implement doctor",
+            "### TASK-014 â€” Implement doctor",
             "### TASK-014 - Implement doctor",
             "### TASK-014\tImplement doctor",
             "## MEM-001 / A lesson",
@@ -1469,8 +1623,11 @@ mod tests {
     #[test]
     fn every_entity_prefix_is_recognised() {
         for prefix in ENTITY_PREFIXES {
-            let line = format!("## {prefix}1 — Title");
-            assert!(entity_heading(&line).is_some(), "{prefix} is not recognised");
+            let line = format!("## {prefix}1 â€” Title");
+            assert!(
+                entity_heading(&line).is_some(),
+                "{prefix} is not recognised"
+            );
         }
     }
 
@@ -1515,14 +1672,37 @@ mod tests {
 
     #[test]
     fn inline_entities_are_read_from_a_register_in_document_order() {
-        let text = "### TASK-001 — One\n\n```yaml\nid: TASK-001\nstatus: TODO\n```\n\n\
-                    ### TASK-002 — Two\n\n```yaml\nid: TASK-002\nstatus: DONE\n```\n";
-        let entities = inline_entities(text);
+        let text = "### TASK-001 â€” One\n\n```yaml\nid: TASK-001\nstatus: TODO\n```\n\n\
+                    ### TASK-002 â€” Two\n\n```yaml\nid: TASK-002\nstatus: DONE\n```\n";
+        let entities = inline_entities(text, None);
         assert_eq!(entities.len(), 2);
         assert_eq!(entities[0].heading_id, "TASK-001");
         assert_eq!(entities[1].heading_id, "TASK-002");
         let status = entities[1].front().and_then(FrontMatter::status);
         assert_eq!(status, Some("DONE"));
+    }
+
+    #[test]
+    fn a_document_heading_that_repeats_its_own_id_is_not_an_inline_entity() {
+        // Found by running `doctor` over this repository: every `.ai/decisions/ADR-NNN-*.md` opens
+        // with an `# ADR-NNN — …` title, so all seven decisions were reported as an entity heading
+        // followed by no block. The document is the entity; its title is not another one.
+        let text = "# ADR-001 — Use Rust\n\nProse, and a second heading for emphasis.\n\n\
+                    ## Decision\n\nUse Rust.\n";
+        assert!(
+            inline_entities(text, Some("ADR-001")).is_empty(),
+            "own title is skipped"
+        );
+        assert_eq!(
+            inline_entities(text, None).len(),
+            1,
+            "but it is one without an own id"
+        );
+        assert_eq!(
+            inline_entities(text, Some("ADR-999"))[0].heading_id,
+            "ADR-001",
+            "a different document does claim this heading"
+        );
     }
 
     #[test]
@@ -1533,7 +1713,7 @@ mod tests {
         // `# comments` is the ordinary case rather than an edge.
         let text = "### TASK-001 - One\n\n```yaml\nid: TASK-001\nstatus: TODO\n\
                     # a comment that begins with a hash\ndone: []\n```\n";
-        let entities = inline_entities(text);
+        let entities = inline_entities(text, None);
         assert_eq!(entities.len(), 1, "one entity, one block");
         assert!(
             entities[0].had_block,
@@ -1548,7 +1728,11 @@ mod tests {
         // would report a phantom entity in every document that explains its own format.
         let text = "## How to read this file\n\n```yaml\nid: TASK-NNN\nstatus: TODO\n```\n\n\
                     ## Phase 1\n";
-        assert_eq!(inline_entities(text).len(), 0, "an example block is prose");
+        assert_eq!(
+            inline_entities(text, None).len(),
+            0,
+            "an example block is prose"
+        );
     }
 
     #[test]
@@ -1560,8 +1744,8 @@ mod tests {
         healthy(root);
         register(
             root,
-            "### TASK-001 — One\n\n```yaml\nid: TASK-001\n```\n\n\
-             ### TASK-002 — Two\n\n```yaml\nid: TASK-002\n```\n",
+            "### TASK-001 â€” One\n\n```yaml\nid: TASK-001\n```\n\n\
+             ### TASK-002 â€” Two\n\n```yaml\nid: TASK-002\n```\n",
         );
         let report = run(&inputs(root, &[], &[]));
         let row = report
@@ -1602,8 +1786,12 @@ mod tests {
         // the test, so the call sites read as the project root they are.
         let root = root.path();
         healthy(root);
-        // Not a location §1 gives a kind, a schema, and an ID convention to.
-        write(root, ".ai/scratch.md", "# A note to myself\n\nNo block, and none owed.\n");
+        // Not a location Â§1 gives a kind, a schema, and an ID convention to.
+        write(
+            root,
+            ".ai/scratch.md",
+            "# A note to myself\n\nNo block, and none owed.\n",
+        );
         let report = run(&inputs(root, &[], &[]));
         assert!(
             !report.findings.iter().any(|f| f.path == ".ai/scratch.md"),
@@ -1631,13 +1819,7 @@ mod tests {
     #[test]
     fn explain_covers_every_code_a_check_can_emit() {
         for code in [
-            "CTX-001",
-            "CTX-002",
-            "CTX-007",
-            "CTX-012",
-            "CTX-013",
-            "CTX-014",
-            "CTX-018",
+            "CTX-001", "CTX-002", "CTX-007", "CTX-012", "CTX-013", "CTX-014", "CTX-018",
         ] {
             assert!(
                 super::explain(code).is_implemented(),

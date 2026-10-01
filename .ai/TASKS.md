@@ -181,12 +181,11 @@ acceptance:
   - Crate depends on no internal crate and no async runtime or CLI framework
 done:
   - TaskId, DecisionId, BugId, ChangeId as distinct newtypes; DocumentId as the union form
-  - DocumentId enforces CONTEXT_SPEC 1 exactly: only SPEC, CTX, WF, AGENT take a slug suffix,
-    so TASK-014-extra and the spec placeholders ARCH-NNN and MEMORY-REG are rejected
+  - 'DocumentId enforces CONTEXT_SPEC 1 exactly: only SPEC, CTX, WF, AGENT take a slug suffix, so TASK-014-extra and the spec placeholders ARCH-NNN and MEMORY-REG are rejected'
   - ErrorCode transcribes the CTX-001 to CTX-020 catalogue; AicontextError carries all four fields
   - Severity defaults to Error so an unannotated finding fails closed
   - PermissionMode defaults to Deny, which is invariant I3
-  - One dependency added: thiserror, already justified in ARCHITECTURE.md 2.2, required by RULES 4.2
+  - 'One dependency added: thiserror, already justified in ARCHITECTURE.md 2.2, required by RULES 4.2'
   - 40 tests in the crate, plus the workspace suite, all passing
 ```
 
@@ -204,12 +203,11 @@ touches: ["crates/aicontext-cli/**", "templates/**"]
 acceptance:
   - Creates the full .ai skeleton plus .aicontext/ in .gitignore
   - Emits advisory stack-detection results without rewriting project files
-  - Idempotent: re-running does not overwrite an edited document
+  - 'Idempotent: re-running does not overwrite an edited document'
   - --dry-run prints the plan; --json emits the created path list
   - Validates its own output and reports the next commands
 done:
-  - Four templates embedded with include_str!: default, plus rust, node, and python overlays, plus
-    blank, which writes only AI.md and RULES.md
+  - 'Four templates embedded with include_str!: default, plus rust, node, and python overlays, plus blank, which writes only AI.md and RULES.md'
   - The default tree is eight documents, context/stack.md, permissions/permissions.yaml, and nine
     register directories, all rendered with the project name and today's UTC date
   - Writes are confined to .ai/ and one appended .gitignore entry; .aicontext/ is listed, never created
@@ -222,14 +220,10 @@ done:
     warnings, so a preserved edit is both listed and counted
   - The run validates what it wrote and prints the next command; a mismatch exits 3
   - Unimplemented commands exit 2 naming their task instead of failing through clap's usage error
-  - Dependencies added: clap, serde, and serde_json for the command tree and the published envelope,
-    each pre-justified in ARCHITECTURE.md 2.2, plus serde_json and tempfile for the tests
+  - 'Dependencies added: clap, serde, and serde_json for the command tree and the published envelope, each pre-justified in ARCHITECTURE.md 2.2, plus serde_json and tempfile for the tests'
   - 74 unit tests and 23 end-to-end tests in the crate, the workspace suite, fmt, clippy -D warnings,
     cargo audit, and the MSRV check all passing
-  - Carried forward, now closed by TASK-015: docs/CONTEXT_SPEC.md showed ARCH-NNN, TASKS-NNN, and
-    MEMORY-REG as valid document ids, which core rejects. TASK-015 corrected the spec to match the
-    code rather than the reverse, and found the same placeholder as a live id in this file's own
-    MEMORY-001 entry
+  - 'Carried forward, now closed by TASK-015: docs/CONTEXT_SPEC.md showed ARCH-NNN, TASKS-NNN, and MEMORY-REG as valid document ids, which core rejects. TASK-015 corrected the spec to match the code rather than the reverse, and found the same placeholder as a live id in this file''s own MEMORY-001 entry'
 ```
 
 ### TASK-013 — Implement aicontext status
@@ -285,9 +279,7 @@ acceptance:
   - init copies them to .ai/schemas and doctor verifies the copies match the source (CTX-012)
 waived: true
 done:
-  - schemas/ holds 20 self-contained Draft 2020-12 schemas: one per document kind and fixed-path
-    config in CONTEXT_SPEC 1, plus action-proposal and project-profile. No schema refers to
-    another file, because no file-fetching resolver is enabled in this project
+  - 'schemas/ holds 20 self-contained Draft 2020-12 schemas: one per document kind and fixed-path config in CONTEXT_SPEC 1, plus action-proposal and project-profile. No schema refers to another file, because no file-fetching resolver is enabled in this project'
   - crates/aicontext-cli/tests/schemas.rs asserts the exact file set, the declared dialect, and
     every schema against the 2020-12 meta-schema, then checks that no $ref leaves its own file and
     that every $id is unique and matches its file name. The meta-schema check was confirmed to
@@ -298,14 +290,11 @@ done:
   - init embeds the schema set with include_str! and copies all 20 into .ai/schemas/. A scaffolded
     project receives exactly the bytes CI validated, and a unit test compares the embedded text
     against schemas/ so the two cannot drift
-  - Verified by hand: a fresh init writes 31 documents including the 20 schemas, all byte-identical
-    to the source; a second run reports 39 unchanged and writes nothing; an edited schema is
-    preserved and reported as CTX-017 like any other document
+  - 'Verified by hand: a fresh init writes 31 documents including the 20 schemas, all byte-identical to the source; a second run reports 39 unchanged and writes nothing; an edited schema is preserved and reported as CTX-017 like any other document'
   - Corrected docs/CONTEXT_SPEC.md, which showed ARCH-NNN, TASKS-NNN and MEMORY-REG as valid
     document ids that core rejects, and reclassified five memory entries that used a `decision`
     category the enum does not define
-  - R-2 is answered by splitting the claim: the dev-dependency costs build time and no binary
-    weight, and the runtime Validator decision is deferred to TASK-014 where it is first needed
+  - 'R-2 is answered by splitting the claim: the dev-dependency costs build time and no binary weight, and the runtime Validator decision is deferred to TASK-014 where it is first needed'
 ```
 
 **Why the third acceptance criterion is waived.** It requires `doctor` to verify the copied schemas
@@ -335,39 +324,31 @@ acceptance:
 done:
   - Document::parse splits the leading --- block and never looks inside the body; FrontMatter holds
     the well-known keys typed and keeps type-specific keys in extras, so rule 5 loses nothing
-  - type and status stay strings, and dates stay validated YYYY-MM-DD strings: the vocabulary belongs
-    to TASK-015 and a date type belongs in aicontext-core, so neither was invented here
+  - 'type and status stay strings, and dates stay validated YYYY-MM-DD strings: the vocabulary belongs to TASK-015 and a date type belongs in aicontext-core, so neither was invented here'
   - 64 KiB block and 1 MiB document caps are hard refusals, per RULES 11; the catalogue rates
     CTX-018 a warning, but a parser has no document to attach a warning to
-  - ContextError is #[non_exhaustive], every variant carries a line, a stable code and a
-    remediation hint, and converts into AicontextError with the cause chain intact
+  - 'ContextError is #[non_exhaustive], every variant carries a line, a stable code and a remediation hint, and converts into AicontextError with the cause chain intact'
   - yaml_serde 0.10 is reached only through a private two-method YamlCodec, so no YAML type is
     public; this is R-1's mitigation, implemented rather than noted
   - A repeated key, a non-string key, a tag, a non-finite float, and an integer beyond i64 are each
     refused by name rather than coerced, dropped, or rounded
-  - render() is fallible: a value with no YAML spelling is reported instead of written as an empty
-    block, which would delete a document's metadata while leaving a file that still parses
-  - tags: [] and an absent tags key survive a round-trip as the different facts they are
-  - A bare CR, NEL, LS, or PS in a block is refused by name (MEM-011): YAML counts all five as line
-    breaks, so the reported line would land past the end of the file. CRLF files still parse
-    - CONTEXT_SPEC 2.1 inline entity blocks are deliberately not read: that needs Markdown structure,
-      which this task forbids, and it belongs to doctor in TASK-014, which already walks bodies
-    - `Value` is `#[non_exhaustive]`, so it cannot be constructed outside this crate: the only source
-      of one is a parsed document, and the set of values in memory is exactly the set the parser can
-      produce. Nothing in phase 1 needs to build a document by hand, and a later variant is additive
-    - A test scans `src/` and fails if `yaml_serde` reaches any module but `codec.rs`, so R-1's
-      mitigation is enforced rather than asserted; it was checked by planting a reference and
-      watching it fail
-    - Round-trip fixtures are built from this file's own `Shape` type rather than the crate's `Value`,
-      so the property compares two independent descriptions of the format instead of agreeing with
-      itself. Floats are included, generated with a `u32` whole part and a short fraction so the
-      fixture and the renderer cannot disagree about notation
-    - A float keeps its decimal point across a rewrite (`phase: 2.0` stays a float, does not return as
-      an integer); CONTEXT_SPEC §2 rule 7 now states that a value's type survives a rewrite
-    - 89 tests in the crate (42 unit, 43 integration of which 7 are properties, 4 doc) and 152 across
-      the workspace; the properties were also run at 50,000 cases each, and the whole suite passes on
-      the declared MSRV toolchain 1.85, not only on current stable
-    - `cargo audit` reports no vulnerabilities across the 57 locked dependencies
+  - 'render() is fallible: a value with no YAML spelling is reported instead of written as an empty block, which would delete a document''s metadata while leaving a file that still parses'
+  - 'tags: [] and an absent tags key survive a round-trip as the different facts they are'
+  - 'A bare CR, NEL, LS, or PS in a block is refused by name (MEM-011): YAML counts all five as line breaks, so the reported line would land past the end of the file. CRLF files still parse'
+  - 'CONTEXT_SPEC 2.1 inline entity blocks are deliberately not read: that needs Markdown structure, which this task forbids, and it belongs to doctor in TASK-014, which already walks bodies'
+  - '`Value` is `#[non_exhaustive]`, so it cannot be constructed outside this crate: the only source of one is a parsed document, and the set of values in memory is exactly the set the parser can produce. Nothing in phase 1 needs to build a document by hand, and a later variant is additive'
+  - A test scans `src/` and fails if `yaml_serde` reaches any module but `codec.rs`, so R-1's
+    mitigation is enforced rather than asserted; it was checked by planting a reference and
+    watching it fail
+  - Round-trip fixtures are built from this file's own `Shape` type rather than the crate's `Value`,
+    so the property compares two independent descriptions of the format instead of agreeing with
+    itself. Floats are included, generated with a `u32` whole part and a short fraction so the
+    fixture and the renderer cannot disagree about notation
+  - 'A float keeps its decimal point across a rewrite (`phase: 2.0` stays a float, does not return as an integer); CONTEXT_SPEC §2 rule 7 now states that a value''s type survives a rewrite'
+  - 89 tests in the crate (42 unit, 43 integration of which 7 are properties, 4 doc) and 152 across
+    the workspace; the properties were also run at 50,000 cases each, and the whole suite passes on
+    the declared MSRV toolchain 1.85, not only on current stable
+  - '`cargo audit` reports no vulnerabilities across the 57 locked dependencies'
 ```
 
 **Dependency: `yaml_serde` 0.10.** `RULES.md` §6 requires writing the ~30 lines a dependency

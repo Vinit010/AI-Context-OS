@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn a_directory_that_does_not_exist_is_refused_rather_than_invented() {
         let missing = Path::new("/srv/definitely-not-here");
-        let error = resolve_root(Some(&missing)).expect_err("must not invent a directory");
+        let error = resolve_root(Some(missing)).expect_err("must not invent a directory");
         let (path, reason) = error.into_parts();
         assert!(path.contains("definitely-not-here"), "{path}");
         assert!(reason.contains("does not exist"), "{reason}");
@@ -173,7 +173,10 @@ mod tests {
         let file = root.path().join("notes.txt");
         fs::write(&file, "text").expect("writes");
         let error = resolve_root(Some(&file)).expect_err("a file is not a project");
-        assert!(error.to_string().contains("a file, not a directory"), "{error}");
+        assert!(
+            error.to_string().contains("a file, not a directory"),
+            "{error}"
+        );
     }
 
     #[test]

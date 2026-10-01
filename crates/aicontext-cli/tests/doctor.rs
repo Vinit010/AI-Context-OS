@@ -62,7 +62,10 @@ fn initialised(name: &str) -> (TempDir, PathBuf) {
 /// Parses stdout as the one JSON object the envelope contract promises.
 fn json(run: &Run) -> serde_json::Value {
     serde_json::from_str(run.stdout.trim()).unwrap_or_else(|error| {
-        panic!("stdout is one JSON object ({error}); it was: {}", run.stdout)
+        panic!(
+            "stdout is one JSON object ({error}); it was: {}",
+            run.stdout
+        )
     })
 }
 
@@ -111,7 +114,11 @@ fn a_missing_entry_point_is_an_error_and_exits_three() {
 #[test]
 fn a_document_without_front_matter_is_an_error_and_names_the_file() {
     let (_outer, root) = initialised("payments-ledger");
-    write(&root, ".ai/CONVENTIONS.md", "# Conventions\n\nNothing declared.\n");
+    write(
+        &root,
+        ".ai/CONVENTIONS.md",
+        "# Conventions\n\nNothing declared.\n",
+    );
 
     let run = run_in(&root, &["doctor"]);
     assert_eq!(run.code, 3);
@@ -141,7 +148,11 @@ fn a_free_form_note_needs_no_front_matter() {
     // `.ai/AI.md` and anything outside the catalogue are prose. Requiring structure of a note would
     // be inventing a rule the spec does not have.
     let (_outer, root) = initialised("payments-ledger");
-    write(&root, ".ai/notes/scratch.md", "# Scratch\n\nNot an entity.\n");
+    write(
+        &root,
+        ".ai/notes/scratch.md",
+        "# Scratch\n\nNot an entity.\n",
+    );
 
     let run = run_in(&root, &["doctor"]);
     assert_eq!(
@@ -216,7 +227,11 @@ fn a_declared_language_discovery_cannot_see_is_a_warning() {
     assert_eq!(run.code, 0, "a mismatch is a warning: {}", run.stdout);
     assert!(run.stdout.contains("CTX-013"), "{}", run.stdout);
     assert!(run.stdout.contains("go"), "{}", run.stdout);
-    assert!(run.stdout.contains("rust"), "what was observed: {}", run.stdout);
+    assert!(
+        run.stdout.contains("rust"),
+        "what was observed: {}",
+        run.stdout
+    );
 }
 
 #[test]
@@ -231,7 +246,11 @@ fn a_deprecated_decision_with_no_successor_is_a_warning() {
     );
 
     let run = run_in(&root, &["doctor"]);
-    assert_eq!(run.code, 0, "a warning does not fail the run: {}", run.stdout);
+    assert_eq!(
+        run.code, 0,
+        "a warning does not fail the run: {}",
+        run.stdout
+    );
     assert!(run.stdout.contains("CTX-014"), "{}", run.stdout);
     assert!(run.stdout.contains("ADR-001"), "{}", run.stdout);
 }
@@ -240,7 +259,11 @@ fn a_deprecated_decision_with_no_successor_is_a_warning() {
 fn only_narrows_the_run_to_the_codes_that_were_asked_for() {
     let (_outer, root) = initialised("payments-ledger");
     fs::remove_file(root.join(".ai/AI.md")).expect("remove");
-    write(&root, ".ai/CONVENTIONS.md", "# Conventions\n\nNothing declared.\n");
+    write(
+        &root,
+        ".ai/CONVENTIONS.md",
+        "# Conventions\n\nNothing declared.\n",
+    );
 
     let run = run_in(&root, &["doctor", "--only", "CTX-001"]);
     assert!(run.stdout.contains("CTX-001"), "{}", run.stdout);
@@ -326,7 +349,10 @@ fn json_is_one_object_whose_exit_code_matches_the_process() {
     assert_eq!(findings[0]["severity"], "error");
     assert_eq!(findings[0]["path"], ".ai/AI.md");
     assert!(
-        !findings[0]["remediation"].as_str().unwrap_or_default().is_empty(),
+        !findings[0]["remediation"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty(),
         "every finding carries its fix"
     );
 }
@@ -334,7 +360,10 @@ fn json_is_one_object_whose_exit_code_matches_the_process() {
 #[test]
 fn json_explanation_is_a_success_envelope_carrying_the_severity() {
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["doctor", "--explain", "CTX-012", "--strict", "--json"]);
+    let run = run_in(
+        &root,
+        &["doctor", "--explain", "CTX-012", "--strict", "--json"],
+    );
 
     assert_eq!(run.code, 0);
     let body = json(&run);
@@ -407,7 +436,10 @@ fn json_leaves_the_human_report_off_stdout() {
 fn a_root_that_does_not_exist_is_a_usage_failure() {
     let (_outer, root) = project("ledger");
     let missing = root.join("nowhere");
-    let run = run_in(&root, &["doctor", "--cwd", missing.to_str().expect("utf-8")]);
+    let run = run_in(
+        &root,
+        &["doctor", "--cwd", missing.to_str().expect("utf-8")],
+    );
 
     assert_eq!(run.code, 2, "stderr was: {}", run.stderr);
     assert!(run.stderr.contains("PROJ-001"), "{}", run.stderr);
@@ -425,10 +457,7 @@ fn an_oversized_document_is_reported_rather_than_read() {
 
     let run = run_in(&root, &["doctor"]);
     assert!(run.stdout.contains("CTX-018"), "{}", run.stdout);
-    assert_eq!(
-        run.code, 0,
-        "too large is a warning, not a failure"
-    );
+    assert_eq!(run.code, 0, "too large is a warning, not a failure");
 }
 
 /// Reads a file, or fails with the path so the assertion says what was missing.

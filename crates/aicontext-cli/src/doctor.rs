@@ -25,8 +25,7 @@ use crate::output::{Finding, Terminal, envelope};
 use crate::project::{self, ProjectError};
 
 /// The reason v1 has no cache to rebuild, naming the task that will have one.
-const NO_INDEX_YET: &str =
-    "there is no index cache to rebuild yet; CTX-017, CTX-019, and the rebuild arrive with TASK-031";
+const NO_INDEX_YET: &str = "there is no index cache to rebuild yet; CTX-017, CTX-019, and the rebuild arrive with TASK-031";
 
 /// The codes this binary runs, in catalogue order.
 ///
@@ -335,7 +334,11 @@ fn observed_languages(root: &Path, terminal: &mut Terminal) -> Vec<String> {
 
 /// The identity line's VCS label: a fact about the directory, not a branch lookup.
 fn vcs_label(root: &Path) -> &'static str {
-    if root.join(".git").exists() { "git" } else { "no vcs" }
+    if root.join(".git").exists() {
+        "git"
+    } else {
+        "no vcs"
+    }
 }
 
 /// The severity a check reports, which `--strict` promotes. A note stays a note.
@@ -544,7 +547,7 @@ mod tests {
             (Severity::Warning, "CTX-012", ".ai/schemas/task.schema.json"),
             (Severity::Error, "CTX-001", ".ai/AI.md"),
         ]);
-        let findings = collect(&report, &mut args);
+        let findings = collect(&report, &args);
         let order: Vec<&str> = findings.iter().map(|f| f.code.as_str()).collect();
         assert_eq!(order, ["CTX-001", "CTX-007", "CTX-012", "CTX-014"]);
 
@@ -579,7 +582,11 @@ mod tests {
             "2 warnings"
         );
         assert_eq!(
-            counts(&[finding(Severity::Error), finding(Severity::Warning), finding(Severity::Info)]),
+            counts(&[
+                finding(Severity::Error),
+                finding(Severity::Warning),
+                finding(Severity::Info)
+            ]),
             "1 error, 1 warning, 1 note"
         );
     }
@@ -650,7 +657,10 @@ mod tests {
         let codes = known_codes();
         assert!(codes.contains(&"CTX-010"), "a deferred code is still known");
         assert!(codes.contains(&"CTX-001"), "a running code is known");
-        assert_eq!(codes.len(), IMPLEMENTED_CODES.len() + checks::UNIMPLEMENTED.len());
+        assert_eq!(
+            codes.len(),
+            IMPLEMENTED_CODES.len() + checks::UNIMPLEMENTED.len()
+        );
     }
 
     #[test]
@@ -666,7 +676,10 @@ mod tests {
     #[test]
     fn json_explanation_carries_the_severity_and_whether_it_runs() {
         let (mut terminal, sink) = terminal();
-        assert_eq!(explain("CTX-012", true, &global(true), &mut terminal), Exit::Ok);
+        assert_eq!(
+            explain("CTX-012", true, &global(true), &mut terminal),
+            Exit::Ok
+        );
         let body: serde_json::Value =
             serde_json::from_str(sink.text().trim()).expect("one JSON object");
         assert_eq!(body["data"]["code"], "CTX-012");
@@ -678,7 +691,10 @@ mod tests {
     #[test]
     fn json_explanation_of_a_deferred_code_is_still_a_success() {
         let (mut terminal, sink) = terminal();
-        assert_eq!(explain("CTX-010", false, &global(true), &mut terminal), Exit::Ok);
+        assert_eq!(
+            explain("CTX-010", false, &global(true), &mut terminal),
+            Exit::Ok
+        );
         let body: serde_json::Value =
             serde_json::from_str(sink.text().trim()).expect("one JSON object");
         assert_eq!(body["data"]["implemented"], false);
@@ -687,8 +703,7 @@ mod tests {
     #[test]
     fn discovery_reports_the_languages_it_saw() {
         let root = TempDir::new().expect("temp dir");
-        std::fs::write(root.path().join("Cargo.toml"), "[package]\nname = \"x\"\n")
-            .expect("write");
+        std::fs::write(root.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").expect("write");
         let (mut terminal, _sink) = terminal();
         assert_eq!(observed_languages(root.path(), &mut terminal), ["rust"]);
     }
@@ -701,7 +716,10 @@ mod tests {
         let body = data(root.path(), &report(Vec::new()), &args);
         assert_eq!(body.checks, IMPLEMENTED_CODES.to_vec());
         assert!(!body.unimplemented.contains(&"CTX-001"), "not deferred");
-        assert!(body.unimplemented.contains(&"CTX-003"), "runtime validation");
+        assert!(
+            body.unimplemented.contains(&"CTX-003"),
+            "runtime validation"
+        );
         assert!(body.rebuild_index.requested);
         assert!(!body.rebuild_index.performed, "v1 rebuilds nothing");
         assert!(body.rebuild_index.reason.is_some());

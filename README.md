@@ -158,16 +158,16 @@ The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks
 
 ## Using the tool
 
-`init` is the only command that runs today. The rest are listed so the shape is on the record; each one
-exits with code 2 and names the task that will build it, rather than pretending to work. Exit codes
-and the `--json` envelope are a stable contract, in
+`init` and `doctor` are the commands that run today. The rest are listed so the shape is on the record;
+each one exits with code 2 and names the task that will build it, rather than pretending to work. Exit
+codes and the `--json` envelope are a stable contract, in
 [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
 
 ```text
 aicontext
 ├─ init                     create the .ai skeleton              available
 ├─ status                   project, branch, phase, current task, changes   TASK-013
-├─ doctor                   validate and diagnose context                  TASK-014
+├─ doctor                   validate and diagnose context                  available
 ├─ health                   transparent context metrics                     TASK-038
 ├─ context                  assemble a context packet                       TASK-037
 │   ├─ show                 render the packet
