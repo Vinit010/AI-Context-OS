@@ -248,7 +248,7 @@ acceptance:
 ```yaml
 id: TASK-014
 title: Implement aicontext doctor
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-011, TASK-015, TASK-016]
@@ -259,6 +259,38 @@ acceptance:
   - Detects a task pointing at a missing specification and a deprecated ADR with no successor
   - Reports a contradiction between ARCHITECTURE.md and the detected stack
   - Exit code 3 when any error-level finding is present; --json emits findings with codes
+done:
+  - 'CTX-001, CTX-002, CTX-007, CTX-012, CTX-013, CTX-014, and CTX-018 are implemented. The other
+    thirteen codes in the catalogue are reported as deferred by --explain, each naming what it waits
+    for, so nobody reads a missing check as a passing one'
+  - 'The checks live in aicontext-context and take an Inputs struct carrying the root, the languages
+    discovery observed, and the embedded schema bytes. Parsing, human and JSON rendering, and exit
+    mapping stay in aicontext-cli, which is the same split docs/ARCHITECTURE.md 2.1 records'
+  - 'Human output lists findings by severity then code, says what was checked afterwards, and exits 0,
+    3 for findings, or 2 for a flag or directory it cannot use. JSON emits the CLI_SPEC section 6
+    envelope with a checked array beside the findings'
+  - '--strict raises warnings to errors and informational findings to warnings, so the exit code moves
+    only when the report itself is stricter; --only takes a case-insensitive code prefix and an empty
+    value is a usage error; --explain distinguishes implemented, deferred, and unknown codes, and an
+    unknown one exits 2 rather than printing an empty rationale'
+  - '--rebuild-index is accepted and says there is no cache yet, because the index arrives with
+    TASK-031. An unimplemented command still exits 2 naming its task; doctor is no longer in that tree'
+  - 'init and doctor now share crate::project for root resolution, project name, and path display, so
+    the two commands cannot disagree about which directory they are reading or how it is printed'
+  - 'Run over this repository the command found four bugs in itself and one in its own input, all
+    fixed: a YAML comment inside a fenced block ended its own section one line early, so the block
+    after it was never read; the H1 that repeats a standalone decision id was reported as an inline
+    entity heading with no block, failing all seven ADRs; a document could be listed as checked and
+    carry a finding from a tree-wide check that ran later; a project with no schema copies produced
+    twenty identical lines where one directory-level finding is the true report'
+  - 'The four malformed YAML blocks in this file were found by the same run, in TASK-011, TASK-012,
+    TASK-015, and TASK-016, and were repaired in place by quoting the values that YAML was reading as
+    mappings or comments. The register is 41 tasks and every block parses'
+  - '346 tests across the workspace, of which 82 unit and 43 integration in aicontext-context and 23
+    end-to-end in crates/aicontext-cli/tests/doctor.rs. fmt, clippy -D warnings on every target, the
+    locked workspace suite, cargo doc, and cargo audit over 123 locked dependencies all pass'
+  - 'Deferred on purpose: CTX-003 needs the runtime Validator, CTX-017 and CTX-019 need the index from
+    TASK-031, and CTX-004 through CTX-006 need schema comparison that depends on CTX-003'
 ```
 
 ### TASK-015 — Define the JSON Schema set
