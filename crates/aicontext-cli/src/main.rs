@@ -98,8 +98,6 @@ fn report_pending(command: &PendingCommand, json: bool) -> ExitCode {
     }
     eprintln!("aicontext {} is not implemented yet ({task})", command.name);
     eprintln!("  does: {}", command.summary);
-    eprintln!(
-        "  try: `aicontext --help` for what works today, or .ai/TASKS.md for the task order"
-    );
+    eprintln!("  try: `aicontext --help` for what works today, or .ai/TASKS.md for the task order");
     ExitCode::from(Exit::Usage.code())
 }
