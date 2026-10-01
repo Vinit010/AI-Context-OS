@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/decision.schema.json",
+  "title": "Architecture decision record",
+  "description": "One decision, as `.ai/decisions/ADR-NNN-<slug>.md` or as an inline entity block. `supersedes` and `superseded_by` are the pair `doctor` follows to find a deprecated record with no successor (CTX-014). This schema does not require `superseded_by`, because a deprecated decision that nothing replaced is a finding worth reporting, not a document that should fail to parse.",
+  "type": "object",
+  "required": ["id", "title", "status", "date"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^ADR-[0-9]+$" },
+    "type": { "const": "decision" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["proposed", "accepted", "deprecated", "superseded"],
+      "description": "`accepted` is the only status that binds. The others describe a record that is not in force."
+    },
+    "date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "deciders": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "supersedes": { "type": ["string", "null"], "pattern": "^ADR-[0-9]+$" },
+    "superseded_by": { "type": ["string", "null"], "pattern": "^ADR-[0-9]+$" },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

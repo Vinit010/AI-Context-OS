@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/project-profile.schema.json",
+  "title": "Project profile",
+  "description": "What discovery concluded about a repository, per CONTEXT_SPEC 5. Two properties carry the meaning of this document. First, every field is a finding with a file behind it, so `signals` records the evidence and the aggregated fields are only ever as trustworthy as it. Second, `unrecognised` is the honest answer: a project that matches nothing yields `unrecognised: true` rather than a plausible-looking guess, because a confidently wrong stack is worse than an absent one. The typed Rust struct is TASK-030; this schema describes the shape the specification commits to, so the two cannot drift silently.",
+  "type": "object",
+  "required": ["languages", "frameworks", "package_manager", "vcs", "testing", "ci", "containers", "iac", "cloud_hints", "unrecognised"],
+  "properties": {
+    "languages": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Languages found, from manifests rather than file extensions."
+    },
+    "frameworks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Frameworks inferred from dependency graphs, not from the presence of a directory name."
+    },
+    "package_manager": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Derived from lockfiles: `cargo`, `npm`, `pnpm`, `yarn`, `poetry`, `go`, `maven`, `gradle`. Null when no lockfile was found."
+    },
+    "vcs": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Version control in use. Null when there is no `.git`; a repository not under version control is worth saying plainly."
+    },
+    "testing": { "type": "boolean" },
+    "ci": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "CI systems found, e.g. `github-actions`."
+    },
+    "containers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "iac": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Infrastructure-as-code tools found, e.g. `terraform`, `k8s`."
+    },
+    "cloud_hints": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Cloud providers implied by directory layout, e.g. `aws`. A hint, never a credential or an account."
+    },
+    "confidence": {
+      "enum": ["low", "medium", "high"],
+      "description": "Reported per signal; the profile-level value is the weakest of them, so one doubtful signal cannot be averaged away."
+    },
+    "unrecognised": {
+      "type": "boolean",
+      "description": "True when nothing was detected at all. `init` reports this instead of inventing a stack."
+    },
+    "signals": {
+      "type": "array",
+      "description": "The evidence behind the fields above: one entry per detected fact, naming the file that implied it. Optional, because a profile persisted for comparison does not have to re-carry it.",
+      "items": {
+        "type": "object",
+        "required": ["kind", "value", "evidence"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The profile field this populates, using the spec's own names."
+          },
+          "value": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Project-relative path with `/` separators, so evidence compares the same on every platform."
+          },
+          "confidence": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    }
+  }
+}

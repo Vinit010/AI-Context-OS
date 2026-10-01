@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/action-proposal.schema.json",
+  "title": "Action proposal",
+  "description": "What a model returns when it is allowed to return something structured, per AI_PROVIDER_SPEC section 9. It is a proposal, never an execution: nothing here runs, and `files_modify` is intersected with the task's `touches` allowlist before anything is written. `oneOf` on the action type is deliberate — an unknown action must be rejected rather than partially understood, so an action carrying neither `tool` nor `files_modify` does not validate.",
+  "type": "object",
+  "required": ["kind", "version", "actions"],
+  "properties": {
+    "kind": { "const": "action_proposal" },
+    "version": { "const": 1 },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "tool", "arguments"],
+            "properties": {
+              "type": { "const": "tool_call" },
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Fully qualified capability name, e.g. `aws.ec2.describe`."
+              },
+              "arguments": {
+                "type": "object",
+                "description": "Arguments for the tool. The provider's declared input schema is authoritative; this property only requires that the value is an object."
+              },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "summary"],
+            "properties": {
+              "type": { "const": "plan" },
+              "summary": { "type": "string", "minLength": 1 },
+              "files_modify": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "files_create": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "files_delete": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "risks": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

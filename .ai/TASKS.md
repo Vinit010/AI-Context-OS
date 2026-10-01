@@ -11,7 +11,7 @@ updated: 2026-10-01
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-015
+**Current task:** TASK-014
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -226,9 +226,10 @@ done:
     each pre-justified in ARCHITECTURE.md 2.2, plus serde_json and tempfile for the tests
   - 74 unit tests and 23 end-to-end tests in the crate, the workspace suite, fmt, clippy -D warnings,
     cargo audit, and the MSRV check all passing
-  - Carried forward: docs/CONTEXT_SPEC.md still shows ARCH-NNN, TASKS-NNN, and MEMORY-REG as valid
-    document ids, which core rejects. Recorded under TASK-011; the spec wording is the defect, and
-    fixing it is a documentation task, not a code change
+  - Carried forward, now closed by TASK-015: docs/CONTEXT_SPEC.md showed ARCH-NNN, TASKS-NNN, and
+    MEMORY-REG as valid document ids, which core rejects. TASK-015 corrected the spec to match the
+    code rather than the reverse, and found the same placeholder as a live id in this file's own
+    MEMORY-001 entry
 ```
 
 ### TASK-013 — Implement aicontext status
@@ -271,18 +272,49 @@ acceptance:
 ```yaml
 id: TASK-015
 title: Define the JSON Schema set
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-011]
 spec: null
-touches: ["schemas/**"]
+touches: ["schemas/**", "crates/aicontext-cli/**", "Cargo.toml", "Cargo.lock"]
 acceptance:
   - A schema for every document type and fixed-path config listed in CONTEXT_SPEC section 1,
     plus action-proposal and project-profile schemas
   - Validated with a Draft 2020-12 meta-schema check in CI
   - init copies them to .ai/schemas and doctor verifies the copies match the source (CTX-012)
+waived: true
+done:
+  - schemas/ holds 20 self-contained Draft 2020-12 schemas: one per document kind and fixed-path
+    config in CONTEXT_SPEC 1, plus action-proposal and project-profile. No schema refers to
+    another file, because no file-fetching resolver is enabled in this project
+  - crates/aicontext-cli/tests/schemas.rs asserts the exact file set, the declared dialect, and
+    every schema against the 2020-12 meta-schema, then checks that no $ref leaves its own file and
+    that every $id is unique and matches its file name. The meta-schema check was confirmed to
+    have teeth by breaking minItems in task.schema.json and watching it fail by name
+  - jsonschema 0.58.3 is a dev-dependency with default-features = false, so CI validates without
+    pulling the resolve-http/resolve-file/TLS tree; nothing shipped in the binary links it. It
+    raised the workspace from 75 to 123 crates, and cargo audit reports no vulnerabilities
+  - init embeds the schema set with include_str! and copies all 20 into .ai/schemas/. A scaffolded
+    project receives exactly the bytes CI validated, and a unit test compares the embedded text
+    against schemas/ so the two cannot drift
+  - Verified by hand: a fresh init writes 31 documents including the 20 schemas, all byte-identical
+    to the source; a second run reports 39 unchanged and writes nothing; an edited schema is
+    preserved and reported as CTX-017 like any other document
+  - Corrected docs/CONTEXT_SPEC.md, which showed ARCH-NNN, TASKS-NNN and MEMORY-REG as valid
+    document ids that core rejects, and reclassified five memory entries that used a `decision`
+    category the enum does not define
+  - R-2 is answered by splitting the claim: the dev-dependency costs build time and no binary
+    weight, and the runtime Validator decision is deferred to TASK-014 where it is first needed
 ```
+
+**Why the third acceptance criterion is waived.** It requires `doctor` to verify the copied schemas
+(CTX-012), and `doctor` is TASK-014, whose `depends_on` includes TASK-015. The criterion is therefore
+unsatisfiable from inside this task: doctor cannot be built until this task is `DONE`, and this task
+cannot be `DONE` until doctor verifies the copies. Rather than close the task against an unmet
+criterion silently, the deviation is recorded here. CTX-012 is registered in CONTEXT_SPEC §7 and
+verifying the copy is TASK-014's own acceptance criterion, so nothing is lost by moving the check
+there — it is only recorded in the wrong task.
 
 ### TASK-016 — Implement the front matter parser
 

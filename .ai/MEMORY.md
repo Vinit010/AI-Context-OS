@@ -21,7 +21,7 @@ Entries use the inline block form from `docs/CONTEXT_SPEC.md` §3. Each entry ha
 ## MEM-001 — Determinism beats cleverness in retrieval
 
 ```yaml
-id: MEMORY-REG
+id: MEM-001
 category: constraint
 scope: context-engine
 status: active
@@ -144,6 +144,12 @@ crate for Rust has had a turbulent maintenance history. Both are wrapped behind 
 choice costs a contained swap rather than a rewrite. See `RISK R-1` and `RISK R-2` in
 `ARCHITECTURE.md` §13. Resolve during Phase 1 (TASK-015, TASK-016).
 
+**Partly resolved by TASK-015.** YAML is settled (`yaml_serde` 0.10, `ADR-007`, see `MEM-010`).
+The JSON Schema question is now answered for CI: `jsonschema` 0.58.3, `default-features = false`,
+dev-dependency only. What is still open is the *runtime* `Validator`, which is deferred to
+`TASK-014` — the crate is chosen, the production dependency decision is not, so this entry stays
+`active` rather than being closed on the strength of a dev-dependency.
+
 ## MEM-008 — MVP success is falsifiable
 
 ```yaml
@@ -167,7 +173,7 @@ impressive it is.
 
 ```yaml
 id: MEM-009
-category: decision
+category: preference
 scope: project
 status: active
 confidence: high
@@ -202,17 +208,21 @@ a CI job builds and tests on 1.85 so the floor cannot rot unnoticed.
 
 ---
 
-## MEM-010 - YAML is parsed through yaml_serde behind a thin YamlCodec trait
+## MEM-010 - No YAML type appears in a public signature, so a YAML swap touches one module
 
 ```yaml
 id: MEM-010
-category: decision
+category: constraint
 scope: project
 status: active
 confidence: high
 recorded: 2026-09-27
 supersedes: null
 ```
+
+The choice of crate is recorded in `ADR-007` and is not repeated here. This entry records the
+constraint that choice is protecting, because the constraint outlives the choice and is what the next
+agent has to keep.
 
 `yaml_serde` 0.10 is the YAML implementation, chosen in `ADR-007`. It is the actively maintained
 fork of `serde_yaml`, published by the official YAML organisation, pure Rust, MIT OR Apache-2.0, and
@@ -250,7 +260,7 @@ Consequences:
 
 ```yaml
 id: MEM-011
-category: decision
+category: fact
 scope: project
 status: active
 confidence: high
@@ -281,10 +291,12 @@ silently changing the text.
 
 ```yaml
 id: MEM-012
-category: decision
+category: constraint
 scope: project
 status: active
-created: 2026-09-27
+confidence: high
+recorded: 2026-09-27
+supersedes: null
 tags: [frontmatter, api, boundary]
 ```
 
@@ -315,10 +327,12 @@ planting a reference in `error.rs` and confirming the test failed, rather than b
 
 ```yaml
 id: MEM-013
-category: decision
+category: preference
 scope: project
 status: active
-created: 2026-10-01
+confidence: high
+recorded: 2026-10-01
+supersedes: null
 tags: [init, idempotence, templates, cli]
 ```
 
@@ -355,12 +369,36 @@ because every test asserted on the action list rather than on the prose. Tests f
 
 ---
 
+## MEM-014 - An acceptance criterion must not require a task that depends on it
+
+```yaml
+id: MEM-014
+category: lesson
+scope: project
+status: active
+confidence: high
+recorded: 2026-10-01
+supersedes: null
+```
+
+TASK-015's acceptance required `doctor` to verify the copied schemas (CTX-012). `doctor` is
+TASK-014, and TASK-014's `depends_on` includes TASK-015. The criterion was therefore unsatisfiable
+from inside the task that carried it: doctor could not be built until TASK-015 was `DONE`, and
+TASK-015 could not be `DONE` until doctor verified the copies. `RULES.md` §12 forbids marking a task
+`DONE` against unmet acceptance, so the deadlock was real and not a bookkeeping detail.
+
+It was resolved by waiving the clause in writing and naming TASK-014 as its true owner, rather than
+by closing the task and leaving the gap unrecorded. The general rule this suggests: when a task's
+acceptance names a *check* performed by another task, confirm first that the named task does not
+depend on this one. A criterion phrased as "X verifies Y" belongs to X, not to the task that
+produced Y.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
 |---|----------|--------|-----------|
 | Q-1 | Which YAML crate? `serde_yaml` is widely used but its maintenance status needs checking; a maintained fork may be required | TASK-016 | **RESOLVED in TASK-016: `yaml_serde` 0.10, see `ADR-007` and `MEM-010`** |
-| Q-2 | JSON Schema validator crate choice, and whether we accept its transitive weight | TASK-015 | Phase 1 |
+| Q-2 | JSON Schema validator crate choice, and whether we accept its transitive weight | TASK-015 | **PARTLY RESOLVED in TASK-015: `jsonschema` 0.58.3, `default-features = false`, dev-only for CI meta-validation. The runtime `Validator` remains open for TASK-014** |
 | Q-3 | Should `doctor` fail the build on a deprecation warning, or only on errors? | TASK-014 | Phase 1 |
 | Q-4 | Is the approval prompt a full-screen TUI, or a line-based prompt that composes with pipes? | TASK-072 | Phase 4 |
 | Q-5 | Does an audit record need a stable third-party timestamp authority to resist backdating? | TASK-075 | Phase 4 |

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/task.schema.json",
+  "title": "Task",
+  "description": "One task, as `.ai/tasks/TASK-NNN-<slug>.md` or as an inline entity block in `.ai/TASKS.md`. Rule 3 of CONTEXT_SPEC 3 requires `acceptance` with at least one entry, and makes `waived: true` the only way to run without one: an `IN_PROGRESS` task with nothing to be done by is CTX-009, and that is a finding about the process rather than about the schema.",
+  "type": "object",
+  "required": ["id", "title", "status", "priority", "acceptance"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^TASK-[0-9]+$" },
+    "type": { "const": "task" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": [
+        "BACKLOG",
+        "TODO",
+        "IN_PROGRESS",
+        "BLOCKED",
+        "IN_REVIEW",
+        "TESTING",
+        "DONE",
+        "CANCELLED"
+      ],
+      "description": "Legal transitions are CONTEXT_SPEC 3 and are reported by `doctor` as CTX-011. This schema can see only the current value, so it deliberately does not pretend to check the history behind it."
+    },
+    "priority": { "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+    "phase": { "type": "integer", "minimum": 0 },
+    "epic": { "type": ["string", "null"], "minLength": 1 },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^TASK-[0-9]+$" },
+      "uniqueItems": true,
+      "description": "Acyclic by rule; a cycle is CTX-010, which needs the whole graph and so belongs to `doctor`, not here."
+    },
+    "blocks": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^TASK-[0-9]+$" },
+      "uniqueItems": true
+    },
+    "spec": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "A `SPEC-<slug>` entity, or a path to a normative document under `docs/`. An unresolvable value is CTX-007."
+    },
+    "touches": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Path globs this task is allowed to write. An unresolved glob is a warning, not an error."
+    },
+    "acceptance": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "What must be true for this task to be done. At least one, unless `waived` is true."
+    },
+    "waived": {
+      "type": "boolean",
+      "description": "Set only with a written reason, and only for a task whose acceptance cannot be written down yet."
+    },
+    "done": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "What was actually built and verified, recorded when the task closed. Not acceptance criteria restated: this is the evidence."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

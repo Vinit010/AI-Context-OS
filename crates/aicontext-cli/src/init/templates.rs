@@ -92,9 +92,14 @@ pub(crate) struct TemplateFile {
 pub(crate) fn resolve(template: TemplateName) -> Vec<TemplateFile> {
     let mut files: Vec<TemplateFile> = Vec::new();
 
-    // `blank` has no base. Everything else starts from the base tree.
+    // `blank` has no base. Everything else starts from the base tree, and every tree but `blank`
+    // also carries the schema set: a project with no stack guidance still needs to know how to
+    // validate its own documents.
     if template != TemplateName::Blank {
         for file in BASE {
+            files.push(*file);
+        }
+        for file in SCHEMAS {
             files.push(*file);
         }
     }
@@ -188,11 +193,6 @@ const BASE: &[TemplateFile] = &[
         dir_only: true,
     },
     TemplateFile {
-        path: ".ai/schemas",
-        text: "",
-        dir_only: true,
-    },
-    TemplateFile {
         path: ".ai/specs",
         text: "",
         dir_only: true,
@@ -206,6 +206,117 @@ const BASE: &[TemplateFile] = &[
         path: ".ai/workflows",
         text: "",
         dir_only: true,
+    },
+];
+
+/// The schema set, embedded from `schemas/` at the repository root.
+///
+/// These are the same bytes `crates/aicontext-cli/tests/schemas.rs` validates against the Draft
+/// 2020-12 meta-schema, so a project `init` scaffolds receives exactly the schemas CI proved good —
+/// not a second copy that could drift from them. `doctor` compares the two trees (CTX-012).
+///
+/// Embedded rather than read at run time, like every other template: the binary has no asset
+/// directory to ship and cannot be confused by a schema edited on disk after it was built.
+const SCHEMAS: &[TemplateFile] = &[
+    TemplateFile {
+        path: ".ai/schemas/action-proposal.schema.json",
+        text: include_str!("../../../../schemas/action-proposal.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/agent.schema.json",
+        text: include_str!("../../../../schemas/agent.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/ai-config.schema.json",
+        text: include_str!("../../../../schemas/ai-config.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/ai-entrypoint.schema.json",
+        text: include_str!("../../../../schemas/ai-entrypoint.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/architecture.schema.json",
+        text: include_str!("../../../../schemas/architecture.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/bug.schema.json",
+        text: include_str!("../../../../schemas/bug.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/change.schema.json",
+        text: include_str!("../../../../schemas/change.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/context-note.schema.json",
+        text: include_str!("../../../../schemas/context-note.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/conventions.schema.json",
+        text: include_str!("../../../../schemas/conventions.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/decision.schema.json",
+        text: include_str!("../../../../schemas/decision.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/design.schema.json",
+        text: include_str!("../../../../schemas/design.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/memory.schema.json",
+        text: include_str!("../../../../schemas/memory.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/permission-policy.schema.json",
+        text: include_str!("../../../../schemas/permission-policy.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/prd.schema.json",
+        text: include_str!("../../../../schemas/prd.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/project-profile.schema.json",
+        text: include_str!("../../../../schemas/project-profile.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/rules.schema.json",
+        text: include_str!("../../../../schemas/rules.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/spec.schema.json",
+        text: include_str!("../../../../schemas/spec.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/task.schema.json",
+        text: include_str!("../../../../schemas/task.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/tasks.schema.json",
+        text: include_str!("../../../../schemas/tasks.schema.json"),
+        dir_only: false,
+    },
+    TemplateFile {
+        path: ".ai/schemas/workflow.schema.json",
+        text: include_str!("../../../../schemas/workflow.schema.json"),
+        dir_only: false,
     },
 ];
 
@@ -263,7 +374,7 @@ const BLANK: &[TemplateFile] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{BASE, TemplateName, resolve};
+    use super::{BASE, SCHEMAS, TemplateName, resolve};
     use clap::ValueEnum;
     use std::path::Path;
 
@@ -357,6 +468,41 @@ mod tests {
                 if !file.dir_only {
                     assert!(!file.text.is_empty(), "{} is empty", file.path);
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn the_schema_set_is_embedded_byte_for_byte() {
+        // `init` copies the schemas from the binary while `tests/schemas.rs` validates the files in
+        // `schemas/`. Those are the same contract only while the bytes are the same, so this
+        // compares them directly rather than trusting that nobody edited one side.
+        for file in SCHEMAS {
+            let name = file.path.rsplit('/').next().expect("a file has a name");
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../schemas")
+                .join(name);
+            let on_disk = std::fs::read_to_string(&source)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", source.display()));
+            assert_eq!(
+                file.text, on_disk,
+                "{name} differs from schemas/{name}; the copy `init` writes is the one CI validated \
+                 only while they match"
+            );
+        }
+    }
+
+    #[test]
+    fn every_but_the_blank_template_ships_the_schema_set() {
+        for name in TemplateName::ALL {
+            let schemas = resolve(*name)
+                .iter()
+                .filter(|file| file.path.starts_with(".ai/schemas/"))
+                .count();
+            if *name == TemplateName::Blank {
+                assert_eq!(schemas, 0, "blank stays two documents and no tree");
+            } else {
+                assert_eq!(schemas, SCHEMAS.len(), "{name} is missing schemas");
             }
         }
     }

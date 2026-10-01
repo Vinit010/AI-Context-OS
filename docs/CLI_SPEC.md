@@ -82,9 +82,9 @@ Phase availability is printed by `aicontext --help`; a command not yet implement
 
 ### `aicontext init`
 
-Creates the `.ai/` skeleton, creates `.ai/schemas/`, and adds `.aicontext/` to `.gitignore`. It never
-creates `.aicontext/` itself: the entry exists so the directory is ignored once another command
-creates it.
+Creates the `.ai/` skeleton, copies the schema set into `.ai/schemas/`, and adds `.aicontext/` to
+`.gitignore`. It never creates `.aicontext/` itself: the entry exists so the directory is ignored
+once another command creates it.
 
 | Flag | Effect |
 |------|--------|
@@ -100,8 +100,11 @@ anything outside `.ai/` and `.gitignore`; validates its own output and reports t
 who typed `--force` at a terminal is the approval; `Q-4` leaves the prompt *mechanism* undecided
 (`TASK-072`), so `init` does not invent one. `--yes` never satisfies this check.
 
-Schemas are not yet materialised into `.ai/schemas/`; the directory is created empty. No schema
-exists to copy until `TASK-015` defines the set, so the copy step is deferred rather than faked.
+Schemas are materialised into `.ai/schemas/` by `TASK-015`: all 20 files, copied from the `schemas/`
+source at compile time, so a scaffolded project receives exactly the bytes CI validated against the
+Draft 2020-12 meta-schema. They are ordinary documents, so all the guarantees above apply to them —
+in particular an edited schema is preserved and reported as CTX-017. `doctor` compares the copy
+against the source (CTX-012) in `TASK-014`.
 
 ### `aicontext status`
 

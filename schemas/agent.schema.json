@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/agent.schema.json",
+  "title": "Agent profile",
+  "description": "One agent role profile, as `.ai/agents/<slug>.md`. An agent profile is the only document that declares what a *tool* may do, so `tools` and `mode` are constrained here in a way no other document constrains permissions: a profile that names a tool must say what it wants to do with it.",
+  "type": "object",
+  "required": ["id", "type", "title", "tools"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^AGENT-[a-z0-9]+(-[a-z0-9]+)*$" },
+    "type": { "const": "agent" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["active", "draft", "deprecated"] },
+    "mode": {
+      "enum": ["plan", "execute"],
+      "description": "`plan` is the default and the safe one. `execute` is only in force with a task's `touches` allowlist behind it."
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool"],
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Capability name, identical to the tool name so a permission entry resolves it."
+          },
+          "purpose": { "type": "string", "minLength": 1 }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "system_prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional extra instructions. The project rulebook is never defined here: `.ai/` is policy supplied by the developer, and a profile that could restate it would create a second, editable copy."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

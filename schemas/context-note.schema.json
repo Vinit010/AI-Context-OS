@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/context-note.schema.json",
+  "title": "Context note",
+  "description": "One note under `.ai/context/`: domain knowledge, terminology, or an environment description. Named rather than numbered, because a note is referred to by what it is about. `.ai/context/stack.md` written by `init` is a context note, and its `CTX-stack` id follows the same rule as every other one.",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^CTX-[a-z0-9]+(-[a-z0-9]+)*$" },
+    "type": { "const": "context" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["active", "draft", "accepted", "deprecated", "superseded"] },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the facts came from: a document, an observed command output, or a person's statement. An unsourced note is a rumour with a filename."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

@@ -5,7 +5,7 @@
 
 Project: **AI Context OS**
 Binary: `aicontext`
-Status: **Phase 0 — Specification** (see `TASKS.md`)
+Status: **Phase 1 — Context MVP** (see `TASKS.md`)
 
 ---
 

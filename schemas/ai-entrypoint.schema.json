@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/ai-entrypoint.schema.json",
+  "title": "AI.md agent entry point",
+  "description": "Front matter of `.ai/AI.md`, the one document every agent must read first. Rule 1 of CONTEXT_SPEC 2 makes this the single document whose front-matter block is optional, so nothing here is required: an `AI.md` with no block at all is valid, and this schema exists to constrain a block that was written rather than to insist on one. `AI.md` carries no `id` because it is a fixed path with a single instance, and giving it one would imply a second copy could exist.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name of the entry point. Absent in the shipped template, because the level-1 heading already says it."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the contract this file describes."
+    },
+    "status": { "enum": ["active", "deprecated"] },
+    "created": { "$ref": "#/$defs/iso-date" },
+    "updated": { "$ref": "#/$defs/iso-date" },
+    "tags": { "$ref": "#/$defs/tags" }
+  },
+  "$defs": {
+    "iso-date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "ISO-8601 calendar date. The pattern asserts the shape; whether 2026-13-01 is a real day is decided by the code, not by an annotation."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Free labels for retrieval. An empty list and an absent key are different facts and both are preserved."
+    }
+  }
+}

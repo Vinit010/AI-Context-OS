@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/change.schema.json",
+  "title": "Change history entry",
+  "description": "One shipped change, as `.ai/changes/CHG-NNN-<slug>.md` or as an inline entity block. AI.md section 6 records a shipped feature here because a change is the unit a reader asks about: not \"what does RULES.md say\" but \"what changed when this landed\".",
+  "type": "object",
+  "required": ["id", "title", "date", "feature", "reason"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^CHG-[0-9]+$" },
+    "type": { "const": "change" },
+    "title": { "type": "string", "minLength": 1 },
+    "date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "feature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The capability that now exists, named the way a user would ask for it."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why it was needed. A change record with no reason cannot answer the question it exists to answer."
+    },
+    "architecture_impact": { "enum": ["none", "minor", "major"] },
+    "breaking": {
+      "type": "boolean",
+      "description": "Whether this breaks an existing consumer. True is the answer that gets read; false must be deliberate."
+    },
+    "migration": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The steps a consumer must take. Required in practice whenever `breaking` is true."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

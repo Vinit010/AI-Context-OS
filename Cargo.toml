@@ -63,6 +63,14 @@ module_name_repetitions = "allow"
 #   serde_json - the same envelope, serialised. TASK-012.
 #   tempfile   - dev-only. Temporary project trees for the CLI integration tests, so no test reads
 #                the developer's home directory or global git config (RULES.md 8). TASK-012.
+#   jsonschema - dev-only. The Draft 2020-12 meta-schema check in CI. Every schema in schemas/ is
+#                asserted to be a valid 2020-12 schema, because a schema nobody validated is a
+#                document that fails silently on the reader it was written for. default-features is
+#                false deliberately: the default set pulls in resolve-http, resolve-file and TLS
+#                (reqwest/rustls/aws-lc-rs), which would drag a network stack into a workspace that
+#                has none and whose schemas are self-contained by design. rust-version is exactly
+#                1.85.0, our MSRV with no headroom, as with clap. TASK-015. The runtime validator
+#                and the production dependency decision belong to TASK-014.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
@@ -71,6 +79,7 @@ clap = { version = "4.6", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+jsonschema = { version = "0.58", default-features = false }
 
 [profile.release]
 opt-level = 3

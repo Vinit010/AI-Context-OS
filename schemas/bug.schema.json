@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/bug.schema.json",
+  "title": "Bug memory",
+  "description": "One bug, as `.ai/bugs/BUG-NNN-<slug>.md` or as an inline entity block. `symptoms` is required for every bug, because a bug with no symptom is a bug nobody can recognise again. `root_cause` is required before `status: fixed`: the whole value of bug memory is the reason the fix works, and a fix recorded without it is a guess that will be re-made.",
+  "type": "object",
+  "required": ["id", "title", "status", "severity", "symptoms"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^BUG-[0-9]+$" },
+    "type": { "const": "bug" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["open", "investigating", "fixed", "verified", "wont_fix", "duplicate"]
+    },
+    "severity": { "enum": ["critical", "high", "medium", "low"] },
+    "symptoms": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What was observed: the error, the wrong output, the command that produced it."
+    },
+    "root_cause": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Why it happened. Required before the status reaches `fixed`."
+    },
+    "files_changed": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "prevention": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The test, check, or rule that stops this class of bug returning."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

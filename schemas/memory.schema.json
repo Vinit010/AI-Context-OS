@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/memory.schema.json",
+  "title": "Memory register document",
+  "description": "Two shapes in one file, because both are real: the front matter of `.ai/MEMORY.md` itself, and an inline entry block under a level-2 heading. `oneOf` keeps them apart — an entry's `category` is required and the document's is not, so one of the two branches always applies and never both. An entry does not repeat `title` or `type`: CONTEXT_SPEC 2.1 gives the title to the heading and the type to the `MEM-` prefix, because a second copy of either fact is a second thing that can be wrong.",
+  "$defs": {
+    "iso-date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "ISO-8601 calendar date. The pattern asserts the shape; whether the date is real is decided by the code."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "memory-id": {
+      "type": "string",
+      "pattern": "^MEM-[0-9]+$",
+      "description": "Numbered, and deliberately a different prefix from the document's own `MEMORY-001`, so an entry and the register are never the same ID."
+    },
+    "document": {
+      "type": "object",
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^MEMORY-[0-9]+$" },
+        "type": { "const": "memory" },
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["active", "draft", "accepted", "deprecated", "superseded"] },
+        "created": { "$ref": "#/$defs/iso-date" },
+        "updated": { "$ref": "#/$defs/iso-date" },
+        "tags": { "$ref": "#/$defs/tags" }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["id", "category", "scope", "recorded"],
+      "properties": {
+        "id": { "$ref": "#/$defs/memory-id" },
+        "category": {
+          "enum": ["constraint", "lesson", "fact", "preference", "limitation", "bug"],
+          "description": "What this entry is. There is no `decision`: a choice with alternatives and trade-offs is an ADR in `.ai/decisions/`, and a decision recorded only here would have no `superseded_by` for CTX-014 to follow."
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the entry binds: `project`, `build`, `product`, or a subsystem name."
+        },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "status": { "enum": ["active", "superseded"] },
+        "supersedes": {
+          "type": ["string", "null"],
+          "pattern": "^MEM-[0-9]+$",
+          "description": "The entry this one replaces. Null is a real value here and means nothing was replaced."
+        },
+        "recorded": { "$ref": "#/$defs/iso-date" },
+        "tags": { "$ref": "#/$defs/tags" }
+      }
+    }
+  },
+  "oneOf": [{ "$ref": "#/$defs/document" }, { "$ref": "#/$defs/entry" }]
+}

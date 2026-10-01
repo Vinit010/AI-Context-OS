@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/ai-config.schema.json",
+  "title": "AI provider configuration",
+  "description": "`.ai/ai.yaml`: which provider to use and where its credential comes from. This file is committed, so it may name a credential *source* and must never carry a value — `env` and `keychain_entry` here are names, and `token` is deliberately absent from the vocabulary rather than merely discouraged, because a property that is forbidden is one no linter will eventually add.",
+  "type": "object",
+  "required": ["providers"],
+  "properties": {
+    "version": { "const": 1 },
+    "default_provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the provider used when nothing else selects one. Must name a provider listed here; a dangling value is a finding rather than a silent fallback."
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "adapter", "auth"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "adapter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Adapter name, e.g. `openai-compatible` or `anthropic`."
+          },
+          "base_url": { "type": "string", "format": "uri" },
+          "model": { "type": "string", "minLength": 1 },
+          "auth": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["none", "env_or_keychain", "keychain"] },
+              "env": {
+                "type": "string",
+                "minLength": 1,
+                "description": "NAME of the environment variable holding the credential, never its value."
+              },
+              "keychain_entry": { "type": "string", "minLength": 1 }
+            }
+          },
+          "timeout_seconds": { "type": "integer", "minimum": 1 },
+          "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "description": "Optional routing hints. No routing logic ships in the MVP, so anything here is inert until TASK-050 and is recorded to be ignored rather than honoured.",
+      "properties": {
+        "prefer_local": { "type": "boolean" }
+      }
+    }
+  }
+}

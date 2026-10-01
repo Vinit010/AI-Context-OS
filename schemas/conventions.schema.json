@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/conventions.schema.json",
+  "title": "Code conventions document",
+  "description": "Front matter of `.ai/CONVENTIONS.md`.",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^CONV-[0-9]+$" },
+    "type": { "const": "conventions" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["active", "draft", "accepted", "deprecated", "superseded"] },
+    "language": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The language these conventions describe. A repository can carry more than one set, each in its own file."
+    },
+    "created": { "$ref": "#/$defs/iso-date" },
+    "updated": { "$ref": "#/$defs/iso-date" },
+    "tags": { "$ref": "#/$defs/tags" }
+  },
+  "$defs": {
+    "iso-date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

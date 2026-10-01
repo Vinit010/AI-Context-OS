@@ -189,6 +189,10 @@ aicontext init [--template default|rust|node|python|blank] [--dry-run] [--force]
 Creates the skeleton under `.ai/`, appends `.aicontext/` to `.gitignore` if it is not listed already,
 and writes nothing outside those two places. It never creates `.aicontext/` itself.
 
+Every template except `blank` also copies the 20 JSON Schemas into `.ai/schemas/`, so a scaffolded
+project can validate its own documents. They are the same files CI checks against the Draft 2020-12
+meta-schema, and they behave like any other document: an edited schema is preserved, not replaced.
+
 | Flag | Effect |
 |------|--------|
 | `--template <name>` | `default` is the base skeleton; `rust`, `node`, and `python` add stack-specific conventions and architecture; `blank` writes only `AI.md` and `RULES.md`. |

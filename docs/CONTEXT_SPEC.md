@@ -16,7 +16,7 @@ detail and may change without a version bump.
 | Conventions | `.ai/CONVENTIONS.md` | `CONV-NNN` | `conventions.schema.json` |
 | Design | `.ai/DESIGN.md` | `DESIGN-NNN` | `design.schema.json` |
 | Task register | `.ai/TASKS.md` | `TASKS-NNN` | `tasks.schema.json` |
-| Memory register | `.ai/MEMORY.md` | `MEMORY-REG` | `memory.schema.json` |
+| Memory register | `.ai/MEMORY.md` | `MEMORY-NNN` | `memory.schema.json` |
 | Specification | `.ai/specs/<slug>.md` | `SPEC-<slug>` | `spec.schema.json` |
 | Task | `.ai/tasks/TASK-NNN-<slug>.md` or inline in `TASKS.md` | `TASK-NNN` | `task.schema.json` |
 | Decision | `.ai/decisions/ADR-NNN-<slug>.md` or inline | `ADR-NNN` | `decision.schema.json` |
@@ -30,6 +30,19 @@ detail and may change without a version bump.
 
 Schemas are authored in `schemas/` and copied to `.ai/schemas/` by `aicontext init`. `doctor`
 verifies the copies are identical to the source.
+
+Every schema is a self-contained Draft 2020-12 document: one file per row above, plus
+`action-proposal` (§12) and `project-profile` (§5). No schema refers to another file, because no
+file-fetching resolver is enabled anywhere in this project — a cross-file `$ref` would resolve in
+the author's editor and fail for every reader. `TASK-015` asserts each one against the 2020-12
+meta-schema in CI.
+
+Every ID above is `PREFIX` plus a numeric suffix, except the four that are named: specifications
+`SPEC-<slug>`, context notes `CTX-<slug>`, workflows `WF-<slug>`, and agent profiles
+`AGENT-<slug>`. That asymmetry is deliberate and `aicontext-core` enforces it, so `TASK-014-extra`
+does not parse as a task and `SPEC-context` is not mistaken for a number. Numbering is zero-padded to
+three digits by convention; an unpadded number is accepted, because rejecting a human's own habit
+rather than a mistake is the wrong trade.
 
 ---
 
@@ -95,6 +108,19 @@ Body.
 The parser locates a level-2 heading, then takes the **first** fenced `yaml` block that follows it
 within the heading's section. A missing or duplicated block is an error, not a guess.
 
+The example above carries `type` and `title` because a *standalone* document has to. An inline entity
+takes its type from the `id` prefix — `TASK-` is a task, `MEM-` a memory entry, `ADR-` a decision —
+and its title from the level-2 heading. Repeating either inside the block would create a second place
+for the same fact to be wrong, and then `doctor` would be reporting a disagreement between a document
+and itself. So `type` is required for standalone files, where `CTX-005` checks it against the
+location's schema; for an inline entity `CTX-004` checks the prefix against the enclosing register
+instead. A block may still carry `title` when the heading is a slug and the entity needs a readable
+name.
+
+An inline entity block must therefore carry `id` plus whichever type-specific keys §3 requires. It may
+carry `status`, `created`, `updated`, and `tags`, and it must not carry keys that contradict its own
+`id`.
+
 ---
 
 ## 3. Type-specific keys
@@ -151,6 +177,12 @@ status: active | superseded
 supersedes: <ID | null>
 recorded: <YYYY-MM-DD>
 ```
+
+A choice with alternatives and trade-offs is not a memory entry: it is a decision, and it belongs in
+`.ai/decisions/ADR-NNN-<slug>.md`. What belongs here is the durable thing learned *around* the choice
+— the constraint that forced it, or the lesson that outlived it. The distinction matters because
+`doctor` reports a decision with no successor (`CTX-014`) by following `superseded_by`; a choice
+recorded only in memory has no successor field and would never be reported as deprecated.
 
 ```yaml
 # spec

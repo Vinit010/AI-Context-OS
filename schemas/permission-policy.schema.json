@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/permission-policy.schema.json",
+  "title": "Permission policy",
+  "description": "`.ai/permissions/permissions.yaml`, the whole file, not a front-matter block. Deny is the default in two places and both are load-bearing: `defaults.mode` governs tools the file never mentions, and a tool entry without a `mode` is refused rather than assumed. That is invariant I3 in aicontext-core, and a schema that allowed a missing `mode` would describe a policy file the code would not honour.",
+  "type": "object",
+  "required": ["version", "defaults", "tools"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Policy file format version, not the tool version."
+    },
+    "defaults": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["allow", "approval", "explicit_approval", "deny"] }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "Per-capability modes, keyed by capability name. Every entry must carry its own mode.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "mode": { "enum": ["allow", "approval", "explicit_approval", "deny"] },
+          "scope": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Path globs or argument patterns the grant is limited to. An empty list means the grant is not narrowed."
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "integrations": {
+      "type": "object",
+      "description": "Where each integration's credential comes from. The NAME of a variable or keychain entry only; a value here is a leaked secret, which is CTX-016.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "credential_source": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["none", "env", "keychain", "file"] },
+              "env": { "type": "string", "minLength": 1 },
+              "keychain_entry": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 }
+            }
+          },
+          "notes": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

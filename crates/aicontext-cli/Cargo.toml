@@ -30,3 +30,5 @@ aicontext-testkit = { path = "../aicontext-testkit" }
 # the binary already uses it. Asserting on the JSON envelope needs a parser.
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+# The schemas/ meta-schema check. Dev-only: nothing shipped in the binary links this.
+jsonschema = { workspace = true }

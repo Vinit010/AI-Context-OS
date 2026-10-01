@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/spec.schema.json",
+  "title": "Feature specification",
+  "description": "One specification, as `.ai/specs/<slug>.md` or as an inline entity block. This is one of the four ID kinds with a *named* suffix rather than a number, so `SPEC-context` is valid and `SPEC-007` is not: the slug is how a reader refers to a feature in prose, and forcing it into a number would make every sentence about it an ID lookup.",
+  "type": "object",
+  "required": ["id", "title", "status", "feature"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^SPEC-[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Lowercase kebab-case slug. `SPEC-context` and `SPEC-auth-missing` are valid; `SPEC-Context` is not, because a path built from the ID would then differ per platform."
+    },
+    "type": { "const": "spec" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "review", "accepted", "deprecated"] },
+    "feature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The capability this specification describes."
+    },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^SPEC-[a-z0-9]+(-[a-z0-9]+)*$" },
+      "uniqueItems": true,
+      "description": "Acyclic by rule; a cycle is CTX-010."
+    },
+    "created": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "updated": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

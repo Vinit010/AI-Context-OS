@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/tasks.schema.json",
+  "title": "Task register document",
+  "description": "Front matter of `.ai/TASKS.md`, the register itself. The tasks inside it are not this schema's business: each one is `task.schema.json`, either as a standalone file or as an inline entity block under a level-2 heading. The register's current phase and current task are deliberately absent here, because they are stated in the document body and duplicating them in front matter would give `status` two sources to disagree about.",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^TASKS-[0-9]+$" },
+    "type": { "const": "tasks" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["active", "draft", "accepted", "deprecated", "superseded"] },
+    "created": { "$ref": "#/$defs/iso-date" },
+    "updated": { "$ref": "#/$defs/iso-date" },
+    "tags": { "$ref": "#/$defs/tags" }
+  },
+  "$defs": {
+    "iso-date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
