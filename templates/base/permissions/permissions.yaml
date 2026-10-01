@@ -1,0 +1,40 @@
+# Permission policy for {{project_name}}.
+#
+# Default is deny: a tool with no entry here cannot run. This file is committed; the credentials it
+# refers to are not. Record WHERE a credential comes from, never its value.
+#
+# Modes:
+#   allow              run without asking
+#   approval           ask the human once per call
+#   explicit_approval  ask per call, naming the exact action; no session grant
+#   deny               refuse
+version: 1
+
+defaults:
+  # Anything not listed below is denied. Keep it that way: an allow-all default turns the whole file
+  # into decoration.
+  mode: deny
+
+tools:
+  # Read-only tools are the ones safe to allow by default. Everything that writes or reaches the
+  # network asks first, and everything destructive asks explicitly.
+  read_file:
+    mode: allow
+  list_directory:
+    mode: allow
+  search:
+    mode: allow
+
+  write_file:
+    mode: approval
+  run_command:
+    mode: approval
+
+  delete_file:
+    mode: explicit_approval
+  force_push:
+    mode: explicit_approval
+
+# Per-integration notes: what the integration needs, and which environment variable or OS keychain
+# entry each credential comes from. See the ADR on credential handling for the rules.
+integrations: {}

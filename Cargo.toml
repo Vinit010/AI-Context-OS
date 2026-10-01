@@ -53,10 +53,24 @@ module_name_repetitions = "allow"
 #   proptest   - dev-only. Generators for the round-trip tests, which is the only way to show the
 #                parser survives documents nobody wrote by hand. Pre-justified in 2.2 as
 #                dev-only. Added by TASK-016.
+#   clap       - argument parsing for the whole command tree. Pre-justified in 2.2: hand-rolling
+#                --help, -vv, and abbreviation handling for 25 commands is a bad use of effort.
+#                4.6 declares rust-version 1.85, exactly our MSRV, so there is no headroom; 4.5.x
+#                (MSRV 1.74) is the fallback if a transitive crate ever breaks the floor. TASK-012.
+#   serde      - the CLI_SPEC 6 JSON envelope is a published contract, so it is described by
+#                deriving rather than by hand-writing braces. Already in the lockfile via
+#                yaml_serde, so this adds no transitive weight. TASK-012.
+#   serde_json - the same envelope, serialised. TASK-012.
+#   tempfile   - dev-only. Temporary project trees for the CLI integration tests, so no test reads
+#                the developer's home directory or global git config (RULES.md 8). TASK-012.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
 proptest = "1.6"
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3
