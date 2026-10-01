@@ -12,7 +12,6 @@
 //! has no honest value to put there.
 
 use std::io;
-use std::path::Path;
 
 use crate::exit::Exit;
 
@@ -31,6 +30,13 @@ pub(crate) enum InitError {
     /// A template needs a file where a directory already exists.
     #[error("{path} is a directory, but the template needs a file there")]
     PathIsDirectory {
+        /// The offending path, relative to the project root.
+        path: String,
+    },
+
+    /// A file exists where the template needs a directory.
+    #[error("{path} is a file, but the template needs a directory there")]
+    PathIsFile {
         /// The offending path, relative to the project root.
         path: String,
     },
@@ -108,6 +114,7 @@ impl InitError {
         match self {
             Self::UnusableRoot { .. } => "INIT-001",
             Self::PathIsDirectory { .. } => "INIT-002",
+            Self::PathIsFile { .. } => "INIT-010",
             Self::Read { .. } => "INIT-003",
             Self::Write { .. } => "INIT-004",
             Self::CreateDirectory { .. } => "INIT-005",
@@ -127,6 +134,9 @@ impl InitError {
             Self::PathIsDirectory { .. } => {
                 "move or delete the directory, or use --template blank to start from a smaller skeleton"
             }
+            Self::PathIsFile { .. } => {
+                "rename or delete the file; the template puts a directory there"
+            }
             Self::Read { .. } => "check the file's permissions and that nothing else is holding it",
             Self::Write { .. } => {
                 "check the directory's permissions and free space, then run init again"
@@ -134,7 +144,9 @@ impl InitError {
             Self::CreateDirectory { .. } => {
                 "check that the path is writable and is not a file, then run init again"
             }
-            Self::List { .. } => "check the directory's permissions; discovery is advisory and can be skipped with --no-detect",
+            Self::List { .. } => {
+                "check the directory's permissions; discovery is advisory and can be skipped with --no-detect"
+            }
             Self::UnresolvedPlaceholder { .. } => {
                 "this is a bug in the template: report it with the path and the placeholder"
             }
@@ -156,7 +168,7 @@ impl InitError {
         }
     }
 
-    pub(crate) fn read(path: &Path, display: &str, source: io::Error) -> Self {
+    pub(crate) fn read(display: &str, source: io::Error) -> Self {
         Self::Read {
             path: display.to_string(),
             source,

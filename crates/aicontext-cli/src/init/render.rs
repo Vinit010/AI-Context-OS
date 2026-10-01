@@ -66,16 +66,26 @@ fn find_placeholder(text: &str) -> Option<String> {
 /// Neutralises the Markdown characters that would change a title's meaning.
 ///
 /// The project name comes from a directory name, so it is untrusted text that will end up in
-/// headings and in a front-matter `title`. Escaping keeps `a[b]` and `a_b` from becoming emphasis
-/// and italics in the document a human then reads.
+/// headings and in a front-matter `title`. Escaping keeps `a[b]` and `a*b*` from becoming a link and
+/// emphasis in the document a human then reads.
+///
+/// `_` is escaped only between non-word characters, because Markdown does not treat it as emphasis
+/// inside a word: a project directory called `my_project` is common, and writing `my\_project` into
+/// every heading to be safe would be noise in a document people read daily.
 fn escape_markdown(text: &str) -> String {
-    const MARKDOWN: &[char] = &['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '|'];
+    const MARKDOWN: &[char] = &['\\', '`', '*', '{', '}', '[', ']', '(', ')', '#', '|'];
+    let characters: Vec<char> = text.chars().collect();
     let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
-        if MARKDOWN.contains(&character) {
+    for (index, character) in characters.iter().enumerate() {
+        let word_internal_underscore = *character == '_'
+            && index > 0
+            && index + 1 < characters.len()
+            && characters[index - 1].is_alphanumeric()
+            && characters[index + 1].is_alphanumeric();
+        if MARKDOWN.contains(character) || (character == &'_' && !word_internal_underscore) {
             escaped.push('\\');
         }
-        escaped.push(character);
+        escaped.push(*character);
     }
     escaped
 }
@@ -97,7 +107,11 @@ mod tests {
     #[test]
     fn every_placeholder_is_substituted() {
         let rendered = bindings()
-            .apply("# {{project_name}}\n\ndate: {{date}}\nfrom {{template}}\n", "AI.md", "default")
+            .apply(
+                "# {{project_name}}\n\ndate: {{date}}\nfrom {{template}}\n",
+                "AI.md",
+                "default",
+            )
             .expect("renders");
         assert_eq!(rendered, "# my_project\n\ndate: 2025-06-30\nfrom default\n");
     }
@@ -118,16 +132,30 @@ mod tests {
     fn a_document_with_no_placeholders_is_returned_unchanged() {
         let text = "# RULES\n\nNo substitution here.\n";
         assert_eq!(
-            bindings().apply(text, "RULES.md", "default").expect("renders"),
+            bindings()
+                .apply(text, "RULES.md", "default")
+                .expect("renders"),
             text
         );
     }
 
     #[test]
     fn a_project_name_cannot_inject_markdown_into_a_heading() {
-        assert_eq!(escape_markdown("a_b"), "a\\_b");
+        assert_eq!(escape_markdown("a*b*"), "a\\*b\\*");
         assert_eq!(escape_markdown("[x](y)"), "\\[x\\]\\(y\\)");
+        assert_eq!(escape_markdown("a#b"), "a\\#b");
         assert_eq!(escape_markdown("plain name 1.2"), "plain name 1.2");
+    }
+
+    #[test]
+    fn an_underscore_inside_a_word_is_left_readable() {
+        assert_eq!(escape_markdown("my_project"), "my_project");
+        assert_eq!(
+            escape_markdown("_private"),
+            "\\_private",
+            "a leading underscore is emphasis"
+        );
+        assert_eq!(escape_markdown("a_project."), "a_project.");
     }
 
     #[test]

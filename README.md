@@ -34,15 +34,22 @@ binary.
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**There is no usable binary yet.** The `aicontext` command currently exits with code 2. The task
-register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is being built, in
-what order, and what "done" means for each item.
+**One real command ships today.** `aicontext init` creates the `.ai` skeleton; every other command in
+the plan refuses to run and names the task that will build it. The task register in
+[`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is being built, in what order, and
+what "done" means for each item.
 
-The foundation is landing before the commands are. The front-matter engine in `aicontext-context` is
-complete and tested: it splits a document, reads its block into typed values, and renders it back so
-that a rewrite preserves the author's meaning rather than the author's formatting. It is covered by
-unit tests, hand-written cases, and property tests over documents nobody wrote by hand. `init` is
-the next task.
+```sh
+cargo run -p aicontext-cli -- init --dry-run   # show the plan, write nothing
+cargo run -p aicontext-cli -- init             # create .ai/
+```
+
+`init` writes the skeleton, appends one `.gitignore` entry, and never touches anything else. A second
+run reports every document as unchanged; an edited document is preserved rather than overwritten. The
+foundation underneath it is complete and tested: `aicontext-context` splits a document, reads its
+front matter into typed values, and renders it back so a rewrite preserves the author's meaning rather
+than the author's formatting, covered by unit tests, hand-written cases, and property tests over
+documents nobody wrote by hand.
 
 ---
 
@@ -120,10 +127,11 @@ without declaring what it may depend on fails the build.
 No C compiler and no system library are needed: every dependency is pure Rust.
 
 Third-party crates are added only with a written justification in
-[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries
-two in production, `thiserror` for typed errors and `yaml_serde` for YAML, plus `proptest` for
-testing parsers. The YAML library is reached only through a private two-method trait, so no YAML
-type appears in a public signature and a future swap touches one module; see
+[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries five
+in production — `thiserror` for typed errors, `yaml_serde` for YAML, `clap` for the command tree, and
+`serde` with `serde_json` for the published `--json` envelope — plus `proptest` and `tempfile` for
+tests. The YAML library is reached only through a private two-method trait, so no YAML type appears in
+a public signature and a future swap touches one module; see
 [`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
 
 ## Build and test
@@ -144,31 +152,57 @@ PROPTEST_CASES=50000 cargo test -p aicontext-context --test frontmatter
 ```
 
 The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks both.
-`cargo run -p aicontext-cli` runs the stub binary. The first real commands arrive with Phase 1.
+`cargo run -p aicontext-cli -- --help` lists what is implemented and what is not.
 
 ---
 
 ## Using the tool
 
-Planned command surface, from [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md). Exit codes and the `--json`
-envelope are a stable contract.
+`init` is the only command that runs today. The rest are listed so the shape is on the record; each one
+exits with code 2 and names the task that will build it, rather than pretending to work. Exit codes
+and the `--json` envelope are a stable contract, in
+[`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
 
 ```text
 aicontext
-├─ init                     create the .ai skeleton
-├─ status                   project, branch, phase, current task, changes
-├─ doctor                   validate and diagnose context
-├─ health                   transparent context metrics
-├─ context                  assemble a context packet
+├─ init                     create the .ai skeleton              available
+├─ status                   project, branch, phase, current task, changes   TASK-013
+├─ doctor                   validate and diagnose context                  TASK-014
+├─ health                   transparent context metrics                     TASK-038
+├─ context                  assemble a context packet                       TASK-037
 │   ├─ show                 render the packet
 │   └─ explain              show the plan, scores, and drops
 ├─ plan                     produce an implementation plan for a task
-├─ task | memory | decision | bug | change | workflow | agent
-├─ ai | plugin | connect | disconnect
-├─ export | import
-└─ audit
-    ├─ show | verify | tail
+├─ task | memory | decision | bug | change | workflow | agent               TASK-055
+├─ ai | plugin              plugin management                              TASK-077
+├─ connect | disconnect     configure or remove an integration              TASK-053
+├─ export | import          portable .ai archives                         TASK-020
+└─ audit                    audit log (show, verify, tail)                  TASK-075
 ```
+
+### `init`
+
+```sh
+aicontext init [--template default|rust|node|python|blank] [--dry-run] [--force] [--no-detect]
+```
+
+Creates the skeleton under `.ai/`, appends `.aicontext/` to `.gitignore` if it is not listed already,
+and writes nothing outside those two places. It never creates `.aicontext/` itself.
+
+| Flag | Effect |
+|------|--------|
+| `--template <name>` | `default` is the base skeleton; `rust`, `node`, and `python` add stack-specific conventions and architecture; `blank` writes only `AI.md` and `RULES.md`. |
+| `--dry-run` | Print the plan and write nothing. |
+| `--force` | Replace documents that differ from the template. Refuses with exit 5 when stdout is not a terminal, because an absent human is a deny. |
+| `--no-detect` | Skip discovery, so no stack hints are reported. |
+
+Global flags apply: `--json`, `--quiet`, `-v`, `--color`, `--no-color`, `--cwd`, `--config`,
+`--offline`, `--yes`, and `--version`.
+
+Discovery is advisory. `init` reports the files it saw at the top level — `Cargo.toml`, `package.json`,
+`pyproject.toml`, Terraform — as hints, records them in `.ai/context/stack.md`, and chooses no template
+for you. `AI.md` states the obligations it cannot enforce; everything else in `.ai/` is a starting
+point, and the first useful edit is `.ai/RULES.md`.
 
 Every command works without a TTY, has a documented exit code, and supports `--json`. Read
 commands never touch the network, and anything that writes supports `--dry-run`.

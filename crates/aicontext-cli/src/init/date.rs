@@ -28,24 +28,32 @@ impl Date {
 
     /// The date `days` days after 1970-01-01, where a negative value is before the epoch.
     ///
-    /// The year is shifted to start in March, which puts the leap day last and makes the month
-    /// lengths irrelevant to the arithmetic. This is Howard Hinnant's `civil_from_days`, and the
-    /// expected dates in this module's tests were computed independently of it.
+    /// The year is shifted to start in March, which puts the leap day last and makes the month lengths
+    /// irrelevant to the arithmetic. This is Howard Hinnant's `civil_from_days`, and the expected dates in
+    /// this module's tests were computed independently of it.
+    ///
+    /// Everything after the era division is computed in `u32` because every value is bounded by
+    /// construction — `rem_euclid` cannot return a negative day of era, a year of era cannot exceed 399,
+    /// and a day of year cannot exceed 365. The one conversion from `i64` therefore cannot fail, and the
+    /// fallback is the value that keeps the arithmetic total rather than a guess at a date.
     pub(crate) fn from_days_since_epoch(days: i64) -> Self {
         let shifted = days + 719_468;
         let era = shifted.div_euclid(146_097);
-        let day_of_era = shifted.rem_euclid(146_097);
+        let day_of_era = u32::try_from(shifted.rem_euclid(146_097)).unwrap_or(0);
+
         let year_of_era =
             (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-        let year = year_of_era + era * 400;
+        let year = i64::from(year_of_era) + era * 400;
+
         let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
         let shifted_month = (5 * day_of_year + 2) / 153;
-        let day = (day_of_year - (153 * shifted_month + 2) / 5 + 1) as u32;
+        let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
         let month = if shifted_month < 10 {
             shifted_month + 3
         } else {
             shifted_month - 9
-        } as u32;
+        };
+
         let year = if month <= 2 { year + 1 } else { year };
         Self { year, month, day }
     }
@@ -56,12 +64,12 @@ impl Date {
 /// UTC rather than local time because the value is written into a committed document: a date that
 /// depends on the developer's machine makes two clones of one repository differ for no reason.
 pub(crate) fn today_utc() -> Result<Date, InitError> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| {
-        InitError::UnusableRoot {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| InitError::UnusableRoot {
             path: "the system clock".to_string(),
             reason: format!("it reads before 1970 ({error})"),
-        }
-    })?;
+        })?;
     let days = i64::try_from(elapsed.as_secs() / 86_400).map_err(|_| InitError::UnusableRoot {
         path: "the system clock".to_string(),
         reason: "its value does not fit in a date".to_string(),
@@ -81,7 +89,11 @@ mod tests {
             (1, "1970-01-02"),
             (59, "1970-03-01"),
         ] {
-            assert_eq!(Date::from_days_since_epoch(days).iso(), expected, "day {days}");
+            assert_eq!(
+                Date::from_days_since_epoch(days).iso(),
+                expected,
+                "day {days}"
+            );
         }
     }
 
@@ -120,7 +132,11 @@ mod tests {
             (18_992, "2021-12-31"),
             (18_993, "2022-01-01"),
         ] {
-            assert_eq!(Date::from_days_since_epoch(days).iso(), expected, "day {days}");
+            assert_eq!(
+                Date::from_days_since_epoch(days).iso(),
+                expected,
+                "day {days}"
+            );
         }
     }
 

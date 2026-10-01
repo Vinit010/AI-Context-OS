@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-01
 ---
 
 # MEMORY
@@ -311,6 +311,50 @@ planting a reference in `error.rs` and confirming the test failed, rather than b
 
 ---
 
+## MEM-013 - `init` decides first, writes second, and re-reads third
+
+```yaml
+id: MEM-013
+category: decision
+scope: project
+status: active
+created: 2026-10-01
+tags: [init, idempotence, templates, cli]
+```
+
+The skeleton is built by three separate passes. `plan` compares the rendered templates against the
+filesystem and produces one entry per path with an action; `apply` writes only the entries that carry
+a write; `validate` re-reads what was written and compares it. `--dry-run` stops after `plan`, which
+is why it cannot disagree with a real run about what would happen.
+
+The reason is that idempotence is a property of the comparison, not of the writer. Byte equality
+against the rendered template answers "would this file change?", which is the only question that
+matters for a second run. Anything cleverer - timestamps, front-matter identity, content hashes -
+would be a second definition of sameness that could disagree with the first.
+
+Two consequences are worth keeping. An edited document is preserved and reported as `CTX-017`,
+because the tool did not write it and has no claim to have the last word. And `--force` refuses to
+overwrite anything unless stdout is a terminal: overwriting a developer's own rules is a decision, and
+`--yes` is explicitly not that decision. The test for this is the non-terminal run exiting 5.
+
+Templates are embedded with `include_str!` rather than read at runtime. There is no template
+installation step, no path resolution, no "template not found" error, and the binary is
+self-contained, which matters for a tool whose whole promise is that the knowledge is in the
+repository. The cost is that editing a template means rebuilding; that is the right trade for a set
+of files that changes a few times a year.
+
+Discovery stayed a `Signal { kind, value, evidence }` list instead of a typed `ProjectProfile`. The
+evidence file is reported to the user and recorded in `context/stack.md`, so a wrong hint is
+attributable and correctable by hand. The typed profile is `TASK-030`, where it can be built on
+evidence rather than guessed at from four file extensions.
+
+Manual verification caught two defects the automated suite did not: `canonicalize` answers in the
+Windows verbatim `\\?\` form, so every path in the report read `//?/C:/work/project`, and the counts
+line pluralised `directory` into `directorys`. Both were cosmetic and both would have shipped,
+because every test asserted on the action list rather than on the prose. Tests for each now exist.
+
+---
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
@@ -326,5 +370,9 @@ planting a reference in `error.rs` and confirming the test failed, rather than b
 
 ## Bugs encountered
 
-None yet. Record under `MEM-0NN` with `category: bug` when the first one appears, and always file
-the full root-cause analysis under `.ai/bugs/BUG-NNN.md`.
+None shipped. Two defects were found by running the binary against a scratch project before TASK-012
+was closed, both recorded under `MEM-013`: reported paths carried the Windows verbatim `\\?\` prefix,
+and the counts line said `directorys`. Both are fixed and covered by tests.
+
+Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
+root-cause analysis under `.ai/bugs/BUG-NNN.md`.

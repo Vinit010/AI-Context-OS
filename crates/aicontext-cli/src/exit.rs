@@ -18,6 +18,11 @@ pub(crate) enum Exit {
     /// Approval was required and not granted, including every non-interactive case.
     ApprovalRequired,
     /// A bug. Reserved, and carries a bug reference when one exists.
+    ///
+    /// Part of the published table in `docs/CLI_SPEC.md` §5, so it is defined even though no command
+    /// can produce it yet. A future command reaching for it means the error type is missing, which is
+    /// exactly when the code should already exist.
+    #[allow(dead_code, reason = "a published exit code no command produces yet")]
     Internal,
 }
 
@@ -81,7 +86,11 @@ mod tests {
         ];
         for (index, exit) in all.iter().enumerate() {
             for other in &all[index + 1..] {
-                assert_ne!(exit.code(), other.code(), "{exit:?} and {other:?} share a code");
+                assert_ne!(
+                    exit.code(),
+                    other.code(),
+                    "{exit:?} and {other:?} share a code"
+                );
             }
         }
     }

@@ -9,13 +9,20 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use clap::{Args, Parser, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::init::templates::TemplateName;
 
 /// Global flags, accepted before or after the subcommand (`docs/CLI_SPEC.md` §8 puts `--json` after
 /// it), and scoped here so they never reach a command that has not asked for them.
-#[derive(Debug, Args)]
+///
+/// `Default` is what `clap` builds for a command line that passes no global flags, and what the tests
+/// start from so each one states only the flag it is about.
+// The lint is wrong here: these are independent switches a developer either passes or does not, and
+// there is no state to be in. Collapsing them into a state machine would invent combinations no
+// invocation can reach.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Args, Default)]
 pub(crate) struct GlobalArgs {
     /// Emit a single JSON object to stdout; all human text goes to stderr.
     #[arg(long, global = true)]
@@ -30,7 +37,10 @@ pub(crate) struct GlobalArgs {
     pub(crate) verbose: u8,
 
     /// Disable colour. Also honoured: `NO_COLOR`, `AICON_TEXT_NO_COLOR`, a non-TTY stdout.
-    #[arg(long, global = true, conflicts_with = "color")]
+    ///
+    /// Not declared as conflicting with `--color`: a developer who types both almost always means
+    /// this one, and failing the run over it would be pedantry about a preference, not a safety check.
+    #[arg(long, global = true)]
     pub(crate) no_color: bool,
 
     /// Force colour behaviour instead of auto-detecting it.
@@ -77,10 +87,13 @@ pub(crate) enum ColorChoice {
 }
 
 /// The parsed command line.
+///
+/// `--version` is deliberately absent from this struct and handled from the raw arguments in `main`:
+/// it must work without a subcommand, and it prints three lines rather than one, so `clap`'s built-in
+/// action is disabled instead of being allowed to answer first.
 #[derive(Debug, Parser)]
 #[command(
     name = "aicontext",
-    version,
     disable_version_flag = true,
     override_help = HELP,
     subcommand_required = true,
@@ -142,25 +155,101 @@ pub(crate) struct PendingCommand {
 /// `init` is deliberately absent: it is implemented. A command here exits 2 with the code below and
 /// names its task, which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
-    PendingCommand { name: "status", task: Some("TASK-013"), summary: "Project, branch, phase, current task, changes" },
-    PendingCommand { name: "doctor", task: Some("TASK-014"), summary: "Validate and diagnose context" },
-    PendingCommand { name: "health", task: Some("TASK-038"), summary: "Transparent context metrics" },
-    PendingCommand { name: "context", task: Some("TASK-037"), summary: "Assemble a context packet (show, explain)" },
-    PendingCommand { name: "plan", task: None, summary: "Produce an implementation plan for a task" },
-    PendingCommand { name: "task", task: None, summary: "Task management" },
-    PendingCommand { name: "memory", task: None, summary: "Memory register" },
-    PendingCommand { name: "decision", task: None, summary: "Architecture decision records" },
-    PendingCommand { name: "bug", task: None, summary: "Bug memory" },
-    PendingCommand { name: "change", task: None, summary: "Change history" },
-    PendingCommand { name: "workflow", task: None, summary: "Run a documented workflow" },
-    PendingCommand { name: "agent", task: Some("TASK-055"), summary: "Agent profiles and runs (plan mode only)" },
-    PendingCommand { name: "ai", task: None, summary: "Provider configuration" },
-    PendingCommand { name: "plugin", task: Some("TASK-077"), summary: "Plugin management" },
-    PendingCommand { name: "connect", task: Some("TASK-053"), summary: "Configure a provider or integration" },
-    PendingCommand { name: "disconnect", task: None, summary: "Remove a stored reference" },
-    PendingCommand { name: "export", task: Some("TASK-020"), summary: "Export `.ai` as a portable archive" },
-    PendingCommand { name: "import", task: Some("TASK-020"), summary: "Import and verify an archive" },
-    PendingCommand { name: "audit", task: Some("TASK-075"), summary: "Audit log (show, verify, tail)" },
+    PendingCommand {
+        name: "status",
+        task: Some("TASK-013"),
+        summary: "Project, branch, phase, current task, changes",
+    },
+    PendingCommand {
+        name: "doctor",
+        task: Some("TASK-014"),
+        summary: "Validate and diagnose context",
+    },
+    PendingCommand {
+        name: "health",
+        task: Some("TASK-038"),
+        summary: "Transparent context metrics",
+    },
+    PendingCommand {
+        name: "context",
+        task: Some("TASK-037"),
+        summary: "Assemble a context packet (show, explain)",
+    },
+    PendingCommand {
+        name: "plan",
+        task: None,
+        summary: "Produce an implementation plan for a task",
+    },
+    PendingCommand {
+        name: "task",
+        task: None,
+        summary: "Task management",
+    },
+    PendingCommand {
+        name: "memory",
+        task: None,
+        summary: "Memory register",
+    },
+    PendingCommand {
+        name: "decision",
+        task: None,
+        summary: "Architecture decision records",
+    },
+    PendingCommand {
+        name: "bug",
+        task: None,
+        summary: "Bug memory",
+    },
+    PendingCommand {
+        name: "change",
+        task: None,
+        summary: "Change history",
+    },
+    PendingCommand {
+        name: "workflow",
+        task: None,
+        summary: "Run a documented workflow",
+    },
+    PendingCommand {
+        name: "agent",
+        task: Some("TASK-055"),
+        summary: "Agent profiles and runs (plan mode only)",
+    },
+    PendingCommand {
+        name: "ai",
+        task: None,
+        summary: "Provider configuration",
+    },
+    PendingCommand {
+        name: "plugin",
+        task: Some("TASK-077"),
+        summary: "Plugin management",
+    },
+    PendingCommand {
+        name: "connect",
+        task: Some("TASK-053"),
+        summary: "Configure a provider or integration",
+    },
+    PendingCommand {
+        name: "disconnect",
+        task: None,
+        summary: "Remove a stored reference",
+    },
+    PendingCommand {
+        name: "export",
+        task: Some("TASK-020"),
+        summary: "Export `.ai` as a portable archive",
+    },
+    PendingCommand {
+        name: "import",
+        task: Some("TASK-020"),
+        summary: "Import and verify an archive",
+    },
+    PendingCommand {
+        name: "audit",
+        task: Some("TASK-075"),
+        summary: "Audit log (show, verify, tail)",
+    },
 ];
 
 /// Looks up a command name in the pending tree.
@@ -238,13 +327,11 @@ Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its
 
 #[cfg(test)]
 mod tests {
-    use super::{ColorChoice, GlobalArgs, first_command_word, pending};
+    use super::{Cli, ColorChoice, GlobalArgs, first_command_word, pending};
     use clap::Parser;
 
     fn parse(args: &[&str]) -> GlobalArgs {
-        Cli::try_parse_from(args)
-            .expect("arguments parse")
-            .global
+        Cli::try_parse_from(args).expect("arguments parse").global
     }
 
     #[test]
@@ -256,6 +343,7 @@ mod tests {
 
     #[test]
     fn a_flag_that_takes_a_value_does_not_swallow_the_command_word() {
+        // The program name is skipped, exactly as `main` skips it.
         let args = vec![
             os("aicontext"),
             os("--color"),
@@ -264,16 +352,27 @@ mod tests {
             os("--cwd"),
             os("/tmp/x"),
         ];
-        assert_eq!(first_command_word(args).as_deref(), Some("init"));
+        assert_eq!(
+            first_command_word(args.into_iter().skip(1)).as_deref(),
+            Some("init")
+        );
     }
 
     #[test]
     fn a_leading_command_word_is_found_past_the_flags() {
         assert_eq!(
-            first_command_word(vec![os("aicontext"), os("--json"), os("doctor")]).as_deref(),
+            first_command_word(
+                vec![os("aicontext"), os("--json"), os("doctor")]
+                    .into_iter()
+                    .skip(1)
+            )
+            .as_deref(),
             Some("doctor")
         );
-        assert_eq!(first_command_word(vec![os("aicontext")]), None);
+        assert_eq!(
+            first_command_word(vec![os("aicontext")].into_iter().skip(1)),
+            None
+        );
     }
 
     #[test]
@@ -285,16 +384,24 @@ mod tests {
     }
 
     #[test]
-    fn every_planned_command_names_its_task_or_says_it_is_unscheduled() {
+    fn every_pending_command_appears_in_the_help_text() {
         for command in super::PENDING {
             assert!(!command.name.is_empty());
-            assert!(!command.summary.is_empty());
             assert!(
-                command.task.is_some() || command.summary.contains("register"),
-                "{} has no task and no explanation",
+                !command.summary.is_empty(),
+                "{} has no explanation",
+                command.name
+            );
+            assert!(
+                super::HELP.contains(command.name),
+                "{} is in the pending tree but missing from --help",
                 command.name
             );
         }
+        assert!(
+            super::HELP.contains("available"),
+            "the help must say what works today"
+        );
     }
 
     #[test]

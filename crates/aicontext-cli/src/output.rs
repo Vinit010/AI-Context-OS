@@ -115,24 +115,26 @@ pub(crate) struct Terminal {
     style: Style,
     verbosity: Verbosity,
     glyphs: Glyphs,
-    is_terminal: bool,
+    /// Whether stdout is a terminal, which decides both glyphs and the `--force` approval.
+    interactive: bool,
 }
 
 impl Terminal {
     /// Wires a terminal to the process's own streams.
     pub(crate) fn process(verbosity: Verbosity, color: crate::args::ColorChoice) -> Self {
-        let is_terminal = io::stdout().is_terminal();
+        let interactive = io::stdout().is_terminal();
         Self {
             stdout: Box::new(io::stdout()),
             stderr: Box::new(io::stderr()),
-            style: Style::decide(color, is_terminal),
+            style: Style::decide(color, interactive),
             verbosity,
-            glyphs: Glyphs::decide(is_terminal),
-            is_terminal,
+            glyphs: Glyphs::decide(interactive),
+            interactive,
         }
     }
 
     /// Wires a terminal to in-memory sinks, so a renderer can be asserted on directly.
+    #[cfg(test)]
     pub(crate) fn sink(
         stdout: Box<dyn Write>,
         stderr: Box<dyn Write>,
@@ -145,13 +147,13 @@ impl Terminal {
             style: Style::decide(color, is_terminal),
             verbosity: Verbosity::Normal,
             glyphs: Glyphs::decide(is_terminal),
-            is_terminal,
+            interactive: is_terminal,
         }
     }
 
     /// Whether anything was written to a real terminal, which `--force` needs in order to prompt.
     pub(crate) fn is_terminal(&self) -> bool {
-        self.is_terminal
+        self.interactive
     }
 
     /// Whether rows are printed at all under the current verbosity.
@@ -162,11 +164,6 @@ impl Terminal {
     /// One line of human output. stdout when it is the result, stderr when it is a diagnostic.
     pub(crate) fn say(&mut self, line: &str) {
         let _ = writeln!(self.stdout, "{line}");
-    }
-
-    /// A diagnostic. Never stdout, so `--json` output stays a single parsable object.
-    pub(crate) fn note(&mut self, line: &str) {
-        let _ = writeln!(self.stderr, "{line}");
     }
 
     /// The identity line, first on every run (`.ai/DESIGN.md` §6).
@@ -181,6 +178,26 @@ impl Terminal {
         self.say("");
     }
 
+    /// A coloured "this worked" mark, in Unicode or ASCII depending on the output stream.
+    pub(crate) fn mark_ok(&self) -> String {
+        self.style.ok(self.glyphs.ok())
+    }
+
+    /// A coloured "look at this" mark.
+    pub(crate) fn mark_warn(&self) -> String {
+        self.style.warn(self.glyphs.warn())
+    }
+
+    /// A coloured "this failed" mark.
+    pub(crate) fn mark_error(&self) -> String {
+        self.style.error(self.glyphs.error())
+    }
+
+    /// An uncoloured informational mark.
+    pub(crate) fn mark_info(&self) -> String {
+        self.glyphs.info().to_string()
+    }
+
     /// A column-aligned row: a glyph, a fixed-width state word, then the message.
     pub(crate) fn row(&mut self, glyph: &str, state: &str, message: &str) {
         if !self.shows_rows() {
@@ -192,9 +209,11 @@ impl Terminal {
 
     /// The closing line: counts, the exit code, and the next command.
     pub(crate) fn summary(&mut self, counts: &str, exit: crate::exit::Exit, next: &str) {
-        let code = self.style.dim(&format!("exit {}", exit.code()));
+        let code = self
+            .style
+            .dim(&format!("exit {} {}", exit.code(), exit.name()));
         let line = if counts.is_empty() {
-            format!("{code}")
+            code.clone()
         } else {
             format!("{counts}  {code}")
         };
@@ -219,6 +238,15 @@ impl Terminal {
         let text = serde_json::to_string_pretty(value)?;
         self.say(&text);
         Ok(())
+    }
+
+    /// Flushes both streams at the end of a run.
+    ///
+    /// A line buffered in the process is lost when the process exits, so a report that was composed
+    /// and never flushed looks like a command that printed nothing.
+    pub(crate) fn flush(&mut self) {
+        let _ = self.stdout.flush();
+        let _ = self.stderr.flush();
     }
 }
 
@@ -330,7 +358,13 @@ mod tests {
     fn an_envelope_carries_the_published_fields() {
         let findings = vec![
             Finding::new("CTX-002", "error", ".ai/RULES.md", "bad block", "fix it"),
-            Finding::new("CTX-006", "warning", ".ai/PRD.md", "unknown key", "remove it"),
+            Finding::new(
+                "CTX-006",
+                "warning",
+                ".ai/PRD.md",
+                "unknown key",
+                "remove it",
+            ),
         ];
         let body = envelope(
             "init",

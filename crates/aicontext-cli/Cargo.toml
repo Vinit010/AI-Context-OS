@@ -26,4 +26,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 aicontext-testkit = { path = "../aicontext-testkit" }
+# Integration tests are their own crate, so a dependency they use must be a dev-dependency even when
+# the binary already uses it. Asserting on the JSON envelope needs a parser.
+serde_json = { workspace = true }
 tempfile = { workspace = true }

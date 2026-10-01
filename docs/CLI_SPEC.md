@@ -82,18 +82,26 @@ Phase availability is printed by `aicontext --help`; a command not yet implement
 
 ### `aicontext init`
 
-Creates the `.ai/` skeleton, copies `schemas/` into `.ai/schemas/`, and adds `.aicontext/` to
-`.gitignore`.
+Creates the `.ai/` skeleton, creates `.ai/schemas/`, and adds `.aicontext/` to `.gitignore`. It never
+creates `.aicontext/` itself: the entry exists so the directory is ignored once another command
+creates it.
 
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Print the plan; write nothing |
-| `--force` | Overwrite existing documents (destructive; prompts) |
+| `--force` | Overwrite existing documents that differ from the template. Requires an interactive terminal; refuses with exit 5 otherwise |
 | `--no-detect` | Skip project discovery |
 | `--template <name>` | Start from a template (`default`, `rust`, `node`, `python`, `blank`) |
 
 Guarantees: idempotent; never overwrites an edited document without `--force`; never modifies
 anything outside `.ai/` and `.gitignore`; validates its own output and reports the next commands.
+
+`--force` is deliberately not a second confirmation prompt. Approval requires a human, and a human
+who typed `--force` at a terminal is the approval; `Q-4` leaves the prompt *mechanism* undecided
+(`TASK-072`), so `init` does not invent one. `--yes` never satisfies this check.
+
+Schemas are not yet materialised into `.ai/schemas/`; the directory is created empty. No schema
+exists to copy until `TASK-015` defines the set, so the copy step is deferred rather than faked.
 
 ### `aicontext status`
 

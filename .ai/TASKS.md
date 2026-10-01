@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-01
 ---
 
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-012
+**Current task:** TASK-015
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -195,7 +195,7 @@ done:
 ```yaml
 id: TASK-012
 title: Implement aicontext init
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 1
 depends_on: [TASK-011, TASK-016]
@@ -207,6 +207,28 @@ acceptance:
   - Idempotent: re-running does not overwrite an edited document
   - --dry-run prints the plan; --json emits the created path list
   - Validates its own output and reports the next commands
+done:
+  - Four templates embedded with include_str!: default, plus rust, node, and python overlays, plus
+    blank, which writes only AI.md and RULES.md
+  - The default tree is eight documents, context/stack.md, permissions/permissions.yaml, and nine
+    register directories, all rendered with the project name and today's UTC date
+  - Writes are confined to .ai/ and one appended .gitignore entry; .aicontext/ is listed, never created
+  - Discovery is presence-based and advisory, reported with its evidence file, and recorded only in
+    context/stack.md; no project file is rewritten and no template is chosen from what was found
+  - Idempotence is byte equality against the rendered template; an edited document is preserved and
+    reported as CTX-017, and --force replaces it only after an interactive approval
+  - --force refuses with exit 5 when stdout is not a terminal, and --yes never satisfies that check
+  - --dry-run prints the plan and writes nothing; --json emits one envelope with data, findings, and
+    warnings, so a preserved edit is both listed and counted
+  - The run validates what it wrote and prints the next command; a mismatch exits 3
+  - Unimplemented commands exit 2 naming their task instead of failing through clap's usage error
+  - Dependencies added: clap, serde, and serde_json for the command tree and the published envelope,
+    each pre-justified in ARCHITECTURE.md 2.2, plus serde_json and tempfile for the tests
+  - 74 unit tests and 23 end-to-end tests in the crate, the workspace suite, fmt, clippy -D warnings,
+    cargo audit, and the MSRV check all passing
+  - Carried forward: docs/CONTEXT_SPEC.md still shows ARCH-NNN, TASKS-NNN, and MEMORY-REG as valid
+    document ids, which core rejects. Recorded under TASK-011; the spec wording is the defect, and
+    fixing it is a documentation task, not a code change
 ```
 
 ### TASK-013 — Implement aicontext status
