@@ -113,6 +113,8 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Create the `.ai` skeleton. Writes inside `.ai/` and one `.gitignore` entry, nothing else.
     Init(InitArgs),
+    /// Report what is wrong with this `.ai/` tree and what to do about it. Writes nothing.
+    Doctor(DoctorArgs),
 }
 
 /// `aicontext init`.
@@ -139,6 +141,73 @@ pub(crate) struct InitArgs {
     pub(crate) template: TemplateName,
 }
 
+/// Rejects a blank value at the parser, where a usage error belongs.
+///
+/// `--only ""` would otherwise be a filter that matches nothing and exits 0, which reads exactly like
+/// a clean project. Refusing it at the edge is the only place a developer can still be told they
+/// asked the wrong question.
+fn code_or_prefix(text: &str) -> Result<String, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("give a check code such as CTX-007".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+/// `aicontext doctor`.
+///
+/// Reads the `.ai/` tree, reports what does not line up with `docs/CONTEXT_SPEC.md`, and exits 3 if
+/// any finding is an error. It writes nothing: the only version that does is `init`, and a check that
+/// repairs itself cannot be trusted to report the damage.
+#[derive(Debug, Args)]
+pub(crate) struct DoctorArgs {
+    /// Treat warnings as errors, so the command fails a pipeline.
+    #[arg(long)]
+    pub(crate) strict: bool,
+
+    /// Explain one check code and exit, without examining the project.
+    #[arg(long, value_name = "CODE", value_parser = code_or_prefix)]
+    pub(crate) explain: Option<String>,
+
+    /// Run only the checks whose code starts with this prefix, for example `CTX-01`.
+    #[arg(long, value_name = "PREFIX", value_parser = code_or_prefix)]
+    pub(crate) only: Option<String>,
+
+    /// Discard the index cache and rebuild it. Accepted in v1 with a report saying it did nothing,
+    /// because the cache itself arrives with TASK-031.
+    #[arg(long)]
+    pub(crate) rebuild_index: bool,
+}
+
+impl Default for DoctorArgs {
+    /// No flags, which is what every test needs before it sets one.
+    fn default() -> Self {
+        Self {
+            strict: false,
+            explain: None,
+            only: None,
+            rebuild_index: false,
+        }
+    }
+}
+
+impl DoctorArgs {
+    /// Whether a code is in `--only`'s selection.
+    ///
+    /// A prefix rather than an exact code, so `--only CTX-01` can ask for a family of checks at once.
+    /// An empty or nonsensical prefix therefore selects nothing and reports nothing: a filter that
+    /// matched everything would be a silent way to believe you had narrowed the run.
+    pub(crate) fn selects(&self, code: &str) -> bool {
+        match self.only.as_deref() {
+            None => true,
+            Some(prefix) => {
+                let prefix = prefix.trim().to_uppercase();
+                !prefix.is_empty() && code.to_uppercase().starts_with(&prefix)
+            }
+        }
+    }
+}
+
 /// A command in the §3 tree that is specified but not built yet.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PendingCommand {
@@ -159,11 +228,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         name: "status",
         task: Some("TASK-013"),
         summary: "Project, branch, phase, current task, changes",
-    },
-    PendingCommand {
-        name: "doctor",
-        task: Some("TASK-014"),
-        summary: "Validate and diagnose context",
     },
     PendingCommand {
         name: "health",
@@ -288,10 +352,11 @@ Usage: aicontext <command> [flags]
 
 Commands:
   init                     Create the .ai skeleton                     available
+  doctor                   Report what is wrong with .ai/ and how to fix it
+                                                             available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   status                   Project, branch, phase, current task, changes        TASK-013
-  doctor                   Validate and diagnose context                         TASK-014
   health                   Transparent context metrics                            TASK-038
   context                  Assemble a context packet (show, explain)             TASK-037
   plan                     Produce an implementation plan for a task
@@ -323,12 +388,25 @@ init flags:
       --no-detect          Skip project discovery
       --template <name>    default | rust | node | python | blank
 
+doctor flags:
+      --strict             Treat warnings as errors
+      --explain <code>     Explain one check code and exit; no project is read
+      --only <prefix>      Run only checks whose code starts with <prefix>
+      --rebuild-index      Accepted in v1; reports that the cache does not exist yet
+
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, ColorChoice, GlobalArgs, first_command_word, pending};
+    use super::{
+        Cli, ColorChoice, Command, DoctorArgs, GlobalArgs, code_or_prefix, first_command_word,
+        pending,
+    };
     use clap::Parser;
+
+    fn os(text: &str) -> std::ffi::OsString {
+        std::ffi::OsString::from(text)
+    }
 
     fn parse(args: &[&str]) -> GlobalArgs {
         Cli::try_parse_from(args).expect("arguments parse").global
@@ -406,12 +484,111 @@ mod tests {
 
     #[test]
     fn a_pending_command_is_found_by_name() {
-        assert_eq!(pending("doctor").map(|c| c.task), Some(Some("TASK-014")));
+        assert_eq!(pending("status").map(|c| c.task), Some(Some("TASK-013")));
         assert!(pending("init").is_none());
+        assert!(
+            pending("doctor").is_none(),
+            "doctor is implemented, so it must not also be pending"
+        );
         assert!(pending("nonsense").is_none());
     }
 
-    fn os(text: &str) -> std::ffi::OsString {
-        std::ffi::OsString::from(text)
+    #[test]
+    fn doctor_flags_parse_and_their_defaults_are_off() {
+        let Cli {
+            command: Command::Doctor(doctor),
+            ..
+        } = Cli::try_parse_from(["aicontext", "doctor"]).expect("doctor parses")
+        else {
+            panic!("expected the doctor command");
+        };
+        assert!(!doctor.strict);
+        assert_eq!(doctor.explain, None);
+        assert_eq!(doctor.only, None);
+        assert!(!doctor.rebuild_index);
+
+        let Cli {
+            command:
+                Command::Doctor(DoctorArgs {
+                    strict,
+                    explain,
+                    only,
+                    rebuild_index,
+                }),
+            ..
+        } = Cli::try_parse_from([
+            "aicontext",
+            "doctor",
+            "--strict",
+            "--explain",
+            "CTX-007",
+            "--only",
+            "CTX-01",
+            "--rebuild-index",
+        ])
+        .expect("every doctor flag parses")
+        else {
+            panic!("expected the doctor command");
+        };
+        assert!(strict && rebuild_index);
+        assert_eq!(explain.as_deref(), Some("CTX-007"));
+        assert_eq!(only.as_deref(), Some("CTX-01"));
+    }
+
+    #[test]
+    fn only_takes_a_prefix_so_a_family_of_checks_can_be_asked_for_at_once() {
+        let mut doctor = DoctorArgs::default();
+        doctor.only = Some("CTX-01".to_string());
+        assert!(
+            doctor.selects("CTX-012"),
+            "a prefix selects a family, not one code"
+        );
+        assert!(doctor.selects("CTX-018"));
+        assert!(
+            !doctor.selects("CTX-007"),
+            "CTX-007 does not start with CTX-01"
+        );
+        assert!(!doctor.selects("CTX-001"));
+        assert!(!doctor.selects("PRD-001"));
+
+        doctor.only = Some("ctx-01".to_string());
+        assert!(
+            doctor.selects("CTX-012"),
+            "the catalogue spells codes uppercase; typing them otherwise is the same request"
+        );
+
+        doctor.only = Some("CTX-0".to_string());
+        assert!(doctor.selects("CTX-001"));
+        assert!(doctor.selects("CTX-002"));
+        assert!(doctor.selects("CTX-007"));
+        assert!(doctor.selects("CTX-012"));
+
+        doctor.only = Some("CTX-007".to_string());
+        assert!(doctor.selects("CTX-007"));
+        assert!(!doctor.selects("CTX-012"));
+
+        doctor.only = Some("  ".to_string());
+        assert!(
+            !doctor.selects("CTX-012"),
+            "a blank filter selects nothing, rather than everything"
+        );
+    }
+
+    #[test]
+    fn a_blank_code_or_prefix_is_refused_at_the_parser() {
+        // `--only ""` would otherwise run nothing and exit 0, which is indistinguishable from a clean
+        // project; the parser is the only place that can still say the question was malformed.
+        for flag in ["--only", "--explain"] {
+            assert!(
+                Cli::try_parse_from(["aicontext", "doctor", flag, "   "]).is_err(),
+                "{flag} \"\" must be a usage error"
+            );
+        }
+        assert_eq!(
+            code_or_prefix(" CTX-007 ").unwrap(),
+            "CTX-007",
+            "surrounding whitespace is trimmed rather than treated as part of the code"
+        );
+        assert!(code_or_prefix(" ").is_err());
     }
 }

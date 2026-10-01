@@ -288,6 +288,7 @@ fn lists_entry(text: &str) -> bool {
 mod tests {
     use super::{Action, GITIGNORE_ENTRY, build, lists_entry};
     use crate::init::date::Date;
+    use crate::init::error::InitError;
     use crate::init::templates::TemplateName;
     use std::fs;
     use std::path::Path;

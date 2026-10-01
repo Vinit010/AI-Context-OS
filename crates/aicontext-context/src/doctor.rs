@@ -361,6 +361,10 @@ fn check_documents(
             }
         }
 
+        // Remembered so a document that produced a finding is not also listed as checked. "ok" and
+        // "broken" in the same report would make the run impossible to read and impossible to trust.
+        let before = findings.len();
+
         check_entity_blocks(document, findings);
 
         let tasks = document
@@ -374,10 +378,12 @@ fn check_documents(
             (false, false) => "no front matter required".to_string(),
             (false, true) => "valid".to_string(),
         };
-        checked.push(Checked {
-            path: document.path.clone(),
-            note,
-        });
+        if findings.len() == before {
+            checked.push(Checked {
+                path: document.path.clone(),
+                note,
+            });
+        }
     }
 }
 
@@ -781,10 +787,18 @@ fn unreadable(relative: &str, reason: &str) -> Loaded {
 /// text begins with an entity ID (`docs/CONTEXT_SPEC.md` §2.1).
 fn inline_entities(text: &str) -> Vec<Entity> {
     let lines: Vec<&str> = text.lines().collect();
+    let fenced = fenced_lines(&lines);
     let mut entities = Vec::new();
     let mut index = 0;
 
     while index < lines.len() {
+        // A `#` inside a fenced block is a YAML comment or shell code, not a heading. Treating it as
+        // one would end the section early and hide the block that follows it — which is exactly what
+        // a `notes:` list in a task block looks like.
+        if fenced[index] {
+            index += 1;
+            continue;
+        }
         let Some((level, heading_id)) = entity_heading(lines[index]) else {
             index += 1;
             continue;
@@ -796,6 +810,25 @@ fn inline_entities(text: &str) -> Vec<Entity> {
     }
 
     entities
+}
+
+/// Which lines sit inside a fenced code block, as CommonMark counts them: a fence opens until the
+/// next fence of the same kind, and nothing inside is structure.
+///
+/// Only backtick fences, because that is what §2.1's `yaml` blocks are written with. A document that
+/// fences with `~~~` still has its entities found; its fences are simply not tracked, which is the
+/// conservative direction to be wrong in.
+fn fenced_lines(lines: &[&str]) -> Vec<bool> {
+    let mut inside = false;
+    lines
+        .iter()
+        .map(|line| {
+            let fenced = line.trim_start().starts_with("```");
+            let mask = inside;
+            inside = inside != fenced;
+            mask
+        })
+        .collect()
 }
 
 /// A heading that names an entity, as `(level, id)`.
@@ -816,12 +849,18 @@ fn entity_heading(line: &str) -> Option<(usize, String)> {
 }
 
 /// The line at which a heading's section ends: the next heading at the same or a higher level.
+///
+/// Headings inside a fenced code block do not count. CommonMark says a fence wins over a heading, and
+/// a `yaml` block carrying `# comments` would otherwise close its own section one line early.
 fn section_end(lines: &[&str], start: usize, level: usize) -> usize {
+    let fenced = fenced_lines(lines);
     let mut index = start + 1;
     while index < lines.len() {
-        if let Some((next_level, _)) = heading_level(lines[index]) {
-            if next_level <= level {
-                return index;
+        if !fenced[index] {
+            if let Some((next_level, _)) = heading_level(lines[index]) {
+                if next_level <= level {
+                    return index;
+                }
             }
         }
         index += 1;
@@ -884,48 +923,90 @@ fn block_entity(heading_id: String, block: Option<String>) -> Entity {
     }
 }
 
-/// The rationale for one check, or `None` when the code is not in the catalogue.
-#[must_use]
-pub fn explain(code: &str) -> Option<&'static str> {
-    match code {
-        "CTX-001" => Some(
+/// What `--explain` can say about a code.
+///
+/// Three answers rather than one, because the difference matters to a caller: a check that runs, a
+/// check this version does not run, and a code that is not a doctor check at all. Returning a single
+/// `Option<&str>` would force the caller to guess which of the three it had, and a caller that guesses
+/// wrong either reports a working check as unimplemented or promises one that does not exist.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Explanation {
+    /// The check runs in this version, and this is why it exists.
+    Implemented(&'static str),
+    /// The code is in the catalogue, this version does not run it, and this is what is missing.
+    Deferred(&'static str),
+    /// Nothing here knows the code.
+    Unknown,
+}
+
+impl Explanation {
+    /// The rationale, whichever of the three answers it is.
+    #[must_use]
+    pub const fn rationale(self) -> Option<&'static str> {
+        match self {
+            Self::Implemented(rationale) | Self::Deferred(rationale) => Some(rationale),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Whether the check runs in this version.
+    #[must_use]
+    pub const fn is_implemented(self) -> bool {
+        matches!(self, Self::Implemented(_))
+    }
+
+    /// Whether the code is not a doctor check at all, which is a usage error rather than an answer.
+    #[must_use]
+    pub const fn is_unknown(self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
+/// The rationale for one check, or [`Explanation::Unknown`] when the code is not in the catalogue.
+///
+/// Case-insensitive, because a code is uppercase in `docs/CONTEXT_SPEC.md` and a person typing
+/// `--explain ctx-007` has not made a different request than the one that is spelled out.
+pub fn explain(code: &str) -> Explanation {
+    let code = code.trim().to_uppercase();
+    match code.as_str() {
+        "CTX-001" => Explanation::Implemented(
             "AI.md is the file an agent reads first. Without it there is no project contract, so \
              every other check is describing a tree nobody has been told how to use.",
         ),
-        "CTX-002" => Some(
+        "CTX-002" => Explanation::Implemented(
             "Front matter is the only machine-read source of metadata; the Markdown body is never \
              parsed as structure. A document whose block is missing or malformed cannot be indexed, \
              referenced, or validated. Only AI.md and free-form notes are exempt.",
         ),
-        "CTX-007" => Some(
+        "CTX-007" => Explanation::Implemented(
             "The reference names an entity ID or a path under docs/ that does not exist. Either the \
              document is missing or the reference is wrong, and a reader who follows it is sent \
              nowhere. Fix the reference, or create what it points at.",
         ),
-        "CTX-012" => Some(
+        "CTX-012" => Explanation::Implemented(
             "The schema in .ai/schemas differs from the source this repository ships, so the project \
              is validating its documents against something CI never checked. Re-run init, or \
              re-apply your own changes deliberately.",
         ),
-        "CTX-013" => Some(
+        "CTX-013" => Explanation::Implemented(
             "ARCHITECTURE.md declares a language discovery did not observe. One of the two is \
              wrong: either the document describes a stack the repository does not have, or \
              discovery is missing the evidence. Both are worth fixing, so this is a warning.",
         ),
-        "CTX-014" => Some(
+        "CTX-014" => Explanation::Implemented(
             "A deprecated decision has no successor. A reader who finds it learns that a rule no \
              longer applies and not what replaced it, which is the worst state for a governance \
              document to be in.",
         ),
-        "CTX-018" => Some(
+        "CTX-018" => Explanation::Implemented(
             "A document past the 1 MiB maximum was not read, because loading it would be the wrong \
              answer to a file that is too large to load. Split it, or raise the cap; the checks below \
              it did not run.",
         ),
-        other => UNIMPLEMENTED
-            .iter()
-            .find(|(candidate, _)| *candidate == other)
-            .map(|(_, reason)| *reason),
+        other => match UNIMPLEMENTED.iter().find(|(candidate, _)| *candidate == other) {
+            Some((_, reason)) => Explanation::Deferred(reason),
+            None => Explanation::Unknown,
+        },
     }
 }
 
@@ -1445,6 +1526,32 @@ mod tests {
     }
 
     #[test]
+    fn a_hash_inside_a_yaml_block_is_a_comment_and_not_a_heading() {
+        // Found by running `doctor` over a scaffolded project: the `# On completion, replace...`
+        // comment in the task template ended its own section one line early, so the block the heading
+        // named was reported as missing. CommonMark says the fence wins, and a task block carrying
+        // `# comments` is the ordinary case rather than an edge.
+        let text = "### TASK-001 - One\n\n```yaml\nid: TASK-001\nstatus: TODO\n\
+                    # a comment that begins with a hash\ndone: []\n```\n";
+        let entities = inline_entities(text);
+        assert_eq!(entities.len(), 1, "one entity, one block");
+        assert!(
+            entities[0].had_block,
+            "the block is under its heading, comments and all"
+        );
+        assert_eq!(entities[0].heading_id, "TASK-001");
+    }
+
+    #[test]
+    fn a_heading_that_merely_appears_in_a_fenced_example_is_not_an_entity() {
+        // `TASKS.md` documents its own format with a fenced example. Reading the example as structure
+        // would report a phantom entity in every document that explains its own format.
+        let text = "## How to read this file\n\n```yaml\nid: TASK-NNN\nstatus: TODO\n```\n\n\
+                    ## Phase 1\n";
+        assert_eq!(inline_entities(text).len(), 0, "an example block is prose");
+    }
+
+    #[test]
     fn the_task_count_appears_in_the_ok_row() {
         let root = TempDir::new().expect("temp dir");
         // `root` is the temp directory for its whole life, and the path inside it for the rest of
@@ -1532,10 +1639,19 @@ mod tests {
             "CTX-014",
             "CTX-018",
         ] {
-            assert!(super::explain(code).is_some(), "{code} has no explanation");
+            assert!(
+                super::explain(code).is_implemented(),
+                "{code} runs, so it must have a rationale"
+            );
         }
-        assert!(super::explain("CTX-016").is_some(), "an absent check says why");
-        assert!(super::explain("CTX-999").is_none(), "an unknown code has nothing to say");
+        assert!(
+            super::explain("CTX-016").rationale().is_some(),
+            "an absent check says what is missing"
+        );
+        assert!(
+            super::explain("CTX-999").is_unknown(),
+            "a code that is not a check has nothing to say"
+        );
     }
 
     #[test]

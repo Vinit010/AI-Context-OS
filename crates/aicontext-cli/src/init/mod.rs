@@ -77,7 +77,7 @@ fn execute(
     global: &GlobalArgs,
     terminal: &mut Terminal,
 ) -> Result<Exit, error::InitError> {
-    let root = plan::resolve_root(global.cwd.as_deref())?;
+    let root = crate::project::resolve_root(global.cwd.as_deref())?;
     let today = date::today_utc()?;
     let plan = plan::build(root, args.template, today, !args.no_detect, args.force)?;
 
@@ -125,7 +125,7 @@ fn execute(
 fn data(plan: &Plan, dry_run: bool) -> InitData {
     InitData {
         project: plan.project_name.clone(),
-        root: plan::display(&plan.root),
+        root: crate::project::display(&plan.root),
         template: plan.template.as_str().to_string(),
         dry_run,
         date: plan.date.iso(),

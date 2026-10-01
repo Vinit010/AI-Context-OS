@@ -320,6 +320,24 @@ pub(crate) const SCHEMAS: &[TemplateFile] = &[
     },
 ];
 
+/// The embedded schema set as `(file name, bytes)` pairs, which is the shape CTX-012 compares against.
+///
+/// The name is taken from the template path rather than written out again, so a schema cannot be
+/// listed under one name and embedded from another.
+pub(crate) fn schema_sources() -> Vec<(&'static str, &'static str)> {
+    SCHEMAS
+        .iter()
+        .map(|file| {
+            let name = file
+                .path
+                .rsplit('/')
+                .next()
+                .expect("a template path always has a file name");
+            (name, file.text)
+        })
+        .collect()
+}
+
 const RUST: &[TemplateFile] = &[
     TemplateFile {
         path: ".ai/ARCHITECTURE.md",

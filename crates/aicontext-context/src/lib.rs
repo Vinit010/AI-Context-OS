@@ -30,7 +30,7 @@ mod error;
 mod frontmatter;
 mod value;
 
-pub use doctor::{Checked, Finding, Inputs, Report};
+pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
 pub use error::ContextError;
 pub use frontmatter::{DOCUMENT_MAX_BYTES, Document, FRONT_MATTER_MAX_BYTES, FrontMatter};
 pub use value::Value;

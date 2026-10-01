@@ -28,14 +28,14 @@ and this file becomes a generated index.
 
 ```yaml
 id: TASK-NNN
-title: <imperative summary>
+title: "<imperative summary>"
 status: TODO
 priority: HIGH          # CRITICAL | HIGH | MEDIUM | LOW
 phase: 1
 depends_on: [TASK-NNN]
 touches: []             # path globs this task is allowed to change
 acceptance:             # all must be true before the task is DONE
-  - <criterion>
+  - "<criterion>"
 ```
 
 **Legal status transitions.** Enforced by tooling and reported by `doctor`:
@@ -61,17 +61,18 @@ CANCELLED  → (terminal)
 
 ```yaml
 id: TASK-001
-title: <imperative summary>
+title: "<imperative summary>"
 status: TODO
 priority: CRITICAL
 phase: 1
 depends_on: []
 touches: []
 acceptance:
-  - <criterion a reviewer can check>
-  - <another one>
-done:
-  - *Filled in by whoever completes the task, listing what was actually delivered.*
+  - "<criterion a reviewer can check>"
+  - "<another one>"
+done: []
+# On completion, replace the empty list above with what was actually delivered, quoting any value
+# that starts with `*`, since YAML reads that as an alias rather than as text.
 ```
 
 ## Phase 2 — *name the phase*
