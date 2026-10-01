@@ -108,6 +108,17 @@ pub(crate) enum InitError {
     },
 }
 
+impl From<crate::project::ProjectError> for InitError {
+    /// The project root could not be resolved, reported under `init`'s own code.
+    ///
+    /// The resolution lives in `crate::project` because `doctor` needs the same answer, but the code
+    /// a developer reads belongs to the command they ran.
+    fn from(error: crate::project::ProjectError) -> Self {
+        let (path, reason) = error.into_parts();
+        Self::UnusableRoot { path, reason }
+    }
+}
+
 impl InitError {
     /// A stable code for this failure, independent of its wording.
     pub(crate) const fn code(&self) -> &'static str {

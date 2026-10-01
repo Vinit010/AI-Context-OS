@@ -48,6 +48,7 @@ dependencies = [
  "aicontext-core",
  "aicontext-testkit",
  "proptest",
+ "tempfile",
  "thiserror",
  "yaml_serde",
 ]

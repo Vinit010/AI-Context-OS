@@ -24,3 +24,6 @@ yaml_serde = { workspace = true }
 [dev-dependencies]
 aicontext-testkit = { path = "../aicontext-testkit" }
 proptest = { workspace = true }
+# Doctor's tests run against a real .ai/ tree on disk, because reading a directory is part of what
+# is being tested. Dev-only, same as everywhere else (ARCHITECTURE.md 2.2).
+tempfile = { workspace = true }

@@ -71,8 +71,8 @@ Human-readable body. Never parsed.
 
 1. The front-matter block is optional only for `AI.md` and free-form notes. Every other document
    requires `id`, `type`, and `title`.
-2. `id` must match the document's location convention and, for inline entities, the enclosing
-   level-2 heading. A mismatch is error `CTX-004`.
+2. `id` must match the document's location convention and, for inline entities, the enclosing entity
+   heading. A mismatch is error `CTX-004`.
 3. `type` must match the schema for that location. A mismatch is error `CTX-005`.
 4. Key order: `id`, `type`, `title`, `status`, type-specific keys, `created`, `updated`, `tags`.
 5. Unknown keys are **warnings** (`CTX-006`), not errors, so a newer schema does not break an older
@@ -105,12 +105,19 @@ status: IN_PROGRESS
 Body.
 ```
 
-The parser locates a level-2 heading, then takes the **first** fenced `yaml` block that follows it
+The parser locates the entity heading, then takes the **first** fenced `yaml` block that follows it
 within the heading's section. A missing or duplicated block is an error, not a guess.
+
+An entity heading is any Markdown heading whose text begins with a known entity ID — `TASK-`, `MEM-`,
+`ADR-`, `SPEC-`, `BUG-`, `CHG-` — and it may sit at **any** heading level. The level is deliberately
+not part of the rule: a register that documents itself has entity headings at one level and prose
+sections at another, and a parser that insisted on level 2 would silently skip every task in
+`TASKS.md` while reporting nothing. The heading text is read up to the first whitespace run, so the
+separator (`- `, `— `, or anything else) carries no meaning.
 
 The example above carries `type` and `title` because a *standalone* document has to. An inline entity
 takes its type from the `id` prefix — `TASK-` is a task, `MEM-` a memory entry, `ADR-` a decision —
-and its title from the level-2 heading. Repeating either inside the block would create a second place
+and its title from its entity heading. Repeating either inside the block would create a second place
 for the same fact to be wrong, and then `doctor` would be reporting a disagreement between a document
 and itself. So `type` is required for standalone files, where `CTX-005` checks it against the
 location's schema; for an inline entity `CTX-004` checks the prefix against the enclosing register

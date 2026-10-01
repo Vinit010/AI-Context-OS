@@ -1,4 +1,4 @@
-//! What `init` intends to do, decided before it does any of it.
+﻿//! What `init` intends to do, decided before it does any of it.
 //!
 //! A scaffolding command that edits as it discovers is the worst kind: a half-written `.ai/` leaves
 //! no record of what was intended. So planning and applying are separate, the plan is complete and
@@ -22,7 +22,7 @@ use super::render::Bindings;
 use super::templates::{TemplateName, resolve};
 
 /// The line `init` adds to `.gitignore`: local index state must never be committed
-/// (`docs/CLI_SPEC.md` §3.1).
+/// (`docs/CLI_SPEC.md` Â§3.1).
 const GITIGNORE_PATH: &str = ".gitignore";
 /// The line `init` adds, and the string validation looks for afterwards.
 pub(crate) const GITIGNORE_ENTRY: &str = ".aicontext/";
@@ -146,7 +146,7 @@ pub(crate) fn build(
     detect_stack: bool,
     force: bool,
 ) -> Result<Plan, InitError> {
-    let project_name = project_name(&root)?;
+    let project_name = crate::project::project_name(&root)?;
     let bindings = Bindings::new(&project_name, date, template);
     let template_name = template.as_str();
 
@@ -284,78 +284,9 @@ fn lists_entry(text: &str) -> bool {
     })
 }
 
-/// The project name taken from the root directory, which is where a developer expects it to come
-/// from.
-fn project_name(root: &Path) -> Result<String, InitError> {
-    let name = root
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    // `--cwd /srv/repos/project.git` names the repository, not the checkout directory.
-    let name = name.strip_suffix(".git").unwrap_or(&name).to_string();
-    if name.is_empty() || name == "." || name == ".." {
-        return Err(InitError::UnusableRoot {
-            path: display(root),
-            reason: "it has no directory name to take a project name from".to_string(),
-        });
-    }
-    Ok(name)
-}
-
-/// Resolves the project root from `--cwd` or the working directory, and proves it is a directory.
-pub(crate) fn resolve_root(cwd: Option<&Path>) -> Result<PathBuf, InitError> {
-    let candidate = match cwd {
-        Some(path) if path.is_absolute() => path.to_path_buf(),
-        Some(path) => std::env::current_dir()
-            .map_err(|error| InitError::UnusableRoot {
-                path: path.display().to_string(),
-                reason: format!("the working directory cannot be read ({error})"),
-            })?
-            .join(path),
-        None => std::env::current_dir().map_err(|error| InitError::UnusableRoot {
-            path: "the working directory".to_string(),
-            reason: format!("it cannot be read ({error})"),
-        })?,
-    };
-    if !candidate.exists() {
-        return Err(InitError::UnusableRoot {
-            path: display(&candidate),
-            reason: "it does not exist".to_string(),
-        });
-    }
-    if !candidate.is_dir() {
-        return Err(InitError::UnusableRoot {
-            path: display(&candidate),
-            reason: "it is a file, not a directory".to_string(),
-        });
-    }
-    candidate
-        .canonicalize()
-        .map_err(|error| InitError::UnusableRoot {
-            path: display(&candidate),
-            reason: format!("it cannot be resolved ({error})"),
-        })
-}
-
-/// A path in the spelling a person would type, with `/` separators.
-///
-/// `canonicalize` answers in the verbatim `\\?\` form on Windows, and a drive letter or a UNC share
-/// behind that prefix is a Win32 spelling detail rather than something a person wrote. Paths reach the
-/// filesystem as [`PathBuf`]s and are only spelled out here, so removing it cannot change what is
-/// written; it only stops the report from showing `//?/C:/work/project`.
-pub(crate) fn display(path: &Path) -> String {
-    let spelled = path.to_string_lossy();
-    let spelled = if let Some(unc) = spelled.strip_prefix(r"\\?\UNC\") {
-        return format!("//{unc}").replace('\\', "/");
-    } else {
-        spelled.strip_prefix(r"\\?\").unwrap_or(&spelled)
-    };
-    spelled.replace('\\', "/")
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Action, GITIGNORE_ENTRY, build, lists_entry, project_name, resolve_root};
+    use super::{Action, GITIGNORE_ENTRY, build, lists_entry};
     use crate::init::date::Date;
     use crate::init::templates::TemplateName;
     use std::fs;
@@ -404,37 +335,6 @@ mod tests {
                 .iter()
                 .any(|entry| entry.path == ".ai/RULES.md")
         );
-    }
-
-    #[test]
-    fn the_project_name_comes_from_the_directory() {
-        assert_eq!(
-            project_name(Path::new("/srv/payments-ledger")).unwrap(),
-            "payments-ledger"
-        );
-        assert_eq!(
-            project_name(Path::new("/srv/payments.git")).unwrap(),
-            "payments"
-        );
-        assert!(
-            project_name(Path::new("/")).is_err(),
-            "a filesystem root has no name"
-        );
-    }
-
-    #[test]
-    fn a_shown_path_drops_the_windows_verbatim_prefix() {
-        // `canonicalize` hands back `\\?\C:\...` on Windows, which would otherwise be reported as
-        // `//?/C:/...` and no longer look like a path a person could type.
-        assert_eq!(
-            super::display(Path::new(r"\\?\C:\work\project")),
-            "C:/work/project"
-        );
-        assert_eq!(
-            super::display(Path::new(r"\\?\UNC\srv\share\project")),
-            "//srv/share/project"
-        );
-        assert_eq!(super::display(Path::new("/srv/project")), "/srv/project");
     }
 
     #[test]
@@ -581,7 +481,11 @@ mod tests {
         let root = TempDir::new().expect("temp dir");
         let file = root.path().join("not-a-dir");
         fs::write(&file, "").expect("write");
-        let error = resolve_root(Some(&file)).expect_err("a file is not a project");
+        // The resolution itself is `crate::project`'s; what `init` owns is the code a developer sees,
+        // so that is what is asserted here.
+        let error = InitError::from(
+            crate::project::resolve_root(Some(&file)).expect_err("a file is not a project"),
+        );
         assert_eq!(error.code(), "INIT-001");
     }
 
@@ -589,7 +493,9 @@ mod tests {
     fn a_root_that_does_not_exist_is_refused_by_name() {
         let root = TempDir::new().expect("temp dir");
         let missing = root.path().join("nowhere");
-        let error = resolve_root(Some(&missing)).expect_err("must not invent a directory");
+        let error = InitError::from(
+            crate::project::resolve_root(Some(&missing)).expect_err("must not invent a directory"),
+        );
         assert!(error.to_string().contains("nowhere"), "{error}");
     }
 }

@@ -217,7 +217,7 @@ const BASE: &[TemplateFile] = &[
 ///
 /// Embedded rather than read at run time, like every other template: the binary has no asset
 /// directory to ship and cannot be confused by a schema edited on disk after it was built.
-const SCHEMAS: &[TemplateFile] = &[
+pub(crate) const SCHEMAS: &[TemplateFile] = &[
     TemplateFile {
         path: ".ai/schemas/action-proposal.schema.json",
         text: include_str!("../../../../schemas/action-proposal.schema.json"),
