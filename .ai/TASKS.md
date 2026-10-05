@@ -11,7 +11,7 @@ updated: 2026-10-01
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-014
+**Current task:** TASK-017
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -444,15 +444,52 @@ acceptance:
 ```yaml
 id: TASK-018
 title: Build the aicontext testkit
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-010]
 spec: null
-touches: ["crates/aicontext-testkit/**"]
+touches: ["crates/aicontext-testkit/**", "crates/aicontext-context/tests/fixtures.rs"]
 acceptance:
   - Helpers to build a temporary project, a temporary Git repository, and a sample .ai tree
   - No helper reads the real home directory, the network, or global Git config
+done:
+  - TempProject owns a tempfile::TempDir, names the root after the project, and refuses an empty or
+    separator-bearing name rather than sanitising it, since a rewritten name would let a test pass
+    for a project other than the one it created
+  - TempRepository builds its child environment with env_clear() and pins the four things that make a
+    suite machine-dependent: core.autocrlf=false, init.defaultBranch=main, a fixed author and
+    committer identity, and fixed dates. Fixed dates are also what make commit hashes reproducible, so
+    a test can assert a hash at all
+  - GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM, HOME, USERPROFILE, and XDG_CONFIG_HOME
+    all point inside the fixture. Global Git configuration is the acceptance criterion here, so it is
+    closed from both ends: the paths are inert and the inherited environment is empty
+  - The isolation is asserted by asking git where its configuration came from, with
+    `git config --list --show-origin`, rather than by trusting the variables that were set: every
+    origin must resolve inside the fixture's own temporary directory. Pointing GIT_CONFIG_GLOBAL at a
+    real ~/.gitconfig was tried during development and the test failed and named the file, so it
+    would catch a regression rather than pass vacuously
+  - Every git invocation is an argv array through Command with no shell, matching RULES 7, so a branch
+    name or commit message cannot become a command
+  - 'clone, fetch, push, pull, remote, and submodule are refused with FixtureError::NetworkRefused
+    rather than merely discouraged: a fixture that clones leaves a test that passes online and fails
+    offline'
+  - FixtureError is one #[non_exhaustive] enum carrying a stable code, a message, and a remediation,
+    with Display and Error written by hand instead of derived from thiserror. That is the one place
+    the RULES 4.2 convention is deliberately inverted, and the reasoning is in src/error.rs
+  - 'sample_ai_tree writes the minimum a clean project needs: an AI.md with no front matter (the one
+    exempt location), a TASKS.md with front matter and one fenced inline entity whose spec points at
+    a file that exists, and the .ai/schemas directory without contents, since CTX-012 compares against
+    a source set this crate cannot see'
+  - 'The fixture cannot prove itself: aicontext-testkit may not depend on aicontext-context
+    (ARCHITECTURE 3.2), so crates/aicontext-context/tests/fixtures.rs asserts zero findings, asserts
+    the checked list is non-empty so an empty tree cannot pass for a clean one, and then deletes
+    .ai/AI.md to show the check reports CTX-001 and therefore has teeth'
+  - tempfile is the crate's only dependency and was approved for it. The Windows case it solves - a
+    just-closed handle keeping a directory from being deleted - is not reachable from
+    std::env::temp_dir(). MEM-009 was amended to record that the testkit is no longer dependency-free
+  - The existing hand-rolled Git test helpers in the CLI were left alone: migrating them is outside
+    this task's declared touches, and they are the consumer of this fixture rather than part of it
 ```
 
 ### TASK-019 — Add the secret scan to doctor

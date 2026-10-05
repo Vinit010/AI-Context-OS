@@ -234,10 +234,35 @@ mod tests {
     }
 
     #[test]
-    fn writing_into_a_root_that_is_not_there_is_an_error_not_a_panic() {
-        let missing = std::path::Path::new("/definitely/not/a/directory/for/a/fixture");
-        let error = sample_ai_tree(missing).expect_err("must not invent a directory");
+    fn a_missing_root_is_created_rather_than_refused() {
+        // Every write goes through `create_dir_all`, so the root appearing is the documented
+        // behaviour rather than a surprise. A fixture that refused would make each test create the
+        // root first, which is the same statement twice.
+        let missing = TempProject::new("absent")
+            .expect("a project")
+            .temp_path()
+            .join("not-created-yet");
+        assert!(!missing.exists(), "precondition: nothing is there yet");
+
+        sample_ai_tree(&missing).expect("writes the tree");
+
+        assert!(missing.join(".ai/AI.md").is_file());
+    }
+
+    #[test]
+    fn a_root_that_cannot_hold_a_directory_is_an_error_not_a_panic() {
+        // The portable way to make a write impossible: put a file where a directory has to go.
+        // Windows and Unix both refuse, and both say why, so this asserts the helper reports rather
+        // than panics on a filesystem that disagrees with it.
+        let project = TempProject::new("blocked").expect("a project");
+        project.write("docs", "not a directory").expect("writes");
+
+        let error = sample_ai_tree(project.path()).expect_err("must not panic");
+
         assert_eq!(error.code(), "FIX-002");
-        assert!(error.to_string().contains("sample .ai"), "{error}");
+        assert!(
+            error.to_string().contains("sample .ai"),
+            "the message must say which fixture step failed: {error}"
+        );
     }
 }

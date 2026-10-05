@@ -71,6 +71,9 @@ dependencies = [
 [[package]]
 name = "aicontext-testkit"
 version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "allocator-api2"

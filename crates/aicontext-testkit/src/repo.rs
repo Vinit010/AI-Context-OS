@@ -49,8 +49,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use tempfile::TempDir;
-
 use crate::error::FixtureError;
 use crate::temp::TempProject;
 
@@ -104,12 +102,8 @@ impl TempRepository {
     /// Returns [`FixtureError`] from the project fixture, [`FixtureError::GitMissing`] when git is
     /// not on `PATH`, and [`FixtureError::GitFailed`] when `init` or the first commit fails.
     pub fn new(name: &str) -> Result<Self, FixtureError> {
-        let mut repo = Self::init_empty(name)?;
-        repo.write("README.md", "# Fixture repository\n")
-            .map_err(|source| FixtureError::Io {
-                action: "write the seed file",
-                source,
-            })?;
+        let repo = Self::init_empty(name)?;
+        repo.write("README.md", "# Fixture repository\n")?;
         repo.commit_all("initial commit")?;
         Ok(repo)
     }
@@ -135,7 +129,11 @@ impl TempRepository {
             action: "create the fixture home directory",
             source,
         })?;
-        repo.git(&["init", "--quiet", &format!("--initial-branch={DEFAULT_BRANCH}")])?;
+        repo.git(&[
+            "init",
+            "--quiet",
+            &format!("--initial-branch={DEFAULT_BRANCH}"),
+        ])?;
         Ok(repo)
     }
 
@@ -178,10 +176,12 @@ impl TempRepository {
     /// # Errors
     ///
     /// Returns [`FixtureError::GitFailed`] for a non-zero exit status, carrying the argv, the status,
-    /// and what git wrote to stderr. Returns [`FixtureError::NotARepository`] when the command was
-    /// one that needs a repository and there is none.
+    /// and what git wrote to stderr; git's own "not a git repository" message arrives in that stderr,
+    /// so a command needing a repository outside one reports as a failure rather than a separate
+    /// variant. Returns [`FixtureError::NetworkRefused`] when `args` names a network subcommand.
     pub fn git(&self, args: &[&str]) -> Result<String, FixtureError> {
-        self.git_raw(args).map(|output| String::from_utf8_lossy(&output).into_owned())
+        self.git_raw(args)
+            .map(|output| String::from_utf8_lossy(&output).into_owned())
     }
 
     /// Runs a git command and returns its raw standard output, for output that is not text.
@@ -204,12 +204,10 @@ impl TempRepository {
     /// Returns [`FixtureError::GitMissing`] when git is not on `PATH`, and
     /// [`FixtureError::Io`] when the process cannot be spawned at all.
     pub fn git_outcome(&self, args: &[&str]) -> Result<Output, FixtureError> {
-        self.refuse_network(args)?;
+        Self::refuse_network(args)?;
         let mut command = self.command(args);
-        command.output().map_err(|source| {
-            FixtureError::GitMissing {
-                source: io_with_context(source, "spawn git"),
-            }
+        command.output().map_err(|source| FixtureError::GitMissing {
+            source: io_with_context(&source, "spawn git"),
         })
     }
 
@@ -278,7 +276,8 @@ impl TempRepository {
         }
 
         let stderr = String::from_utf8_lossy(&outcome.stderr);
-        if stderr.contains("does not have any commits yet") || stderr.contains("bad default revision")
+        if stderr.contains("does not have any commits yet")
+            || stderr.contains("bad default revision")
         {
             return Ok(Vec::new());
         }
@@ -309,10 +308,7 @@ impl TempRepository {
     /// Returns [`FixtureError::GitFailed`] when `git status` fails.
     pub fn status(&self) -> Result<Vec<ChangeStatus>, FixtureError> {
         let raw = self.git(&["status", "--porcelain=v1", "--untracked-files=all"])?;
-        let mut changes: Vec<ChangeStatus> = raw
-            .lines()
-            .filter_map(ChangeStatus::parse)
-            .collect();
+        let mut changes: Vec<ChangeStatus> = raw.lines().filter_map(ChangeStatus::parse).collect();
         changes.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(changes)
     }
@@ -330,7 +326,10 @@ impl TempRepository {
         command
             .env("PATH", git_path(&self.git))
             .env("GIT_CONFIG_GLOBAL", &absent)
-            .env("GIT_CONFIG_SYSTEM", self.home.join("system-gitconfig-absent"))
+            .env(
+                "GIT_CONFIG_SYSTEM",
+                self.home.join("system-gitconfig-absent"),
+            )
             .env("GIT_CONFIG_NOSYSTEM", "1")
             // HOME, USERPROFILE, and XDG_CONFIG_HOME all point inside the fixture, so git cannot
             // reach a real ~/.gitconfig by any of the three paths it uses on any platform.
@@ -360,7 +359,7 @@ impl TempRepository {
     /// Runs a git command and returns its standard output, raising a non-zero exit status as an
     /// error.
     fn git_raw(&self, args: &[&str]) -> Result<Vec<u8>, FixtureError> {
-        self.refuse_network(args)?;
+        Self::refuse_network(args)?;
         let outcome = self.git_outcome(args)?;
         if outcome.status.success() {
             return Ok(outcome.stdout);
@@ -375,7 +374,7 @@ impl TempRepository {
     }
 
     /// Refuses a network subcommand, so a fixture cannot become a test that needs the network.
-    fn refuse_network(&self, args: &[&str]) -> Result<(), FixtureError> {
+    fn refuse_network(args: &[&str]) -> Result<(), FixtureError> {
         let Some(subcommand) = args.first() else {
             return Ok(());
         };
@@ -411,6 +410,11 @@ impl ChangeStatus {
     /// A rename is written by git as `R  old -> new`, and the two paths are kept as one string
     /// rather than split into a pair, because every caller here wants to print the path and a rename
     /// reads correctly as written.
+    ///
+    /// The path is taken from the fourth byte because porcelain's format is exactly two status codes
+    /// and one space. Slicing from the third and trimming only the end leaves the separating space on
+    /// every untracked path, which then compares unequal to the same path written by a test and
+    /// fails in `status` rather than here.
     #[must_use]
     pub fn parse(line: &str) -> Option<Self> {
         let mut characters = line.chars();
@@ -419,7 +423,7 @@ impl ChangeStatus {
         if index == '\n' || worktree == '\n' {
             return None;
         }
-        let path = line.get(2..)?.trim_end();
+        let path = line.get(3..)?.trim_end();
         if path.is_empty() {
             return None;
         }
@@ -437,28 +441,57 @@ impl ChangeStatus {
 ///
 /// Returns [`FixtureError::GitMissing`] when `git` is not on `PATH`.
 fn git_executable() -> Result<PathBuf, FixtureError> {
-    which("git").ok_or_else(|| {
-        let source = io_with_context(
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "no `git` on PATH",
-            ),
-            "search PATH for git",
-        );
-        FixtureError::GitMissing { source }
+    let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "no `git` on PATH");
+    which("git").ok_or_else(|| FixtureError::GitMissing {
+        source: io_with_context(&missing, "search PATH for git"),
     })
 }
 
 /// A minimal `which`: `PATH` entries joined with the platform separator, checked in order.
 ///
 /// Written rather than taken from a crate because the fixture already needs `env_clear`, so it has
-/// to know the PATH anyway, and because a `which` that consults `PATHEXT` on Windows is four lines
-/// (`git.exe` is found as written; a bare `git` resolves to `git.exe` on every supported platform).
+/// to know the PATH anyway.
+///
+/// On Windows the candidate is tried once per `PATHEXT` extension, because that is what the shell
+/// and `CreateProcess` do and because `is_file` does not: `C:\...\git` is not a file on a machine
+/// where git is installed, while `C:\...\git.exe` is. Skipping the extensions makes every
+/// repository fixture fail on Windows with "no git on PATH" while passing everywhere else, which is
+/// `R-11` in `ARCHITECTURE.md` §13 exactly. An empty or missing `PATHEXT` falls back to trying the
+/// bare name, which is what Unix does and what Windows does when the extension is stored literally.
 fn which(program: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(program))
-        .find(|candidate| candidate.is_file())
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for directory in std::env::split_paths(&path) {
+        candidates.push(directory.join(program));
+        for extension in executable_extensions() {
+            let mut with_extension = directory.join(program).into_os_string();
+            with_extension.push(extension);
+            candidates.push(PathBuf::from(with_extension));
+        }
+    }
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+/// The suffixes a program name may carry on this platform, each including its dot.
+///
+/// `PATHEXT` is consulted because it is the platform's own list, so a machine where a developer has
+/// added `.BAT` gets it. Unix has none: an executable there is recognised by its permission bits,
+/// not by its name, so an empty list means "join and check".
+fn executable_extensions() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned())
+            .split(';')
+            .map(str::trim)
+            .filter(|extension| extension.starts_with('.') && extension.len() > 1)
+            .map(str::to_owned)
+            .collect()
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
 }
 
 /// The `PATH` the child git needs: the directory git lives in, and nothing else.
@@ -471,15 +504,13 @@ fn git_path(git: &Path) -> PathBuf {
 }
 
 /// Attaches the fixture's own context to an `io::Error` without losing it.
-fn io_with_context(source: std::io::Error, action: &'static str) -> std::io::Error {
+fn io_with_context(source: &std::io::Error, action: &'static str) -> std::io::Error {
     std::io::Error::other(format!("{action}: {source}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ChangeStatus, DEFAULT_BRANCH, FixtureError, TempRepository, which,
-    };
+    use super::{ChangeStatus, DEFAULT_BRANCH, FixtureError, TempRepository, which};
     use std::path::Path;
 
     #[test]
@@ -517,7 +548,10 @@ mod tests {
         let repo = TempRepository::init_empty("empty").expect("a repository");
 
         assert!(!repo.has_commits());
-        assert_eq!(repo.commits(5).expect("no history is not an error"), Vec::<String>::new());
+        assert_eq!(
+            repo.commits(5).expect("no history is not an error"),
+            Vec::<String>::new()
+        );
         assert!(TempRepository::is_repository(repo.path()));
     }
 
@@ -576,7 +610,10 @@ mod tests {
             .expect_err("no HEAD in an empty repository");
 
         assert_eq!(error.code(), "FIX-004");
-        assert!(error.to_string().contains("rev-parse --verify HEAD"), "{error}");
+        assert!(
+            error.to_string().contains("rev-parse --verify HEAD"),
+            "{error}"
+        );
         assert!(!error.remediation().is_empty());
     }
 
@@ -640,5 +677,55 @@ mod tests {
         let project = crate::temp::TempProject::new("nested-repo").expect("a project");
         let nested = project.create_dir("child").expect("creates");
         assert!(!TempRepository::is_repository(Path::new(&nested)));
+    }
+
+    #[test]
+    fn every_configuration_git_reads_comes_from_inside_the_fixture() {
+        // The task's acceptance criterion is that no helper reads global Git configuration, and the
+        // other tests here only show that the values the fixture cares about are pinned - which a
+        // leaked `~/.gitconfig` containing some *other* setting would not disturb. So this asks git
+        // to name the origin of every value it holds, rather than trusting the variables we set.
+        //
+        // `git config --list --show-origin` prints `origin<TAB>key=value`. An origin is a
+        // `file:`-prefixed path, or one of the labels git invents for a value with no file behind it
+        // ("command line:" for the GIT_CONFIG_COUNT values injected below). A repository's own
+        // configuration comes back relative to the repository, so it is resolved before comparing.
+        let repo = TempRepository::new("origins").expect("a repository");
+        let origins = repo
+            .git(&["config", "--list", "--show-origin"])
+            .expect("reads every configured value with its origin");
+
+        let repo_root = repo.path().to_path_buf();
+        let temporary = repo.project.temp_path().to_path_buf();
+
+        let mut seen = 0_usize;
+        for line in origins.lines() {
+            let (origin, _) = line
+                .split_once('\t')
+                .unwrap_or_else(|| panic!("no origin in {line:?}"));
+            if origin.starts_with("command line:") || origin.starts_with("standard input:") {
+                continue;
+            }
+            seen += 1;
+
+            let path = origin.strip_prefix("file:").unwrap_or(origin);
+            let resolved = Path::new(path);
+            let resolved = if resolved.is_absolute() {
+                resolved.to_path_buf()
+            } else {
+                repo_root.join(resolved)
+            };
+            assert!(
+                resolved.starts_with(&temporary),
+                "git read configuration from outside the fixture:\n  {origin}\n\
+                 resolved to {resolved:?}\n\
+                 expected every origin to be inside {temporary:?}, or a label git invents for a \
+                 value with no file behind it"
+            );
+        }
+        assert!(
+            seen > 0,
+            "no configuration at all was read, so this proved nothing: {origins:?}"
+        );
     }
 }

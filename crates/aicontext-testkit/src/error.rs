@@ -10,6 +10,12 @@
 //! fixture* and a test that matched on them separately would learn nothing. It is `#[non_exhaustive]`
 //! so a new helper can add a variant without breaking a caller that matches on it.
 //!
+//! `Display` and `Error` are written by hand rather than derived through `thiserror`, which is what
+//! every other error enum in this workspace does. This crate is test support that is compiled only
+//! for `cargo test`, and pulling the workspace's error dependency into it so five variants can
+//! spell themselves would make every build pay for a production crate to serve a test-only one. The
+//! manual impl below is the same shape `thiserror` generates; nothing is lost but the brevity.
+//!
 //! ```text
 //! FIX-001  the project name cannot be used
 //! FIX-002  a filesystem operation failed
@@ -37,14 +43,12 @@ pub enum FixtureError {
     Io {
         /// What was being done, in the infinitive, for example `write a fixture file`.
         action: &'static str,
-        /// The underlying failure.
-        #[source]
+        /// The underlying failure. Also what [`Error::source`] returns.
         source: io::Error,
     },
     /// `git` is not on `PATH`, so no repository fixture can be built.
     GitMissing {
-        /// The failure `git` produced, or the operating system's, when there is no `git` to ask.
-        #[source]
+        /// The failure that made git unusable. Also what [`Error::source`] returns.
         source: io::Error,
     },
     /// A git command returned a non-zero exit status.
@@ -146,9 +150,9 @@ impl fmt::Display for FixtureError {
 impl Error for FixtureError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::UnusableName { .. }
-            | Self::GitFailed { .. }
-            | Self::NetworkRefused { .. } => None,
+            Self::UnusableName { .. } | Self::GitFailed { .. } | Self::NetworkRefused { .. } => {
+                None
+            }
             Self::Io { source, .. } | Self::GitMissing { source } => Some(source),
         }
     }

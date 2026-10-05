@@ -191,8 +191,23 @@ the error model, because `RULES.md` 4.2 requires error types to be enums derivin
 worse code for a strictly worse reason. The other Phase 1-2 candidates stay unadded until their
 task needs them.
 
+Amended by TASK-018: a second dependency is now in use, `tempfile`, and it is the reason
+`aicontext-testkit` is no longer dependency-free. That crate had been kept at zero dependencies on
+purpose, so the change is worth recording rather than leaving as a diff. It was still the right
+trade: the crate needed temporary directories whose removal is guaranteed on every platform, and the
+Windows case - a just-closed handle keeping a directory from being deleted - is not solvable with
+`std::env::temp_dir()`. The justification is written into
+`crates/aicontext-testkit/Cargo.toml` where a reader meets it, and the line "every helper reads no
+real home directory, no global Git configuration, and no network" is a property of the fixtures
+that a test asserts rather than a property of the dependency list.
+
 Consequences already in place:
 
+- `aicontext-testkit` takes `tempfile` and only `tempfile`. Its `FixtureError` writes its own
+  `Display` and `Error` impls instead of deriving through `thiserror`, on the grounds that a
+  dev-only crate should not pull a production dependency in to shorten five variants. This is the
+  one place in the workspace where that rule is deliberately inverted, and the reasoning sits in
+  `src/error.rs` rather than only in this entry.
 - The one place that reads `Cargo.toml` is `aicontext-testkit`, and it does so with a ~200-line
   hand-rolled reader rather than `toml`. That reader is a liability the moment a real parser is
   added, so it is confined to one module and its scope is documented. Replace it when Q-1/Q-2

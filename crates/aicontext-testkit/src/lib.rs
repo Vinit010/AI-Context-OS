@@ -49,7 +49,7 @@ pub mod manifest;
 pub mod repo;
 pub mod temp;
 
-pub use ai::{sample_ai_tree, SAMPLE_SPEC_PATH, SAMPLE_TASK_ID};
+pub use ai::{SAMPLE_SPEC_PATH, SAMPLE_TASK_ID, sample_ai_tree};
 pub use error::FixtureError;
 pub use manifest::{Manifest, ManifestError};
 pub use repo::{ChangeStatus, TempRepository};

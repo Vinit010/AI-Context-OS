@@ -24,6 +24,8 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
+use crate::error::FixtureError;
+
 /// A temporary directory that is a project root, removed when this value is dropped.
 ///
 /// ```
@@ -37,11 +39,21 @@ use tempfile::TempDir;
 /// ```
 #[derive(Debug)]
 pub struct TempProject {
+    /// Owns the directory. Nothing reads it: it is here so that dropping the fixture removes the
+    /// tree, and so the temporary directory outlives every path handed out by [`Self::path`].
     guard: TempDir,
     root: PathBuf,
 }
 
 impl TempProject {
+    /// The temporary directory that holds the project root.
+    ///
+    /// Not needed to use the fixture. It is here because a test that wants to assert the root was
+    /// cleaned up, or to compare it against another fixture, has no other way to name it.
+    #[must_use]
+    pub fn temp_path(&self) -> &Path {
+        self.guard.path()
+    }
     /// Creates `<temp>/<name>` and returns it as a project root.
     ///
     /// `name` is the directory the developer would recognise, and it becomes the project name that
@@ -57,13 +69,14 @@ impl TempProject {
         if name.is_empty() {
             return Err(FixtureError::UnusableName {
                 name: name.to_owned(),
-                reason: "it is empty, so the project would have no name to report",
+                reason: "it is empty, so the project would have no name to report".to_owned(),
             });
         }
         if name.contains(['/', '\\']) {
             return Err(FixtureError::UnusableName {
                 name: name.to_owned(),
-                reason: "it carries a path separator, so it is a path rather than a project name",
+                reason: "it carries a path separator, so it is a path rather than a project name"
+                    .to_owned(),
             });
         }
 
@@ -167,7 +180,11 @@ impl TempProject {
 ///
 /// A walk that cannot read one entry fails rather than skipping it: a fixture that silently omits a
 /// file would let a test assert "the command wrote nothing" while the command wrote something.
-fn collect_files(root: &Path, directory: &Path, found: &mut Vec<String>) -> Result<(), FixtureError> {
+fn collect_files(
+    root: &Path,
+    directory: &Path,
+    found: &mut Vec<String>,
+) -> Result<(), FixtureError> {
     let entries = fs::read_dir(directory).map_err(|source| FixtureError::Io {
         action: "read a directory while walking the fixture tree",
         source,
@@ -178,10 +195,13 @@ fn collect_files(root: &Path, directory: &Path, found: &mut Vec<String>) -> Resu
             source,
         })?;
         let path = entry.path();
-        let is_dir = entry.file_type().map_err(|source| FixtureError::Io {
-            action: "read the type of a directory entry",
-            source,
-        })?.is_dir();
+        let is_dir = entry
+            .file_type()
+            .map_err(|source| FixtureError::Io {
+                action: "read the type of a directory entry",
+                source,
+            })?
+            .is_dir();
 
         if is_dir {
             if path.file_name().is_some_and(|name| name == ".git") {
@@ -210,7 +230,10 @@ mod tests {
     #[test]
     fn the_root_is_named_so_the_project_has_a_recognisable_name() {
         let project = TempProject::new("payments-ledger").expect("a temporary project");
-        assert_eq!(project.path().file_name().expect("named"), "payments-ledger");
+        assert_eq!(
+            project.path().file_name().expect("named"),
+            "payments-ledger"
+        );
     }
 
     #[test]
@@ -232,7 +255,9 @@ mod tests {
 
         assert!(project.join(".ai/decisions/ADR-001-rust.md").is_file());
         assert_eq!(
-            project.read(".ai/decisions/ADR-001-rust.md").expect("reads"),
+            project
+                .read(".ai/decisions/ADR-001-rust.md")
+                .expect("reads"),
             "content"
         );
     }
@@ -246,7 +271,10 @@ mod tests {
 
         let joined = project.join(".ai/TASKS.md");
         assert_eq!(joined.file_name().expect("named"), "TASKS.md");
-        assert_eq!(joined.parent().expect("has a parent").file_name(), Some(".ai".as_ref()));
+        assert_eq!(
+            joined.parent().expect("has a parent").file_name(),
+            Some(".ai".as_ref())
+        );
     }
 
     #[test]
@@ -258,8 +286,8 @@ mod tests {
 
         assert_eq!(
             project.files().expect("walks"),
-            vec!["a/b/c.txt", "z.txt", ".ai/AI.md"],
-            "paths are relative, use `/`, and are sorted"
+            vec![".ai/AI.md", "a/b/c.txt", "z.txt"],
+            "paths are relative, use `/`, and are sorted by byte value, so a dot sorts before a letter"
         );
     }
 
@@ -290,7 +318,7 @@ mod tests {
         let error = TempProject::new("").expect_err("must be refused");
         assert_eq!(error.code(), "FIX-001");
         assert!(
-            error.remediation().contains("project name"),
+            error.remediation().contains("no path separator"),
             "the hint must name what was wrong: {}",
             error.remediation()
         );
