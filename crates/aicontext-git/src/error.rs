@@ -117,7 +117,9 @@ pub enum GitError {
     /// a future git changing its machine-readable format, and it is an error rather than an empty
     /// result on purpose — `RULES.md` §4.8 forbids reporting success for a batch that partly failed,
     /// and "your working tree is clean" derived from output we did not understand is exactly that.
-    #[error("`git {command}` produced output this version of aicontext does not understand: {detail}")]
+    #[error(
+        "`git {command}` produced output this version of aicontext does not understand: {detail}"
+    )]
     UnexpectedOutput {
         /// What the crate was asking for.
         command: &'static str,
@@ -217,7 +219,8 @@ mod tests {
             GitError::CommandFailed {
                 argv: vec!["log".to_owned()],
                 status: 128,
-                stderr: "fatal: your current branch 'main' does not have any commits yet".to_owned(),
+                stderr: "fatal: your current branch 'main' does not have any commits yet"
+                    .to_owned(),
             },
             GitError::NoCommits {
                 root: "/tmp/repo".into(),
@@ -247,7 +250,10 @@ mod tests {
 
         for (error, code) in errors.iter().zip(expected) {
             assert_eq!(error.code(), code);
-            assert!(!error.remediation().is_empty(), "{error} has no remediation");
+            assert!(
+                !error.remediation().is_empty(),
+                "{error} has no remediation"
+            );
             // `GitError` renders its message only; the code is added when it becomes an
             // `AicontextError`. Asserting the code appears in its own `Display` would assert
             // something this crate does not do.
@@ -288,7 +294,9 @@ mod tests {
                 program: "git".to_owned(),
                 source: std::io::Error::other("x"),
             },
-            GitError::NotARepository { root: "/tmp".into() },
+            GitError::NotARepository {
+                root: "/tmp".into(),
+            },
             GitError::CommandFailed {
                 argv: vec!["log".to_owned()],
                 status: 128,
@@ -311,7 +319,11 @@ mod tests {
     #[test]
     fn a_failed_command_names_the_status_and_what_git_said() {
         let error = GitError::CommandFailed {
-            argv: vec!["rev-parse".to_owned(), "--verify".to_owned(), "HEAD".to_owned()],
+            argv: vec![
+                "rev-parse".to_owned(),
+                "--verify".to_owned(),
+                "HEAD".to_owned(),
+            ],
             status: 128,
             stderr: "fatal: Needed a single revision".to_owned(),
         };

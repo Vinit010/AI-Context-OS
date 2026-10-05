@@ -83,12 +83,7 @@ impl Git {
         Self {
             root: root.into(),
             program: program.into(),
-            environment: Some(
-                environment
-                    .into_iter()
-                    .map(|(name, value)| (name, value))
-                    .collect(),
-            ),
+            environment: Some(environment.into_iter().collect()),
         }
     }
 
@@ -122,7 +117,10 @@ impl Git {
     /// when it runs but exits for a reason other than "no repository here" — a corrupt `.git`, for
     /// instance, which is a real problem and must not be reported as "not a repository".
     pub fn is_repository(&self) -> Result<bool, GitError> {
-        Ok(self.output(&["rev-parse", "--is-inside-work-tree"])?.status.success())
+        Ok(self
+            .output(&["rev-parse", "--is-inside-work-tree"])?
+            .status
+            .success())
     }
 
     /// Runs one git command and returns its raw standard output.
@@ -146,25 +144,22 @@ impl Git {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .args(args.iter().map(OsStr::new));
-        match &self.environment {
+        if let Some(environment) = &self.environment {
             // Explicit environment: start from nothing, so nothing the caller did not name is
             // inherited. This is the only branch that clears.
-            Some(environment) => {
-                command.env_clear();
-                for (name, value) in environment {
-                    if value.is_empty() {
-                        command.env_remove(name);
-                    } else {
-                        command.env(name, value);
-                    }
+            command.env_clear();
+            for (name, value) in environment {
+                if value.is_empty() {
+                    command.env_remove(name);
+                } else {
+                    command.env(name, value);
                 }
             }
-            // No explicit environment: inherit the process environment untouched. Production needs
-            // the developer's real git configuration, and clearing here would hide core.autocrlf,
-            // init.defaultBranch, include.path, and their credential helpers — reporting the
-            // repository as something it is not.
-            None => {}
         }
+        // With no explicit environment, the process environment is inherited untouched. Production
+        // needs the developer's real git configuration, and clearing here would hide core.autocrlf,
+        // init.defaultBranch, include.path, and their credential helpers - reporting the repository as
+        // something it is not.
 
         command.output().map_err(|source| GitError::Unavailable {
             program: self.program.to_string_lossy().into_owned(),
@@ -181,19 +176,21 @@ impl Git {
     /// failure because a killed process has no exit status — and [`GitError::CommandFailed`]
     /// otherwise, carrying the argv, the status, and git's own stderr.
     pub fn run(&self, args: &[&str]) -> Result<Vec<u8>, GitError> {
-        let argv: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        let invocation: Vec<String> = args.iter().map(|word| (*word).to_owned()).collect();
         let output = self.output(args)?;
         let status = output.status;
         if status.success() {
             return Ok(output.stdout);
         }
         let Some(code) = status.code() else {
-            return Err(GitError::Terminated { argv });
+            return Err(GitError::Terminated { argv: invocation });
         };
         Err(GitError::CommandFailed {
-            argv,
+            argv: invocation,
             status: code,
-            stderr: String::from_utf8_lossy(&output.stderr).trim_end().to_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr)
+                .trim_end()
+                .to_owned(),
         })
     }
 

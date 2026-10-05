@@ -165,17 +165,13 @@ impl Repository {
     /// The branch name, if `HEAD` is on one.
     ///
     /// Returns `None` for a detached head, and `Some` for an unborn branch — which has a name but no
-    /// commit. Use [`Repository::head`] when the difference matters.
+    /// commit. Use [`Repository::snapshot`] when the difference matters.
     ///
     /// # Errors
     ///
     /// As [`Repository::snapshot`].
     pub fn branch(&self) -> Result<Option<String>, GitError> {
-        Ok(self
-            .snapshot()?
-            .head
-            .branch()
-            .map(str::to_owned))
+        Ok(self.snapshot()?.head.branch().map(str::to_owned))
     }
 
     /// The head commit's short hash, if there is one.
@@ -213,13 +209,18 @@ impl Repository {
         // is formatted into the format string below, never interpolated into the argv as a separate
         // token that a branch name could imitate.
         let count = limit.to_string();
-        let args = ["log", "--no-color", "--no-decorate", "-n", &count, LOG_FORMAT];
+        let args = [
+            "log",
+            "--no-color",
+            "--no-decorate",
+            "-n",
+            &count,
+            LOG_FORMAT,
+        ];
 
         let bytes = match self.git.run(&args) {
             Ok(bytes) => bytes,
-            Err(GitError::CommandFailed { stderr, .. })
-                if mentions_no_commits(&stderr) =>
-            {
+            Err(GitError::CommandFailed { stderr, .. }) if mentions_no_commits(&stderr) => {
                 return Err(GitError::NoCommits {
                     root: self.root.clone(),
                 });
@@ -403,7 +404,10 @@ mod tests {
 
     #[test]
     fn a_hash_is_abbreviated_to_seven_characters() {
-        assert_eq!(short_hash("e320d730d4b4f5e2287089191023daf83c191bef"), "e320d73");
+        assert_eq!(
+            short_hash("e320d730d4b4f5e2287089191023daf83c191bef"),
+            "e320d73"
+        );
     }
 
     #[test]

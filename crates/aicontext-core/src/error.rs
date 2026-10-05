@@ -446,7 +446,10 @@ mod tests {
         // constant because GIT-007 is deliberately not one: the catalogue has six entries, and a
         // seventh must be a decision rather than a stray literal.
         assert_eq!(ErrorCode::git(7).number(), ErrorCode::CTX_007.number());
-        assert_ne!(ErrorCode::git(7).to_string(), ErrorCode::CTX_007.to_string());
+        assert_ne!(
+            ErrorCode::git(7).to_string(),
+            ErrorCode::CTX_007.to_string()
+        );
     }
 
     #[test]

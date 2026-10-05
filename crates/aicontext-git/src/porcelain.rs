@@ -232,7 +232,8 @@ fn records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
 
 /// Decodes one field, naming the command when it is not UTF-8.
 fn field(command: &'static str, bytes: &[u8]) -> Result<String, GitError> {
-    String::from_utf8(bytes.to_vec()).map_err(|source| GitError::UnreadableOutput { command, source })
+    String::from_utf8(bytes.to_vec())
+        .map_err(|source| GitError::UnreadableOutput { command, source })
 }
 
 /// Turns one `branch.*` header value into a path-safe string.
@@ -247,7 +248,7 @@ fn header_value(command: &'static str, line: &[u8], prefix: &[u8]) -> Result<Str
                 String::from_utf8_lossy(line)
             ),
         })?;
-    Ok(field(command, rest)?)
+    field(command, rest)
 }
 
 /// Parses `git status --porcelain=v2 --branch -z` output.
@@ -283,7 +284,7 @@ pub(crate) fn parse(output: &[u8]) -> Result<Snapshot, GitError> {
         }
     }
 
-// Which of the two header values carries the marker is the part that is easy to get wrong, so it is
+    // Which of the two header values carries the marker is the part that is easy to get wrong, so it is
     // spelled out rather than inferred from the variant names. git writes:
     //
     // - normal:   `# branch.head main`        + `# branch.oid <hash>`
@@ -389,8 +390,12 @@ fn ordinary<'a>(
     let text = String::from_utf8_lossy(record);
     let code = text.get(2..4).unwrap_or_default();
     let mut letters = code.chars();
-    let index = letters.next().and_then(|c| FileStatus::from_letter(c as u8));
-    let worktree = letters.next().and_then(|c| FileStatus::from_letter(c as u8));
+    let index = letters
+        .next()
+        .and_then(|c| FileStatus::from_letter(c as u8));
+    let worktree = letters
+        .next()
+        .and_then(|c| FileStatus::from_letter(c as u8));
 
     // `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>` - path is token 9
     // `2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>` - the score and the
@@ -521,7 +526,10 @@ mod tests {
             }
         );
         assert_eq!(snapshot.head.branch(), Some("main"));
-        assert_eq!(snapshot.head.commit(), Some("e320d730d4b4f5e2287089191023daf83c191bef"));
+        assert_eq!(
+            snapshot.head.commit(),
+            Some("e320d730d4b4f5e2287089191023daf83c191bef")
+        );
         assert!(snapshot.head.has_commits());
         assert!(snapshot.changes.is_empty());
     }
@@ -640,7 +648,10 @@ mod tests {
 
     #[test]
     fn a_rename_score_is_not_part_of_the_path() {
-        assert_eq!(strip_rename_score("R100 renamed file.txt"), "renamed file.txt");
+        assert_eq!(
+            strip_rename_score("R100 renamed file.txt"),
+            "renamed file.txt"
+        );
         assert_eq!(strip_rename_score("C075 copy.txt"), "copy.txt");
     }
 
@@ -689,14 +700,13 @@ mod tests {
     #[test]
     fn a_path_with_a_space_or_a_tab_survives_intact() {
         // The whole reason for -z: in the textual form this line would be quoted or tab-ambiguous.
-        let snapshot = parse(&z(&[
-            OID,
-            ON_BRANCH,
-            "? a file with spaces and a\ttab.txt",
-        ]))
-        .expect("parses");
+        let snapshot =
+            parse(&z(&[OID, ON_BRANCH, "? a file with spaces and a\ttab.txt"])).expect("parses");
 
-        assert_eq!(snapshot.changes[0].path(), "a file with spaces and a\ttab.txt");
+        assert_eq!(
+            snapshot.changes[0].path(),
+            "a file with spaces and a\ttab.txt"
+        );
     }
 
     #[test]
@@ -728,8 +738,12 @@ mod tests {
 
     #[test]
     fn a_rename_with_no_original_path_is_refused() {
-        let error = parse(&z(&[OID, ON_BRANCH, "2 R. N... 100644 100644 100644 a b R100 x.txt"]))
-            .expect_err("the original path is a separate field and is missing");
+        let error = parse(&z(&[
+            OID,
+            ON_BRANCH,
+            "2 R. N... 100644 100644 100644 a b R100 x.txt",
+        ]))
+        .expect_err("the original path is a separate field and is missing");
 
         assert_eq!(error.code(), ErrorCode::GIT_006);
     }
