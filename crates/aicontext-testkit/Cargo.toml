@@ -11,5 +11,15 @@ description = "Fixtures and workspace policy checks for AI Context OS"
 [lints]
 workspace = true
 
-# Intentionally empty. See src/lib.rs.
+# `tempfile` is the only dependency this crate has, and it is added by TASK-018 to back the
+# temporary-project and temporary-repository fixtures. It is already in Cargo.lock as a
+# dev-dependency of aicontext-cli, so this adds no crate to the tree.
+#
+# The rejected alternative is ~40 lines of std::env::temp_dir() plus pid-and-counter naming plus a
+# Drop impl that retries removal, which is what "we already depend on it" quietly costs: tempfile
+# already handles the Windows case where a just-closed handle keeps a directory from being deleted,
+# and a hand-rolled version that missed it would leave a directory behind on the platform this
+# repository tests on first. See MEM-009, which recorded this crate as dependency-free before the
+# fixtures existed.
 [dependencies]
+tempfile.workspace = true
