@@ -470,11 +470,25 @@ fn record_after(record: &[u8], number: usize) -> Option<&[u8]> {
     parts.next()
 }
 
-/// Normalises a git path to `/` separators and strips a trailing slash if git sent one.
+/// Normalises a git path to `/` separators.
+///
+/// git writes `/` on every platform, so in principle there is nothing to do. The one substitution is
+/// conditional because the two platforms disagree about what `\` means:
+///
+/// - On Windows a `\` is always a separator and never part of a name, so a path that has one is
+///   converted.
+/// - On Unix a `\` is an ordinary character and `a\b.md` is a real single file. Rewriting it would
+///   name a different path - one that probably does not exist - and this is the one substitution a
+///   path parser must never make silently.
+///
+/// Split on `#[cfg]` rather than on `cfg!` so each branch is only compiled where it applies.
 fn normalise(path: &str) -> String {
-    if path.contains('\\') {
+    #[cfg(windows)]
+    {
         path.replace('\\', "/")
-    } else {
+    }
+    #[cfg(not(windows))]
+    {
         path.to_owned()
     }
 }
@@ -774,10 +788,20 @@ mod tests {
     }
 
     #[test]
-    fn a_backslash_in_a_path_becomes_a_forward_slash() {
-        // git uses `/` even on Windows, but a quoted or hand-built record may not, and a caller
-        // comparing paths needs one spelling.
+    #[cfg(windows)]
+    fn a_backslash_separated_path_becomes_slash_separated() {
+        // git uses `/` even on Windows, but a `\`-separated path does turn up in some outputs, and
+        // here `\` cannot be part of a filename, so converting it is safe.
         assert_eq!(normalise(r"docs\nested\file.md"), "docs/nested/file.md");
+        assert_eq!(normalise("docs/nested/file.md"), "docs/nested/file.md");
+    }
+
+    #[cfg(not(windows))]
+    fn a_backslash_is_part_of_a_unix_filename_and_is_left_alone() {
+        // `a\b.md` is one file here, not a file `b.md` inside a directory `a`. Rewriting it would
+        // produce a path that does not exist, which is worse than showing the name verbatim.
+        assert_eq!(normalise(r"a\b.md"), r"a\b.md");
+        assert_eq!(normalise(r"docs\nested\file.md"), r"docs\nested\file.md");
         assert_eq!(normalise("docs/nested/file.md"), "docs/nested/file.md");
     }
 
