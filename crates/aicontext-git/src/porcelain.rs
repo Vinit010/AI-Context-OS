@@ -789,8 +789,32 @@ mod tests {
             path,
             std::path::PathBuf::from("docs")
                 .join("nested")
-                .join("file.md")
+                .join("file.md"),
+            "segments must be joined with the platform separator, not with `/`"
         );
-        assert!(!path.to_string_lossy().contains('/'), "{path:?}");
+    }
+
+    #[test]
+    fn the_native_and_slash_forms_are_inverses_of_each_other() {
+        // The property that makes the pair safe to use together, and the one that holds on every
+        // platform without a conditional in it: a path can go out to the filesystem as a native path
+        // and come back to a caller as the same `/`-separated string it started as.
+        //
+        // Asserting that the native form contains no `/` instead would look equivalent and is not: on
+        // Unix a native path *is* `/`-separated, so such an assertion passes only on Windows and
+        // fails everywhere else.
+        for original in [
+            "file.md",
+            "docs/file.md",
+            "docs/nested/deep/file.md",
+            "a b/c d.md",
+        ] {
+            let native = to_path(original);
+            assert_eq!(
+                normalise(&native.to_string_lossy()),
+                original,
+                "round trip changed {original:?} via {native:?}"
+            );
+        }
     }
 }
