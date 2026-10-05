@@ -13,6 +13,12 @@ workspace = true
 
 [dependencies]
 aicontext-core = { path = "../aicontext-core" }
+# Error enums derive thiserror::Error, per RULES.md 4.2, which every production crate in this
+# workspace follows. aicontext-git is production code, so it follows too - the aicontext-testkit
+# exception is documented in that crate's src/error.rs and is a dev-only inversion, not a precedent.
+# Already in Cargo.lock via aicontext-core, so this adds no crate to the tree. Approved by the
+# developer as TASK-017 is implemented; see the scope_notes in .ai/TASKS.md.
+thiserror = { workspace = true }
 
 [dev-dependencies]
 aicontext-testkit = { path = "../aicontext-testkit" }

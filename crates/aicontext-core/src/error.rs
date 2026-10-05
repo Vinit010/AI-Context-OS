@@ -38,6 +38,13 @@ use crate::id::InvalidId;
 pub enum ErrorFamily {
     /// A `CTX-NNN` finding from the `doctor` check catalogue, `docs/CONTEXT_SPEC.md` §8.
     Context,
+    /// A `GIT-NNN` failure from invoking git, introduced by `TASK-017` in `aicontext-git`.
+    ///
+    /// Its own family rather than reuse of `Context`, because `CTX-NNN` is transcribed from the
+    /// `doctor` check catalogue and a git failure is not a check on a document. Folding them together
+    /// would mean a caller branching on `CTX-003` cannot tell whether a schema failed to validate or
+    /// git refused a command, and `docs/CLI_SPEC.md` §6 promises `findings[].code` is stable.
+    Git,
 }
 
 impl ErrorFamily {
@@ -46,6 +53,7 @@ impl ErrorFamily {
     pub const fn prefix(self) -> &'static str {
         match self {
             Self::Context => "CTX",
+            Self::Git => "GIT",
         }
     }
 }
@@ -139,6 +147,52 @@ impl ErrorCode {
     pub const CTX_019: Self = Self::context(19);
     /// A document recommends the inline-to-split switch.
     pub const CTX_020: Self = Self::context(20);
+
+    // The GIT family, introduced by TASK-017. Unlike CTX there is no external catalogue to
+    // transcribe: these are the failure modes of spawning a read-only `git`, and the set is closed
+    // because the wrapper offers no operation that could fail any other way. Adding a code here means
+    // adding an operation, or a failure mode that operation can hit.
+    /// A code in the `GIT` family, the read-only git wrapper's failure modes.
+    ///
+    /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
+    /// rather than a code that silently matches nothing at runtime.
+    #[must_use]
+    pub const fn git(number: u16) -> Self {
+        debug_assert!(
+            number >= 1 && number <= 999,
+            "a git code is GIT-001 to GIT-999; add it to this impl if it is new"
+        );
+        Self {
+            family: ErrorFamily::Git,
+            number,
+        }
+    }
+
+    /// `git` is not installed, or the process could not be started.
+    pub const GIT_001: Self = Self::git(1);
+    /// The directory is not inside a Git working tree.
+    pub const GIT_002: Self = Self::git(2);
+    /// A git command exited with a non-zero status.
+    pub const GIT_003: Self = Self::git(3);
+    /// The repository has no commits, so `HEAD` names nothing.
+    pub const GIT_004: Self = Self::git(4);
+    /// The git process was terminated by a signal, or killed before it could exit.
+    ///
+    /// This was originally "the index is held by another process", which turned out to be
+    /// unreachable: with `.git/index.lock` present, `status --porcelain=v1`,
+    /// `status --porcelain=v2`, `diff --name-only HEAD`, `log`, and `branch --show-current` were all
+    /// measured exiting 0 on git 2.51. Every command this wrapper offers is read-only and none of
+    /// them acquires the index lock, so the code could never have fired. A code with no reachable path
+    /// is worse than no code, because the contract says it exists.
+    pub const GIT_005: Self = Self::git(5);
+    /// Git produced output this crate could not read.
+    ///
+    /// Two causes share this code because both mean the same thing to a caller — the wrapper cannot
+    /// honestly report what the repository contains: the bytes are not UTF-8 (a filename on Unix may
+    /// be any byte sequence), or the output does not have the documented porcelain v2 shape (a future
+    /// git changed it). Reporting a clean working tree on unrecognised output would be a lie, which
+    /// `RULES.md` §4.8 rules out, so this is an error rather than an empty result.
+    pub const GIT_006: Self = Self::git(6);
 }
 
 impl fmt::Display for ErrorCode {
@@ -367,7 +421,36 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_twenty_distinct_codes() {
+    fn the_git_codes_render_in_the_documented_format_and_carry_their_own_family() {
+        // TASK-017 added the GIT family. Its codes must be distinguishable from CTX at a glance,
+        // because CLI_SPEC.md 6 makes `code` a stable contract that scripts branch on: a caller
+        // matching on the family must be able to tell "git failed" from "a document failed".
+        for (code, expected) in [
+            (ErrorCode::GIT_001, "GIT-001"),
+            (ErrorCode::GIT_002, "GIT-002"),
+            (ErrorCode::GIT_003, "GIT-003"),
+            (ErrorCode::GIT_004, "GIT-004"),
+            (ErrorCode::GIT_005, "GIT-005"),
+            (ErrorCode::GIT_006, "GIT-006"),
+        ] {
+            assert_eq!(code.to_string(), expected);
+            assert_eq!(code.family(), ErrorFamily::Git);
+            assert_eq!(code.family().prefix(), "GIT");
+        }
+    }
+
+    #[test]
+    fn the_git_family_does_not_reuse_a_context_number() {
+        // The two families may each start at 001. What must not happen is GIT-007 rendering as
+        // "CTX-007", which is what a shared prefix would produce. `git(7)` is used rather than a
+        // constant because GIT-007 is deliberately not one: the catalogue has six entries, and a
+        // seventh must be a decision rather than a stray literal.
+        assert_eq!(ErrorCode::git(7).number(), ErrorCode::CTX_007.number());
+        assert_ne!(ErrorCode::git(7).to_string(), ErrorCode::CTX_007.to_string());
+    }
+
+    #[test]
+    fn the_documented_catalogue_has_twenty_six_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -389,6 +472,12 @@ mod tests {
             ErrorCode::CTX_018,
             ErrorCode::CTX_019,
             ErrorCode::CTX_020,
+            ErrorCode::GIT_001,
+            ErrorCode::GIT_002,
+            ErrorCode::GIT_003,
+            ErrorCode::GIT_004,
+            ErrorCode::GIT_005,
+            ErrorCode::GIT_006,
         ];
         let unique: std::collections::BTreeSet<String> =
             catalogue.iter().map(ErrorCode::to_string).collect();

@@ -431,12 +431,25 @@ priority: HIGH
 phase: 1
 depends_on: [TASK-010]
 spec: null
-touches: ["crates/aicontext-git/**"]
+touches: ["crates/aicontext-git/**", "crates/aicontext-core/src/error.rs"]
 acceptance:
   - Branch, status, changed files, and recent commits via porcelain commands
   - Works outside a repository and on a repository with no commits
   - Arguments are passed as an argv array, never through a shell
   - Behaviour is covered by tests against real temporary repositories
+scope_notes:
+  - 'aicontext-core/src/error.rs was added to touches on developer approval. AicontextError requires an
+    ErrorCode, ErrorFamily had only Context, and no GIT catalogue existed, so a GIT-NNN code could not
+    be produced from this crate at all. The amendment is additive: ErrorFamily is #[non_exhaustive], so
+    adding a variant cannot break a caller that matches on it, and the module already documents that a
+    family is added by the task introducing its failure domain'
+  - 'thiserror was approved as a dependency of aicontext-git, required by RULES 4.2 and already in
+    Cargo.lock'
+  - 'GIT-005 was originally "the index is held by another process" and was replaced on approval with
+    "the git process was terminated by a signal". The original was unreachable: with .git/index.lock
+    present, status --porcelain=v1, status --porcelain=v2, diff --name-only HEAD, log, and
+    branch --show-current were all measured exiting 0 on git 2.51. Every command this wrapper offers
+    is read-only and none acquires the index lock'
 ```
 
 ### TASK-018 — Build the testkit
