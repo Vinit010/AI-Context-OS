@@ -284,10 +284,13 @@ done:
   - 'The four tests in tests/cli.rs that used status as their example of a not-yet-built command were
     moved to the still-pending health (TASK-038), because status is now in the help tree and would have
     made those tests assert the opposite of the truth'
-  - 'One CI defect was fixed while this task was open, in crates/aicontext-git which is inside its
-    touches: the Unix-only test for normalise in src/porcelain.rs had no #[test], so it never ran and
-    the Linux build treated it as dead code. The attribute was added; filed as BUG-002, whose
-    prevention step is a cross-target clippy run that compiles the platform the developer is not on'
+  - 'Two CI defects were fixed while this task was open. In crates/aicontext-git, inside its touches,
+    the Unix-only test for normalise in src/porcelain.rs had no #[test], so it never ran and the Linux
+    build treated it as dead code; the attribute was added and the defect filed as BUG-002. In
+    crates/aicontext-testkit, outside its touches and approved by the developer, a public doc comment
+    linked to a private item and failed the verify job''s cargo doc under -D warnings; the link became
+    prose and the defect filed as BUG-003. Both prevention steps are the same shape: run the gate with
+    the flags and the target CI uses, not the ones that happen to pass on the local machine'
   - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked
     -- -D warnings clean; cargo test --workspace --locked green - 101 unit and 8 + 23 + 17 + 5 + 7
     integration in aicontext-cli, 82 unit in aicontext-context with its 7 fixtures, 43 frontmatter, and

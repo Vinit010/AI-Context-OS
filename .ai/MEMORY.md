@@ -476,7 +476,7 @@ that has not been initialised.
 
 ## Bugs encountered
 
-None shipped. Four defects were found before a consumer saw them. Two were found by running the
+None shipped. Five defects were found before a consumer saw them. Two were found by running the
 binary against a scratch project before TASK-012 was closed and are recorded under `MEM-013`:
 reported paths carried the Windows verbatim `\\?\` prefix, and the counts line said `directorys`.
 Both are fixed and covered by tests. The third was found by the integration suite on its first run,
@@ -485,7 +485,11 @@ commits, filed under `.ai/bugs/BUG-001-git-log-record-separator.md`. The fourth 
 Linux after TASK-017 was closed: its Unix-only `normalise` test was missing its `#[test]`, so the
 branch never ran and the attribute-less function was dead code, filed under
 `.ai/bugs/BUG-002-unix-test-missing-test-attribute.md`; it is visible only on the platform the
-developer is not using, which is the lesson it records.
+developer is not using, which is the lesson it records. The fifth was found by the same CI run: a
+public doc comment in aicontext-testkit linked to a private item, which `cargo doc` treats as an
+error under `-D warnings`, filed under `.ai/bugs/BUG-003-private-intra-doc-link.md`; it was invisible
+locally because the bare `cargo doc` prints the warning and exits 0. Both CI defects share one lesson
+- a gate that passes locally with weaker flags than CI is a gate that is not being run.
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.
