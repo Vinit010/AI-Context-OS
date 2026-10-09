@@ -34,6 +34,14 @@ impl Bindings {
     ///
     /// `path` names the document in any error, because a message that says only
     /// "unresolved placeholder" sends the reader looking through the whole tree.
+    ///
+    /// Line endings are normalised to `\n` before substitution, as `docs/CONTEXT_SPEC.md` rule 11
+    /// requires. The templates are embedded with `include_str!`, so their bytes are whatever git
+    /// checked out: on a machine with `core.autocrlf=true` — the Git for Windows default, and the
+    /// Windows CI runner — a template stored with LF arrives here with CRLF. Normalising here, at the
+    /// one point every template passes through, is what keeps a generated document byte-identical
+    /// across platforms and keeps the front-matter reader (which expects `---\n`) able to read it
+    /// back. A lone CR is folded too, so the output has one line-ending convention, not two.
     pub(crate) fn apply(
         &self,
         text: &str,
@@ -41,6 +49,8 @@ impl Bindings {
         template: &'static str,
     ) -> Result<String, InitError> {
         let rendered = text
+            .replace("\r\n", "\n")
+            .replace('\r', "\n")
             .replace("{{project_name}}", &self.project_name)
             .replace("{{date}}", &self.date.iso())
             .replace("{{template}}", self.template.as_str());
@@ -136,6 +146,25 @@ mod tests {
                 .apply(text, "RULES.md", "default")
                 .expect("renders"),
             text
+        );
+    }
+
+    #[test]
+    fn windows_line_endings_are_normalised_to_lf() {
+        // The templates are embedded with include_str!, so on a machine whose checkout uses CRLF the
+        // text arriving here is CRLF. Rule 11 of docs/CONTEXT_SPEC.md requires the written document
+        // to use LF, and both the front-matter reader here and init's byte-for-byte check assume it.
+        let rendered = bindings()
+            .apply(
+                "---\r\nid: RULES-001\r\n---\r\n# {{project_name}}\r\n",
+                "RULES.md",
+                "default",
+            )
+            .expect("renders");
+        assert_eq!(rendered, "---\nid: RULES-001\n---\n# my_project\n");
+        assert!(
+            !rendered.contains('\r'),
+            "a carriage return reached the document"
         );
     }
 

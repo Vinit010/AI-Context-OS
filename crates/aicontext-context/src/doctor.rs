@@ -513,8 +513,13 @@ fn check_schemas(inputs: &Inputs<'_>, findings: &mut Vec<Finding>) {
 
     for (name, text) in inputs.schema_source {
         let path = format!("{SCHEMA_DIR}/{name}");
+        // `init` writes every document with LF line endings (docs/CONTEXT_SPEC.md rule 11), but the
+        // source arrives from `include_str!`, so on a checkout whose git config expands newlines it
+        // carries CRLF. Compare in the canonical form, or a freshly initialised project on Windows
+        // would disagree with its own freshly copied schemas.
+        let source = text.replace("\r\n", "\n");
         match fs::read(dir.join(name)) {
-            Ok(bytes) if bytes == text.as_bytes() => {}
+            Ok(bytes) if bytes == source.as_bytes() => {}
             Ok(_) => findings.push(Finding::new(
                 ErrorCode::CTX_012,
                 Severity::Warning,
@@ -1192,6 +1197,28 @@ mod tests {
         let found = finding(&report, "CTX-012");
         assert_eq!(found.severity, Severity::Warning);
         assert_eq!(found.path, ".ai/schemas/task.schema.json");
+    }
+
+    #[test]
+    fn a_crlf_schema_source_matches_an_lf_copy() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        // `init` writes LF (docs/CONTEXT_SPEC.md rule 11); the compiled-in source can arrive with
+        // CRLF from a Windows checkout. The comparison is about content, so a scaffolded project
+        // must not be reported as hand-edited just because the two sides spell newlines differently.
+        write(root, ".ai/schemas/task.schema.json", "{\n}\n");
+        let report = run(&inputs(root, &[], &[("task.schema.json", "{\r\n}\r\n")]));
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|finding| finding.code == "CTX-012"),
+            "{:?}",
+            report.findings
+        );
     }
 
     #[test]

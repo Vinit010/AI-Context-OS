@@ -487,6 +487,33 @@ double an internal `'` to `''`. TASK-014's repair pass quoted the colon cases an
 `#` case in TASK-018, which is why the register parsed for a while and then did not. After editing a
 block, the cheap check is that `aicontext doctor` still reports the file as valid.
 
+## MEM-018 - An embedded template's line endings belong to the checkout, not the repository
+
+```yaml
+id: MEM-018
+category: constraint
+scope: project
+status: active
+confidence: high
+recorded: 2026-10-09
+supersedes: null
+tags: [templates, include_str, line-endings, init, doctor, windows]
+```
+
+`include_str!` embeds the bytes git wrote to disk, and those bytes depend on the reader's git
+configuration: Git for Windows defaults to `core.autocrlf=true`, which turns the repository's LF into
+CRLF on checkout. A rule that fixes a canonical byte form - `docs/CONTEXT_SPEC.md` rule 11, LF on
+write - therefore cannot be satisfied by normalising only what the tool produces, because the input
+it is compared against arrived from the same checkout. Both sides are brought to the canonical form at
+the boundary: `init`'s `Bindings::apply` folds CRLF and a lone CR to LF before substituting, and
+`doctor`'s CTX-012 folds the compiled-in source to LF before comparing it to the copy in `.ai/schemas`.
+
+The general rule: embedded text is checkout-dependent input, not a constant. Any code that treats the
+bytes of an `include_str!` as author-controlled content must normalise them where they enter, and the
+test must supply the form the developer's own checkout cannot produce. This is the shape of defect
+that running the suite locally cannot catch, because it lives exactly where the developer's git
+configuration and the CI runner's disagree (see `.ai/bugs/BUG-004-crlf-embedded-templates.md`).
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
@@ -502,7 +529,7 @@ block, the cheap check is that `aicontext doctor` still reports the file as vali
 
 ## Bugs encountered
 
-None shipped. Five defects were found before a consumer saw them. Two were found by running the
+None shipped. Six defects were found before a consumer saw them. Two were found by running the
 binary against a scratch project before TASK-012 was closed and are recorded under `MEM-013`:
 reported paths carried the Windows verbatim `\\?\` prefix, and the counts line said `directorys`.
 Both are fixed and covered by tests. The third was found by the integration suite on its first run,
@@ -515,7 +542,12 @@ developer is not using, which is the lesson it records. The fifth was found by t
 public doc comment in aicontext-testkit linked to a private item, which `cargo doc` treats as an
 error under `-D warnings`, filed under `.ai/bugs/BUG-003-private-intra-doc-link.md`; it was invisible
 locally because the bare `cargo doc` prints the warning and exits 0. Both CI defects share one lesson
-- a gate that passes locally with weaker flags than CI is a gate that is not being run.
+- a gate that passes locally with weaker flags than CI is a gate that is not being run. The sixth, from
+the same Windows job, was that templates embedded with `include_str!` carried the runner's CRLF line
+endings, so `init` wrote CRLF documents its own front-matter reader rejected and CTX-012 compared an LF
+copy against a CRLF source, filed under `.ai/bugs/BUG-004-crlf-embedded-templates.md`; it adds a second
+lesson - an embedded file's bytes are a property of the checkout, not the repository, so text that
+enters a comparison must be normalised at the boundary (see `MEM-018`).
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.
