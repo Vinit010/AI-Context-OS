@@ -95,11 +95,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The workspace has no third-party dependencies yet, so this passes trivially. It is here so
-      # that adding one cannot silently skip the check.
-      - uses: rustsec/audit-check@v2
+      # cargo-audit is installed as a prebuilt binary rather than compiled by rustsec/audit-check.
+      # That action runs `cargo install` without --locked, and cargo-audit's newest transitive
+      # dependency now requires a newer rustc than the toolchain pinned in rust-toolchain.toml, so
+      # the install fails with exit 101 before a single crate is audited. A prebuilt binary does no
+      # compilation, so the pinned toolchain cannot break this job.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+
+      - name: Audit the locked dependency tree
+        run: cargo audit
 
   # A release build must stay a single static file with no runtime surprises.
   binary:

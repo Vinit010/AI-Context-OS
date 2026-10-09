@@ -461,6 +461,32 @@ drift is invisible until the two commands disagree about the same file. `registe
 register rather than abort, and a command that cannot run before `init` cannot report on a project
 that has not been initialised.
 
+## MEM-017 - A register block is YAML, so a plain-scalar entry must be quoted if it holds a `#` or a colon-space
+
+```yaml
+id: MEM-017
+category: constraint
+scope: register
+status: active
+confidence: high
+recorded: 2026-10-09
+supersedes: null
+tags: [tasks, yaml, parsing, authoring]
+```
+
+The fenced block under each task is parsed exactly as front matter is, so it obeys YAML, not
+Markdown. A done or acceptance entry written as a plain (unquoted) scalar breaks the block in two
+ways that are easy to miss while reading it as prose: `#` begins a comment, so an entry containing
+`#[non_exhaustive]` (or any `#`) is truncated at the `#`; and a `: ` inside a plain scalar reads as a
+mapping, so an entry containing `notes: value` stops being a scalar. Both make the whole block
+unparseable, and the block does not fail alone - doctor reports `CTX-002` against the task and any
+consumer that reads the register sees one fewer task.
+
+The rule for editing this file: quote as a single-quoted scalar any entry containing `#` or `: `, and
+double an internal `'` to `''`. TASK-014's repair pass quoted the colon cases and missed the first
+`#` case in TASK-018, which is why the register parsed for a while and then did not. After editing a
+block, the cheap check is that `aicontext doctor` still reports the file as valid.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

@@ -568,26 +568,26 @@ done:
   - TempProject owns a tempfile::TempDir, names the root after the project, and refuses an empty or
     separator-bearing name rather than sanitising it, since a rewritten name would let a test pass
     for a project other than the one it created
-  - TempRepository builds its child environment with env_clear() and pins the four things that make a
+  - 'TempRepository builds its child environment with env_clear() and pins the four things that make a
     suite machine-dependent: core.autocrlf=false, init.defaultBranch=main, a fixed author and
     committer identity, and fixed dates. Fixed dates are also what make commit hashes reproducible, so
-    a test can assert a hash at all
-  - GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM, HOME, USERPROFILE, and XDG_CONFIG_HOME
+    a test can assert a hash at all'
+  - 'GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM, HOME, USERPROFILE, and XDG_CONFIG_HOME
     all point inside the fixture. Global Git configuration is the acceptance criterion here, so it is
-    closed from both ends: the paths are inert and the inherited environment is empty
-  - The isolation is asserted by asking git where its configuration came from, with
+    closed from both ends: the paths are inert and the inherited environment is empty'
+  - 'The isolation is asserted by asking git where its configuration came from, with
     `git config --list --show-origin`, rather than by trusting the variables that were set: every
-    origin must resolve inside the fixture's own temporary directory. Pointing GIT_CONFIG_GLOBAL at a
+    origin must resolve inside the fixture''s own temporary directory. Pointing GIT_CONFIG_GLOBAL at a
     real ~/.gitconfig was tried during development and the test failed and named the file, so it
-    would catch a regression rather than pass vacuously
+    would catch a regression rather than pass vacuously'
   - Every git invocation is an argv array through Command with no shell, matching RULES 7, so a branch
     name or commit message cannot become a command
   - 'clone, fetch, push, pull, remote, and submodule are refused with FixtureError::NetworkRefused
     rather than merely discouraged: a fixture that clones leaves a test that passes online and fails
     offline'
-  - FixtureError is one #[non_exhaustive] enum carrying a stable code, a message, and a remediation,
+  - 'FixtureError is one #[non_exhaustive] enum carrying a stable code, a message, and a remediation,
     with Display and Error written by hand instead of derived from thiserror. That is the one place
-    the RULES 4.2 convention is deliberately inverted, and the reasoning is in src/error.rs
+    the RULES 4.2 convention is deliberately inverted, and the reasoning is in src/error.rs'
   - 'sample_ai_tree writes the minimum a clean project needs: an AI.md with no front matter (the one
     exempt location), a TASKS.md with front matter and one fenced inline entity whose spec points at
     a file that exists, and the .ai/schemas directory without contents, since CTX-012 compares against
@@ -599,8 +599,13 @@ done:
   - tempfile is the crate's only dependency and was approved for it. The Windows case it solves - a
     just-closed handle keeping a directory from being deleted - is not reachable from
     std::env::temp_dir(). MEM-009 was amended to record that the testkit is no longer dependency-free
-  - The existing hand-rolled Git test helpers in the CLI were left alone: migrating them is outside
-    this task's declared touches, and they are the consumer of this fixture rather than part of it
+  - 'The existing hand-rolled Git test helpers in the CLI were left alone: migrating them is outside
+    this task''s declared touches, and they are the consumer of this fixture rather than part of it'
+  - 'This block was repaired after the task was closed, and it was the one malformed block TASK-014''s
+    repair pass did not catch, because its defect was not a colon: the #[non_exhaustive] in the
+    FixtureError entry began a YAML comment and truncated the entry, so the block did not parse and
+    doctor reported CTX-002 against TASK-018. The entry and three others containing a colon are now
+    single-quoted, and doctor reads the block'
 ```
 
 ### TASK-019 — Add the secret scan to doctor
