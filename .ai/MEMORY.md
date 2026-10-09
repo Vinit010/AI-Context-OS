@@ -434,6 +434,33 @@ test goes red on someone else's machine for a reason neither copy explains. `env
 pairs in application order and treats an empty value as unset, which is how `GIT_ASKPASS` is closed
 rather than pointed at the empty string.
 
+## MEM-016 - The register's current phase and task are body fields, read by one parser
+
+```yaml
+id: MEM-016
+category: constraint
+scope: context
+status: active
+confidence: high
+recorded: 2026-10-09
+supersedes: null
+tags: [tasks, register, parsing, doctor, status]
+```
+
+`TASKS.md`'s current phase and current task are deliberately not in front matter - the schema leaves
+the document-level record to identity and puts the moving cursor in the body as `**Current phase:**`
+and `**Current task:**` lines. They move every task, and a front-matter field that changes every task
+would make every diff touch two places for one fact.
+
+Both readers of the register now share one inline-entity parser, `aicontext-context`'s private
+`body` module: doctor for its document checks and `register` for the current cursor and the task
+list. The rule this encodes is RULES 2 applied to Markdown: two commands that read the same file must
+not each own a copy of the fenced-block and entity-heading rules, because the copies drift and the
+drift is invisible until the two commands disagree about the same file. `register::read` never fails
+- a missing or unreadable `TASKS.md` is an empty register - because `status` must describe an absent
+register rather than abort, and a command that cannot run before `init` cannot report on a project
+that has not been initialised.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

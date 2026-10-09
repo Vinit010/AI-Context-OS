@@ -62,10 +62,10 @@ fn version_works_without_a_subcommand() {
 #[test]
 fn a_command_that_is_not_built_yet_exits_two_and_names_its_task() {
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["status"]);
+    let run = run_in(&root, &["health"]);
 
     assert_eq!(run.code, 2, "an unimplemented command is a usage failure");
-    assert!(run.stderr.contains("TASK-013"), "{}", run.stderr);
+    assert!(run.stderr.contains("TASK-038"), "{}", run.stderr);
     assert!(
         run.stdout.is_empty(),
         "the refusal belongs on stderr: {}",
@@ -76,13 +76,13 @@ fn a_command_that_is_not_built_yet_exits_two_and_names_its_task() {
 #[test]
 fn an_unimplemented_command_answers_json_when_asked() {
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["status", "--json"]);
+    let run = run_in(&root, &["health", "--json"]);
 
     let body: serde_json::Value = serde_json::from_str(&run.stdout).expect("one JSON object");
-    assert_eq!(body["command"], "status");
+    assert_eq!(body["command"], "health");
     assert_eq!(body["exit_code"], 2);
     assert_eq!(body["ok"], false);
-    assert_eq!(body["data"]["task"], "TASK-013");
+    assert_eq!(body["data"]["task"], "TASK-038");
 }
 
 #[test]
@@ -90,9 +90,9 @@ fn a_planned_command_is_refused_before_its_flags_are_validated() {
     // The developer is told what is missing before being told what else they typed, so a flag the
     // planned command may not even have still produces the named refusal rather than a usage error.
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["status", "--not-a-flag"]);
+    let run = run_in(&root, &["health", "--not-a-flag"]);
     assert_eq!(run.code, 2);
-    assert!(run.stderr.contains("TASK-013"), "{}", run.stderr);
+    assert!(run.stderr.contains("TASK-038"), "{}", run.stderr);
 }
 
 #[test]
@@ -108,8 +108,18 @@ fn help_lists_what_works_and_what_does_not() {
         run.stdout
     );
     assert!(
-        run.stdout.contains("TASK-013"),
+        run.stdout.contains("status"),
+        "a built command must be listed: {}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("TASK-038"),
         "a planned command must name its task"
+    );
+    assert!(
+        !run.stdout.contains("TASK-013"),
+        "status is built, so it no longer belongs to the planned list: {}",
+        run.stdout
     );
     assert!(
         !run.stdout.contains("TASK-014"),

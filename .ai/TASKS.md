@@ -11,7 +11,7 @@ updated: 2026-10-09
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-017
+**Current task:** TASK-019
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -231,16 +231,63 @@ done:
 ```yaml
 id: TASK-013
 title: Implement aicontext status
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-011, TASK-017]
 spec: null
-touches: ["crates/aicontext-cli/**", "crates/aicontext-git/**"]
+touches: ["crates/aicontext-cli/**", "crates/aicontext-git/**", "crates/aicontext-context/**"]
 acceptance:
   - Shows project, branch, phase, current task, modified files, and pending tasks
   - Degrades gracefully outside a Git repository
   - Warm run under 300 ms
+scope_notes:
+  - 'crates/aicontext-context/** was added to touches on developer approval, and with it one new public
+    reader. The register''s current phase and current task are body fields, not front matter - the
+    schema says so deliberately - and the CLI already depends on aicontext-context for doctor, so the
+    alternative was a second Markdown reader in the CLI, which RULES 2 forbids: one fact, one source.
+    The amendment is additive: aicontext-context gains the public register module with Register,
+    TaskEntry, and read(), and its existing doctor checks are re-expressed on a shared private body
+    parser with no change to their public results'
+done:
+  - 'Two new modules and one shared one. crates/aicontext-context/src/register.rs is the public
+    reader: read(root) never fails, returning a default Register when TASKS.md is missing or
+    unreadable, because a status command run before init must describe an absent register rather than
+    abort; current phase and current task are read from the **Label:** body lines the schema documents,
+    and every fenced entity whose id starts with TASK- is a TaskEntry'
+  - 'crates/aicontext-context/src/body.rs is the private inline-entity parser both register and doctor
+    now use - fenced-block extraction, section ends, entity headings, inline references - so the CLI
+    did not grow a second copy of the rules in RULES 2. It is pub(crate); doctor''s public findings,
+    codes, and messages are unchanged and its suite still passes without edits'
+  - 'crates/aicontext-cli/src/status.rs is the command. Project name and root come from crate::project,
+    the register from aicontext_context::register, and the branch and file changes from
+    aicontext-git''s Repository::snapshot. Acceptance 1: the human report carries a product, project,
+    branch header; the phase and current task; the changed files with their state; and the pending
+    count, ending in the DESIGN 6 summary line, the exit code, and one next command'
+  - 'Acceptance 2: outside a Git repository the report says there is no repository and still prints the
+    register, and a directory that is not a repository is read as the VCS-absent state rather than an
+    error - GitError::NotARepository is the clean "none", and any other git failure becomes a warning
+    finding (STATUS-001 for an unreadable repository, STATUS-002 for an unreadable working tree) so a
+    partial answer is never a crash. An unusable root stays the PROJ-001 usage error, exit 2'
+  - 'The --json shape follows CLI_SPEC 6 and 8: data carries root, project, vcs {kind, branch, head,
+    detached, changes}, current_phase, current_task, and tasks {total, done, pending, pending_ids}, so
+    the documented jq -r ''.data.current_task.id'' resolves. A JSON write failure is STATUS-003 and
+    exit 1'
+  - 'Acceptance 3: the warm run over this repository measured 175 ms and 191 ms wall clock on the
+    second and third invocations against the debug binary, under the 300 ms budget'
+  - 'crates/aicontext-cli/tests/status.rs holds 7 end-to-end tests through the real binary, each
+    spawning it with the fixture''s hermetic environment so the child git reads only the fixture: a
+    full report in a clean repository, the JSON current-task id and counts, graceful degradation
+    outside a repository, a modified and an untracked file, a branch in a repository with no commits,
+    the closing next-command and exit line, and an unusable root as PROJ-001. The register is committed
+    in the clean-tree case so the assertion is about a clean tree and not an untracked fixture'
+  - 'The four tests in tests/cli.rs that used status as their example of a not-yet-built command were
+    moved to the still-pending health (TASK-038), because status is now in the help tree and would have
+    made those tests assert the opposite of the truth'
+  - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked
+    -- -D warnings clean; cargo test --workspace --locked green - 101 unit and 8 + 23 + 17 + 5 + 7
+    integration in aicontext-cli, 82 unit in aicontext-context with its 7 fixtures, 43 frontmatter, and
+    4 doc tests, and every other crate''s suite'
 ```
 
 ### TASK-014 — Implement aicontext doctor (v1)

@@ -113,9 +113,19 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Create the `.ai` skeleton. Writes inside `.ai/` and one `.gitignore` entry, nothing else.
     Init(InitArgs),
+    /// Report where this project is: branch, phase, current task, changes, and pending tasks.
+    Status(StatusArgs),
     /// Report what is wrong with this `.ai/` tree and what to do about it. Writes nothing.
     Doctor(DoctorArgs),
 }
+
+/// `aicontext status`.
+///
+/// Reports project name, branch, current phase, current task, modified files, and pending tasks, and
+/// degrades gracefully outside a Git repository rather than failing. It takes no flags of its own:
+/// everything it answers is already in the register and the working tree.
+#[derive(Debug, Args)]
+pub(crate) struct StatusArgs {}
 
 /// `aicontext init`.
 ///
@@ -221,14 +231,9 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init` is deliberately absent: it is implemented. A command here exits 2 with the code below and
-/// names its task, which §3 requires — it is never a silent no-op.
+/// `init` and `status` are deliberately absent: they are implemented. A command here exits 2 with the
+/// code below and names its task, which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
-    PendingCommand {
-        name: "status",
-        task: Some("TASK-013"),
-        summary: "Project, branch, phase, current task, changes",
-    },
     PendingCommand {
         name: "health",
         task: Some("TASK-038"),
@@ -352,11 +357,12 @@ Usage: aicontext <command> [flags]
 
 Commands:
   init                     Create the .ai skeleton                     available
+  status                   Project, branch, phase, current task, changes
+                                                             available
   doctor                   Report what is wrong with .ai/ and how to fix it
                                                              available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
-  status                   Project, branch, phase, current task, changes        TASK-013
   health                   Transparent context metrics                            TASK-038
   context                  Assemble a context packet (show, explain)             TASK-037
   plan                     Produce an implementation plan for a task
@@ -484,8 +490,12 @@ mod tests {
 
     #[test]
     fn a_pending_command_is_found_by_name() {
-        assert_eq!(pending("status").map(|c| c.task), Some(Some("TASK-013")));
+        assert_eq!(pending("health").map(|c| c.task), Some(Some("TASK-038")));
         assert!(pending("init").is_none());
+        assert!(
+            pending("status").is_none(),
+            "status is implemented, so it must not also be pending"
+        );
         assert!(
             pending("doctor").is_none(),
             "doctor is implemented, so it must not also be pending"

@@ -6,13 +6,13 @@
 //!
 //! # What exists today
 //!
-//! `init` (`TASK-012`), `doctor` (`TASK-014`), and the global flags. Every other command in the §3 tree
-//! is listed in [`args::PENDING`] and exits 2 naming the task that will build it, which is what §3
-//! requires of a command that is not implemented yet — a named refusal rather than an unknown-word
-//! usage error.
+//! `init` (`TASK-012`), `status` (`TASK-013`), `doctor` (`TASK-014`), and the global flags. Every other
+//! command in the §3 tree is listed in [`args::PENDING`] and exits 2 naming the task that will build
+//! it, which is what §3 requires of a command that is not implemented yet — a named refusal rather
+//! than an unknown-word usage error.
 //!
 //! The command word is read from the raw arguments *before* clap validates them, so
-//! `aicontext status --json` reports "not implemented, TASK-013" rather than complaining about the
+//! `aicontext health --json` reports "not implemented, TASK-038" rather than complaining about the
 //! flag: the developer is told what is missing before being told what else they typed.
 
 #![forbid(unsafe_code)]
@@ -23,6 +23,7 @@ mod exit;
 mod init;
 mod output;
 mod project;
+mod status;
 
 use std::process::ExitCode;
 
@@ -51,6 +52,7 @@ fn main() -> ExitCode {
 
     let exit = match &cli.command {
         Command::Init(init_args) => init::run(init_args, &cli.global, &mut terminal),
+        Command::Status(status_args) => status::run(status_args, &cli.global, &mut terminal),
         Command::Doctor(doctor_args) => doctor::run(doctor_args, &cli.global, &mut terminal),
     };
 

@@ -24,13 +24,16 @@
 
 #![forbid(unsafe_code)]
 
+mod body;
 mod codec;
 pub mod doctor;
 mod error;
 mod frontmatter;
+pub mod register;
 mod value;
 
 pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
 pub use error::ContextError;
 pub use frontmatter::{DOCUMENT_MAX_BYTES, Document, FRONT_MATTER_MAX_BYTES, FrontMatter};
+pub use register::{Register, TaskEntry};
 pub use value::Value;
