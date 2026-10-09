@@ -34,10 +34,11 @@ binary.
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**One real command ships today.** `aicontext init` creates the `.ai` skeleton; every other command in
-the plan refuses to run and names the task that will build it. The task register in
-[`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is being built, in what order, and
-what "done" means for each item.
+**Three commands ship today: `init`, `status`, and `doctor`.** `init` creates the `.ai` skeleton,
+`status` reports where the project and its task register stand, and `doctor` validates the `.ai/` tree
+and explains what is wrong with it. Every other command in the plan refuses to run and names the task
+that will build it. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of
+what is being built, in what order, and what "done" means for each item.
 
 ```sh
 cargo run -p aicontext-cli -- init --dry-run   # show the plan, write nothing
@@ -158,15 +159,15 @@ The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks
 
 ## Using the tool
 
-`init` and `doctor` are the commands that run today. The rest are listed so the shape is on the record;
-each one exits with code 2 and names the task that will build it, rather than pretending to work. Exit
-codes and the `--json` envelope are a stable contract, in
+`init`, `status`, and `doctor` are the commands that run today. The rest are listed so the shape is on
+the record; each one exits with code 2 and names the task that will build it, rather than pretending to
+work. Exit codes and the `--json` envelope are a stable contract, in
 [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
 
 ```text
 aicontext
 ├─ init                     create the .ai skeleton              available
-├─ status                   project, branch, phase, current task, changes   TASK-013
+├─ status                   project, branch, phase, current task, changes   available
 ├─ doctor                   validate and diagnose context                  available
 ├─ health                   transparent context metrics                     TASK-038
 ├─ context                  assemble a context packet                       TASK-037
@@ -210,6 +211,34 @@ point, and the first useful edit is `.ai/RULES.md`.
 
 Every command works without a TTY, has a documented exit code, and supports `--json`. Read
 commands never touch the network, and anything that writes supports `--dry-run`.
+
+### `status`
+
+```sh
+aicontext status [--json]
+```
+
+Reports where the project stands without writing anything: the project name and root, the current
+branch and working-tree changes, and the register's current phase, current task, and pending tasks. The
+register is read from `.ai/TASKS.md`; a project that has not run `init` is described as having no
+register rather than failing. Outside a Git repository it says so and still prints the register. A warm
+run over this repository stays inside the 300 ms budget.
+
+### `doctor`
+
+```sh
+aicontext doctor [--strict] [--only <prefix>] [--explain <code>] [--rebuild-index] [--json]
+```
+
+Validates the `.ai/` tree and prints one line per finding — a stable code from
+`docs/CONTEXT_SPEC.md` §8, the file, the message, and the fix — followed by the files it read and found
+clean. A clean tree exits 0; any error-level finding exits 3, and `--strict` promotes warnings. The
+checks that run today are `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`, `CTX-014`, `CTX-016`,
+and `CTX-018`; the rest of the catalogue is listed by `doctor --json` as deferred with the task that
+owns it. `CTX-016` scans `.ai/` for credential-shaped content and reports only the path, line, and rule,
+never the match. `--explain <code>` answers what a check means without reading a project, `--only`
+narrows the run to matching codes, and `--rebuild-index` is accepted and says out loud that there is no
+index cache yet (that arrives with `TASK-031`).
 
 ---
 
