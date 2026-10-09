@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-01
+updated: 2026-10-09
 ---
 
 # MEMORY
@@ -408,6 +408,32 @@ acceptance names a *check* performed by another task, confirm first that the nam
 depend on this one. A criterion phrased as "X verifies Y" belongs to X, not to the task that
 produced Y.
 
+## MEM-015 - The hermetic git environment has one home, in the testkit
+
+```yaml
+id: MEM-015
+category: constraint
+scope: testing
+status: active
+confidence: high
+recorded: 2026-10-09
+supersedes: null
+tags: [testkit, git, hermetic, fixtures]
+```
+
+A test that spawns git and a test that uses a fixture must run the same git with the same
+environment, or the fixture's guarantees end where the raw spawn begins. So `TempRepository` exposes
+the git executable it resolved (`git_program`) and the exact name/value set it applies
+(`environment`), and its own `command()` builds the child from that one list. `aicontext-git`'s
+integration tests construct `Git::with_environment(repo.git_program(), repo.environment())` rather
+than re-deriving either.
+
+The rule this encodes: a hermetic property is only as strong as its single definition. Two copies of
+the variable set - one in the fixture, one in a test - can drift, and the drift is invisible until a
+test goes red on someone else's machine for a reason neither copy explains. `environment` returns
+pairs in application order and treats an empty value as unset, which is how `GIT_ASKPASS` is closed
+rather than pointed at the empty string.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
@@ -423,9 +449,13 @@ produced Y.
 
 ## Bugs encountered
 
-None shipped. Two defects were found by running the binary against a scratch project before TASK-012
-was closed, both recorded under `MEM-013`: reported paths carried the Windows verbatim `\\?\` prefix,
-and the counts line said `directorys`. Both are fixed and covered by tests.
+None shipped. Three defects were found before the task that introduced them was closed, so none
+reached a consumer. Two were found by running the binary against a scratch project before TASK-012
+was closed and are recorded under `MEM-013`: reported paths carried the Windows verbatim `\\?\`
+prefix, and the counts line said `directorys`. Both are fixed and covered by tests. The third was
+found by the integration suite on its first run, before TASK-017 was closed: the git log reader
+desynchronised on the newline git appends between commits, and is filed with its root cause under
+`.ai/bugs/BUG-001-git-log-record-separator.md`.
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.

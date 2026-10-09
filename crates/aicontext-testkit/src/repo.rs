@@ -46,6 +46,7 @@
 //! argument list containing one of them. A test that reached the network would be the failure mode
 //! `RULES.md` §8 forbids.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -147,6 +148,94 @@ impl TempRepository {
     #[must_use]
     pub fn join(&self, relative: &str) -> PathBuf {
         self.project.join(relative)
+    }
+
+    /// The `git` executable this fixture resolved from `PATH`, so a caller can name the same one.
+    ///
+    /// Exposed because a test that spawns git itself should run the executable the fixture already
+    /// found, rather than searching `PATH` again and possibly finding a different one: two git builds
+    /// on one machine is exactly the difference that turns a green test red on someone else's.
+    #[must_use]
+    pub fn git_program(&self) -> &Path {
+        &self.git
+    }
+
+    /// The environment a hermetic `git` child runs with, as name/value pairs in application order.
+    ///
+    /// This is the single definition of "a git process that cannot read this developer's
+    /// configuration". [`TempRepository`]'s own commands apply it, and a caller that spawns git itself,
+    /// such as `aicontext-git`'s integration tests building a wrapper through `Git::with_environment`,
+    /// reuses it instead of re-deriving the variable set, so the two cannot drift and a test that is
+    /// hermetic once stays hermetic everywhere.
+    ///
+    /// An empty value means the variable is *unset*, matching what `Git::with_environment` expects.
+    /// [`TempRepository::command`] sets an empty value empty rather than removing it, which is
+    /// equivalent for the one variable that is empty here: `GIT_ASKPASS`, which no read-only command
+    /// consults.
+    #[must_use]
+    pub fn environment(&self) -> Vec<(OsString, OsString)> {
+        let absent = self.home.join("gitconfig-absent");
+        vec![
+            (OsString::from("PATH"), git_path(&self.git).into_os_string()),
+            (OsString::from("GIT_CONFIG_GLOBAL"), absent.into_os_string()),
+            (
+                OsString::from("GIT_CONFIG_SYSTEM"),
+                self.home.join("system-gitconfig-absent").into_os_string(),
+            ),
+            (OsString::from("GIT_CONFIG_NOSYSTEM"), OsString::from("1")),
+            (OsString::from("HOME"), self.home.clone().into_os_string()),
+            (
+                OsString::from("USERPROFILE"),
+                self.home.clone().into_os_string(),
+            ),
+            (
+                OsString::from("XDG_CONFIG_HOME"),
+                self.home.clone().into_os_string(),
+            ),
+            (OsString::from("GIT_CONFIG_COUNT"), OsString::from("2")),
+            (
+                OsString::from("GIT_CONFIG_KEY_0"),
+                OsString::from("core.autocrlf"),
+            ),
+            (
+                OsString::from("GIT_CONFIG_VALUE_0"),
+                OsString::from("false"),
+            ),
+            (
+                OsString::from("GIT_CONFIG_KEY_1"),
+                OsString::from("init.defaultBranch"),
+            ),
+            (
+                OsString::from("GIT_CONFIG_VALUE_1"),
+                OsString::from(DEFAULT_BRANCH),
+            ),
+            (OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0")),
+            (OsString::from("GIT_ASKPASS"), OsString::new()),
+            (
+                OsString::from("GIT_AUTHOR_NAME"),
+                OsString::from(FIXTURE_NAME),
+            ),
+            (
+                OsString::from("GIT_AUTHOR_EMAIL"),
+                OsString::from(FIXTURE_EMAIL),
+            ),
+            (
+                OsString::from("GIT_COMMITTER_NAME"),
+                OsString::from(FIXTURE_NAME),
+            ),
+            (
+                OsString::from("GIT_COMMITTER_EMAIL"),
+                OsString::from(FIXTURE_EMAIL),
+            ),
+            (
+                OsString::from("GIT_AUTHOR_DATE"),
+                OsString::from(FIXTURE_DATE),
+            ),
+            (
+                OsString::from("GIT_COMMITTER_DATE"),
+                OsString::from(FIXTURE_DATE),
+            ),
+        ]
     }
 
     /// Writes a file at a `/`-separated relative path, creating its parent directories.
@@ -317,41 +406,16 @@ impl TempRepository {
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(&self.git);
         command.current_dir(self.project.path());
-        // Everything the child sees is set below. Inherited variables are removed first, so a
-        // developer's `GIT_DIR`, `GIT_WORK_TREE`, `GIT_SSH_COMMAND`, or `GIT_CONFIG_COUNT` cannot
-        // change what a fixture observes.
+        // Everything the child sees is set from `environment` below. Inherited variables are removed
+        // first, so a developer's `GIT_DIR`, `GIT_WORK_TREE`, `GIT_SSH_COMMAND`, or `GIT_CONFIG_COUNT`
+        // cannot change what a fixture observes. HOME, USERPROFILE, and XDG_CONFIG_HOME all point
+        // inside the fixture, and the two `GIT_CONFIG_*` values override `core.autocrlf` and
+        // `init.defaultBranch` through the documented `GIT_CONFIG_COUNT` protocol rather than a config
+        // file a later test might find.
         command.env_clear();
-
-        let absent = self.home.join("gitconfig-absent");
-        command
-            .env("PATH", git_path(&self.git))
-            .env("GIT_CONFIG_GLOBAL", &absent)
-            .env(
-                "GIT_CONFIG_SYSTEM",
-                self.home.join("system-gitconfig-absent"),
-            )
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            // HOME, USERPROFILE, and XDG_CONFIG_HOME all point inside the fixture, so git cannot
-            // reach a real ~/.gitconfig by any of the three paths it uses on any platform.
-            .env("HOME", &self.home)
-            .env("USERPROFILE", &self.home)
-            .env("XDG_CONFIG_HOME", &self.home)
-            // Two configuration values are injected rather than inherited. This is the documented
-            // `GIT_CONFIG_COUNT` protocol, and it is how the fixture overrides a setting without
-            // writing a config file that a later test might find.
-            .env("GIT_CONFIG_COUNT", "2")
-            .env("GIT_CONFIG_KEY_0", "core.autocrlf")
-            .env("GIT_CONFIG_VALUE_0", "false")
-            .env("GIT_CONFIG_KEY_1", "init.defaultBranch")
-            .env("GIT_CONFIG_VALUE_1", DEFAULT_BRANCH)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_ASKPASS", "")
-            .env("GIT_AUTHOR_NAME", FIXTURE_NAME)
-            .env("GIT_AUTHOR_EMAIL", FIXTURE_EMAIL)
-            .env("GIT_COMMITTER_NAME", FIXTURE_NAME)
-            .env("GIT_COMMITTER_EMAIL", FIXTURE_EMAIL)
-            .env("GIT_AUTHOR_DATE", FIXTURE_DATE)
-            .env("GIT_COMMITTER_DATE", FIXTURE_DATE);
+        for (name, value) in self.environment() {
+            command.env(name, value);
+        }
         command.args(args);
         command
     }
@@ -727,5 +791,42 @@ mod tests {
             seen > 0,
             "no configuration at all was read, so this proved nothing: {origins:?}"
         );
+    }
+
+    #[test]
+    fn the_hermetic_environment_pins_what_a_fixture_depends_on() {
+        // `environment` is the single definition a caller spawning git itself reuses, so it must
+        // carry the same pins `command` applies. Asserting the pair list directly is what keeps the
+        // two from drifting: the runtime check above only proves the values *this* fixture applied,
+        // not the ones handed to another caller.
+        use std::collections::BTreeMap;
+        use std::ffi::OsString;
+
+        let repo = TempRepository::new("environment").expect("a repository");
+        let environment: BTreeMap<OsString, OsString> = repo.environment().into_iter().collect();
+        let value = |name: &str| environment.get(&OsString::from(name)).cloned();
+
+        assert_eq!(value("GIT_CONFIG_NOSYSTEM"), Some(OsString::from("1")));
+        assert_eq!(
+            value("GIT_CONFIG_KEY_0"),
+            Some(OsString::from("core.autocrlf"))
+        );
+        assert_eq!(value("GIT_CONFIG_VALUE_0"), Some(OsString::from("false")));
+        assert_eq!(
+            value("GIT_CONFIG_KEY_1"),
+            Some(OsString::from("init.defaultBranch"))
+        );
+        assert_eq!(
+            value("GIT_CONFIG_VALUE_1"),
+            Some(OsString::from(DEFAULT_BRANCH))
+        );
+
+        let home = value("HOME").expect("HOME is pinned");
+        assert!(
+            Path::new(&home).starts_with(repo.project.temp_path()),
+            "HOME must point inside the fixture, not the developer's home: {home:?}"
+        );
+        assert_eq!(value("USERPROFILE"), value("HOME"));
+        assert_eq!(value("XDG_CONFIG_HOME"), value("HOME"));
     }
 }

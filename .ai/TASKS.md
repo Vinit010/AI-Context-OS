@@ -5,7 +5,7 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-01
+updated: 2026-10-09
 ---
 
 # TASKS
@@ -426,7 +426,7 @@ comparison; `MEM-010` records the dependency state.
 ```yaml
 id: TASK-017
 title: Implement the Git wrapper
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-010]
@@ -450,6 +450,50 @@ scope_notes:
     present, status --porcelain=v1, status --porcelain=v2, diff --name-only HEAD, log, and
     branch --show-current were all measured exiting 0 on git 2.51. Every command this wrapper offers
     is read-only and none acquires the index lock'
+  - 'crates/aicontext-testkit/src/repo.rs was added to touches on developer approval. Acceptance 4
+    needs tests that spawn the same git binary the fixture resolved and the same hermetic environment
+    it applies; re-deriving either inside aicontext-git would re-introduce exactly the machine
+    dependence TASK-018 exists to remove. The change is additive: two new public accessors on
+    TempRepository (git_program, environment) and its private command() refactored to consume the one
+    list, so the fixture has a single definition of its environment instead of two that can drift. No
+    dependency was added'
+done:
+  - 'Five modules: git.rs spawns git with an argv array and captures stdout and stderr; porcelain.rs
+    reads branch and status; query.rs reads the log; error.rs is the GIT-001 to GIT-006 catalogue;
+    lib.rs is the documented public surface'
+  - 'Public read-only API: Git::new, Git::with_environment and Git::open, Repository::branch,
+    Repository::changed_files, Repository::snapshot, Repository::recent_commits(limit), and the Head
+    (Branch, Unborn, Detached), Change, FileStatus, and Commit types'
+  - 'Acceptance 1: branch, status, changed files - with the index, worktree, and unmerged halves kept
+    distinct - and recent commits are all read from porcelain, not from the human-readable output'
+  - 'Acceptance 2: a directory that is not a repository is GIT-002 rather than a crash, and an empty
+    repository returns the distinct GIT-004 so a caller can tell "no history yet" from a real failure.
+    Both are named integration tests, as are a detached HEAD and an unborn branch'
+  - 'Acceptance 3: every invocation is an argv array passed to Command, with no shell on any path, so
+    a branch name or a commit subject cannot become a command'
+  - 'Acceptance 4: crates/aicontext-git/tests/repository.rs holds 12 tests against real temporary
+    repositories built by aicontext-testkit - a non-repository, a fresh repository, an untracked file,
+    a staged and an unstaged modification, a rename, the fixture commit and a limit, an empty
+    repository, a detached HEAD, a subdirectory root, and a second read after a change. Each builds
+    Git::with_environment(repo.git_program(), repo.environment()), so the wrapper runs against the same
+    hermetic git the fixture uses and never reads the developer''s own configuration'
+  - 'The integration suite found a real defect on its first run that the 39 unit tests could not,
+    because they fed the parser bytes and the parser was right about the bytes it was handed: git log
+    --format appends a newline after every commit, but the tokenizer trusts every byte between NULs to
+    be a field, so the newline was read as a seventh token and the stream desynchronised from the
+    second commit on. Fixed by adding -z (a NUL record separator) and dropping the trailing %x00; the
+    two tests that failed first, recent_commits_reads_the_fixture_commit and
+    a_limit_returns_only_the_newest_commits, are the failing-before/passing-after evidence. Recorded
+    as BUG-001'
+  - 'Hermetic by construction: Git::with_environment clears the child environment and applies only the
+    pairs it is given, and an empty value means unset, so GIT_ASKPASS is closed rather than set to the
+    empty string. The testkit''s environment() is the single definition of that set, consumed by the
+    fixture''s own commands and by the integration tests, so the two cannot drift'
+  - 'No new production dependency: thiserror only, already approved. The testkit gained the two
+    accessors above and no dependency'
+  - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked
+    -- -D warnings clean; cargo test --workspace --locked green. aicontext-git: 39 unit, 12
+    integration, 1 doc. aicontext-testkit: 48 unit, 10 boundary, 3 doc'
 ```
 
 ### TASK-018 — Build the testkit

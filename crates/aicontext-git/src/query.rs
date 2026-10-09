@@ -45,6 +45,11 @@ use crate::porcelain::{self, Change, Head};
 /// `FIELDS_PER_COMMIT` tokens per commit and is chunked rather than split into records first. Using
 /// one separator for both means the chunk size is the only thing that has to be right, and it is a
 /// constant next to this one.
+///
+/// Field boundaries are the `%x00` escapes in [`LOG_FORMAT`]; the record boundary is git's own,
+/// requested with `-z`. `-z` is not optional: without it `git log --format` appends a newline after
+/// every commit, and the tokenizer - which trusts every byte between two separators to be a field
+/// - would read that newline as a seventh, empty token and desynchronise from the second commit on.
 const NUL: u8 = 0;
 
 /// How many tokens one commit occupies in that stream.
@@ -54,8 +59,10 @@ const FIELDS_PER_COMMIT: usize = 6;
 ///
 /// Written out once here rather than assembled, so the field order and the struct cannot drift apart
 /// silently. `%aI` is the author's date in strict ISO 8601, a fixed format across git versions
-/// whereas the default date rendering is not.
-const LOG_FORMAT: &str = "--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00";
+/// whereas the default date rendering is not. There is no trailing `%x00`: the record boundary is
+/// git's `-z`, and stacking the two would leave an empty token between commits that the tokenizer
+/// would mistake for the end of the stream after the first commit.
+const LOG_FORMAT: &str = "--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s";
 
 /// One commit, as read from the log.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -213,6 +220,7 @@ impl Repository {
             "log",
             "--no-color",
             "--no-decorate",
+            "-z",
             "-n",
             &count,
             LOG_FORMAT,
