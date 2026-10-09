@@ -7,7 +7,8 @@
 //! # Scope of v1
 //!
 //! `TASK-014`'s acceptance names six behaviours, and this module implements exactly those:
-//! `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`, and `CTX-014`. The rest of the Â§8
+//! `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`, and `CTX-014`. `TASK-019` added a seventh,
+//! `CTX-016`, which scans `.ai/` for credential-shaped content. The rest of the Â§8
 //! catalogue is deliberately absent rather than stubbed, because a check that cannot fail is worse
 //! than a missing one â€” it advertises a guarantee the code does not make. Each omission is listed in
 //! [`UNIMPLEMENTED`] so `doctor --explain` says so rather than inventing a rationale.
@@ -140,7 +141,6 @@ pub const UNIMPLEMENTED: &[(&str, &str)] = &[
         "CTX-015",
         "memory-versus-file freshness needs file modification times",
     ),
-    ("CTX-016", "the credential scan is TASK-019"),
     (
         "CTX-017",
         "hand-edit detection needs the index, owned by TASK-031",
@@ -278,6 +278,7 @@ pub fn run(inputs: &Inputs<'_>) -> Report {
     check_schemas(inputs, &mut findings);
     check_architecture(inputs, &documents, &mut findings);
     check_decisions(&documents, &mut findings);
+    check_secrets(inputs.root, &mut findings);
 
     // The checks that read a document as part of a whole tree report against that document's path:
     // a dangling reference in `RULES.md`, a declared stack that contradicts `ARCHITECTURE.md`, a
@@ -637,6 +638,327 @@ fn check_decisions(documents: &[Loaded], findings: &mut Vec<Finding>) {
     }
 }
 
+/// `CTX-016`: `.ai/` is copied into every clone, so a credential written here is a credential
+/// published. Reports the file, the line, and the rule that matched, and never the match itself.
+///
+/// Every text file under `.ai/` is examined rather than only the documents, because `init` also
+/// copies `permissions.yaml`, and a secret leaked there is exactly as public. A file that cannot be
+/// read as UTF-8, or that is past the size cap, is skipped rather than guessed at.
+fn check_secrets(root: &Path, findings: &mut Vec<Finding>) {
+    for relative in context_files(root) {
+        let Ok(text) = fs::read_to_string(root.join(&relative)) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            let Some(rule) = match_secret(line) else {
+                continue;
+            };
+            findings.push(Finding::new(
+                ErrorCode::CTX_016,
+                Severity::Error,
+                &relative,
+                format!(
+                    "credential-shaped content on line {} matched the `{rule}` rule",
+                    index + 1
+                ),
+                "remove the value and rotate it, and record only where the credential comes from",
+            ));
+        }
+    }
+}
+
+/// Every regular file below `.ai/`, as repository-relative paths in sorted order.
+///
+/// Bounded in depth and in count so a pathological tree costs a bounded amount of work, and skipping
+/// anything past the size cap so one enormous file cannot be loaded in order to be scanned.
+fn context_files(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    scan_dir(&root.join(CONTEXT_DIR), root, &mut found, 0);
+    found.sort();
+    found
+}
+
+/// Recursive descent for the credential scan, bounded the same way the document walk is.
+fn scan_dir(dir: &Path, root: &Path, found: &mut Vec<String>, depth: usize) {
+    if depth > MAX_DEPTH || found.len() >= MAX_DOCUMENTS {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scan_dir(&path, root, found, depth + 1);
+            continue;
+        }
+        let oversize =
+            fs::metadata(&path).map_or(true, |metadata| metadata.len() > DOCUMENT_MAX_BYTES as u64);
+        if oversize {
+            continue;
+        }
+        found.push(relative_to(root, &path));
+    }
+}
+
+/// The credential rule a line matches, most specific first, or `None` when it is clean.
+fn match_secret(line: &str) -> Option<&'static str> {
+    VALUE_RULES
+        .iter()
+        .find(|(_, detect)| detect(line))
+        .map(|(name, _)| *name)
+        .or_else(|| credential_key(line).then_some(KEY_RULE))
+}
+
+/// A named credential detector: the rule's name and the function that recognises it.
+type ValueRule = (&'static str, fn(&str) -> bool);
+
+/// The value-shaped rules, each a named detector, tried in the order a reader would recognise them.
+const VALUE_RULES: &[ValueRule] = &[
+    ("private-key-block", private_key_block),
+    ("aws-access-key-id", aws_access_key_id),
+    ("github-token", github_token),
+    ("slack-token", slack_token),
+    ("google-api-key", google_api_key),
+    ("stripe-secret-key", stripe_secret_key),
+    ("anthropic-api-key", anthropic_api_key),
+    ("openai-api-key", openai_api_key),
+    ("json-web-token", json_web_token),
+    ("bearer-token", bearer_token),
+    ("password-in-url", password_in_url),
+];
+
+/// The rule name for a credential-shaped key whose value is a literal secret.
+const KEY_RULE: &str = "credential-key";
+
+/// A private key block header, the shape `openssl`, `ssh-keygen`, and GPG all emit.
+fn private_key_block(line: &str) -> bool {
+    line.contains("-----BEGIN") && line.contains("PRIVATE KEY")
+}
+
+/// An AWS access key ID: `AKIA` or `ASIA` and exactly sixteen more upper-case letters or digits.
+fn aws_access_key_id(line: &str) -> bool {
+    ["AKIA", "ASIA"].iter().any(|prefix| {
+        prefixed_run(line, prefix, 16, |c| {
+            c.is_ascii_uppercase() || c.is_ascii_digit()
+        })
+    })
+}
+
+/// A GitHub token: the classic `ghp_`-family prefix or the fine-grained `github_pat_` prefix.
+fn github_token(line: &str) -> bool {
+    ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"]
+        .iter()
+        .any(|prefix| prefixed_run(line, prefix, 36, is_token_char))
+        || prefixed_run(line, "github_pat_", 22, is_token_char)
+}
+
+/// A Slack token: `xox` and the kind letter Slack uses, then a dash.
+fn slack_token(line: &str) -> bool {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find("xox") {
+        let start = from + offset;
+        let mut after = line[start + 3..].chars();
+        if matches!(after.next(), Some('b' | 'a' | 'p' | 'r' | 's')) && after.next() == Some('-') {
+            return true;
+        }
+        from = start + 3;
+    }
+    false
+}
+
+/// A Google API key: `AIza` and at least thirty-five more URL-safe characters.
+fn google_api_key(line: &str) -> bool {
+    prefixed_run(line, "AIza", 35, is_token_char)
+}
+
+/// A Stripe live secret key: `sk_live_` or `rk_live_` and at least sixteen more characters.
+fn stripe_secret_key(line: &str) -> bool {
+    ["sk_live_", "rk_live_"]
+        .iter()
+        .any(|prefix| prefixed_run(line, prefix, 16, |c| c.is_ascii_alphanumeric()))
+}
+
+/// An Anthropic API key: `sk-ant-` and at least eight more URL-safe characters.
+fn anthropic_api_key(line: &str) -> bool {
+    prefixed_run(line, "sk-ant-", 8, is_token_char)
+}
+
+/// An `OpenAI` API key: `sk-` on a word boundary and at least twenty more URL-safe characters.
+///
+/// The boundary matters: without it, the `sk-` inside a word such as `task-name` would look like a
+/// key, and every document that mentions a task would be reported.
+fn openai_api_key(line: &str) -> bool {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find("sk-") {
+        let start = from + offset;
+        let at_boundary = line[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|before| !before.is_ascii_alphanumeric());
+        let rest = &line[start + 3..];
+        if at_boundary && rest.chars().take_while(|c| is_token_char(*c)).count() >= 20 {
+            return true;
+        }
+        from = start + 3;
+    }
+    false
+}
+
+/// A JSON Web Token: `eyJ`, then three dot-separated base64url segments.
+fn json_web_token(line: &str) -> bool {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find("eyJ") {
+        let start = from + offset;
+        let token: String = line[start..]
+            .chars()
+            .take_while(|c| is_token_char(*c) || *c == '.')
+            .collect();
+        let segments: Vec<&str> = token.split('.').collect();
+        if segments.len() == 3 && segments.iter().all(|segment| !segment.is_empty()) {
+            return true;
+        }
+        from = start + 3;
+    }
+    false
+}
+
+/// A bearer token in an `Authorization` header: the word, then at least twenty token characters.
+fn bearer_token(line: &str) -> bool {
+    prefixed_run(line, "Bearer ", 20, is_token_char)
+}
+
+/// A URL carrying a user name and a password, which is exposed to every reader of the file.
+fn password_in_url(line: &str) -> bool {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find("://") {
+        let start = from + offset + 3;
+        let authority = line[start..]
+            .split(['/', '?', '#', ' ', '\t'])
+            .next()
+            .unwrap_or_default();
+        if let Some(colon) = authority.find(':') {
+            let (user, rest) = authority.split_at(colon);
+            let password = &rest[1..];
+            if !user.is_empty() && !password.is_empty() && password.contains('@') {
+                return true;
+            }
+        }
+        from = start;
+    }
+    false
+}
+
+/// Whether `line` holds `needle` followed by at least `min` characters `allowed` accepts.
+fn prefixed_run(line: &str, needle: &str, min: usize, allowed: fn(char) -> bool) -> bool {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find(needle) {
+        let start = from + offset;
+        let rest = &line[start + needle.len()..];
+        if rest.chars().take_while(|c| allowed(*c)).count() >= min {
+            return true;
+        }
+        from = start + needle.len();
+    }
+    false
+}
+
+/// The characters an opaque token is made of: base64url, plus the separators headers and URLs use.
+fn is_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '/' | '=')
+}
+
+/// The key names that make an assignment credential-shaped.
+const CREDENTIAL_KEYS: &[&str] = &[
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "client_secret",
+    "api_key",
+    "apikey",
+    "access_key",
+    "access_key_id",
+    "secret_key",
+    "secret_access_key",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+    "private_key",
+    "token",
+    "auth_token",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "credential",
+    "credentials",
+];
+
+/// The shortest value a credential-shaped key can hold and still be a literal rather than a stub.
+const MIN_KEY_VALUE: usize = 6;
+
+/// Value spellings that name where a secret comes from, or stand in for one, rather than being one.
+const NOT_A_SECRET: &[&str] = &[
+    "$",
+    "<",
+    "keychain",
+    "env:",
+    "op://",
+    "vault:",
+    "ref:",
+    "refs/",
+    "null",
+    "none",
+    "nil",
+    "true",
+    "false",
+    "yes",
+    "no",
+    "redacted",
+    "changeme",
+    "example",
+    "placeholder",
+    "your_",
+    "your-",
+    "replace",
+    "todo",
+];
+
+/// Whether a line assigns a literal secret to a credential-shaped key.
+///
+/// A value that is a reference (`${VAR}`, `keychain:...`) or a stub (`changeme`) is not a secret, and
+/// reporting it would train a reader to ignore the check. The value must also be a single unquoted
+/// token, which keeps structural lines such as `"token": {` from matching on the key alone.
+fn credential_key(line: &str) -> bool {
+    let Some(separator) = line.find([':', '=']) else {
+        return false;
+    };
+    let key = line[..separator]
+        .trim()
+        .trim_matches(['"', '\'', '`', ' '])
+        .to_lowercase();
+    if !CREDENTIAL_KEYS.contains(&key.as_str()) {
+        return false;
+    }
+    let value = line[separator + 1..]
+        .trim()
+        .trim_matches(['"', '\'', '`', ' ']);
+    is_literal_secret(value)
+}
+
+/// Whether a value is a literal secret rather than a reference, a stub, or structure.
+fn is_literal_secret(value: &str) -> bool {
+    if value.len() < MIN_KEY_VALUE || value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let lower = value.to_lowercase();
+    if NOT_A_SECRET.iter().any(|stub| lower.starts_with(*stub)) {
+        return false;
+    }
+    // A value of one repeated character is a mask (`xxxxxx`, `000000`), not a credential.
+    let mut chars = value.chars();
+    !matches!(chars.next(), Some(first) if chars.all(|c| c == first))
+}
+
 /// Every scalar string a value holds: one for a scalar, each element for a list, nothing for a map.
 ///
 /// An explicit `null` yields nothing, which is the point: Â§2 rule 9 requires `doctor` to treat
@@ -875,6 +1197,11 @@ pub fn explain(code: &str) -> Explanation {
             "A deprecated decision has no successor. A reader who finds it learns that a rule no \
              longer applies and not what replaced it, which is the worst state for a governance \
              document to be in.",
+        ),
+        "CTX-016" => Explanation::Implemented(
+            ".ai/ is copied into every clone, so a credential written into it is published with the \
+             repository. The scan reports the file, the line, and the rule that matched, and never \
+             the value itself, so the report that warns about a leak does not repeat it.",
         ),
         "CTX-018" => Explanation::Implemented(
             "A document past the 1 MiB maximum was not read, because loading it would be the wrong \
@@ -1645,7 +1972,7 @@ mod tests {
     #[test]
     fn explain_covers_every_code_a_check_can_emit() {
         for code in [
-            "CTX-001", "CTX-002", "CTX-007", "CTX-012", "CTX-013", "CTX-014", "CTX-018",
+            "CTX-001", "CTX-002", "CTX-007", "CTX-012", "CTX-013", "CTX-014", "CTX-016", "CTX-018",
         ] {
             assert!(
                 super::explain(code).is_implemented(),
@@ -1653,12 +1980,132 @@ mod tests {
             );
         }
         assert!(
-            super::explain("CTX-016").rationale().is_some(),
+            super::explain("CTX-010").rationale().is_some(),
             "an absent check says what is missing"
         );
         assert!(
             super::explain("CTX-999").is_unknown(),
             "a code that is not a check has nothing to say"
+        );
+    }
+
+    /// Assembles a credential-shaped value without committing a literal one to the repository.
+    fn synthetic(prefix: &str, filler: &str) -> String {
+        format!("{prefix}{filler}")
+    }
+
+    #[test]
+    fn a_credential_shaped_value_is_reported_and_never_echoed() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        // Assembled at run time so this test does not itself hold a credential-shaped literal.
+        let secret = synthetic("ghp_", &"a".repeat(36));
+        write(root, ".ai/scratch.env", &format!("GITHUB_TOKEN={secret}\n"));
+        let report = run(&inputs(root, &[], &[]));
+        let found = finding(&report, "CTX-016");
+        assert_eq!(found.severity, Severity::Error);
+        assert_eq!(found.path, ".ai/scratch.env");
+        assert!(found.message.contains("line 1"), "{found:?}");
+        assert!(found.message.contains("github-token"), "{found:?}");
+        assert!(
+            !format!("{:?}", report.findings).contains(&secret),
+            "the report must not echo the secret it found"
+        );
+    }
+
+    #[test]
+    fn a_credential_shaped_key_holding_a_literal_is_reported() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        let literal = ["hun", "ter", "2"].concat();
+        write(root, ".ai/notes.txt", &format!("password: {literal}\n"));
+        let report = run(&inputs(root, &[], &[]));
+        let found = finding(&report, "CTX-016");
+        assert!(found.message.contains("credential-key"), "{found:?}");
+        assert!(found.message.contains("line 1"), "{found:?}");
+        assert!(!format!("{:?}", report.findings).contains(&literal));
+    }
+
+    #[test]
+    fn the_scan_reports_the_line_the_offending_content_is_on() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        let literal = ["sek", "rit"].concat();
+        write(
+            root,
+            ".ai/notes.txt",
+            &format!("# a comment\napi_key: {literal}\n"),
+        );
+        let report = run(&inputs(root, &[], &[]));
+        assert!(finding(&report, "CTX-016").message.contains("line 2"));
+    }
+
+    #[test]
+    fn a_reference_or_a_stub_is_not_a_credential() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        write(
+            root,
+            ".ai/notes.txt",
+            "api_key: ${OPENAI_API_KEY}\ntoken: changeme\nsecret: null\ntoken: xxxxxx\n",
+        );
+        let report = run(&inputs(root, &[], &[]));
+        assert!(
+            !report.findings.iter().any(|f| f.code == "CTX-016"),
+            "a reference, a stub, or a mask is not a secret: {:?}",
+            report.findings
+        );
+    }
+
+    #[test]
+    fn the_scan_reads_every_file_not_only_documents() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        // `permissions.yaml` is not Markdown, and a secret leaked into it is still published.
+        let secret = synthetic("AKIA", "IOSFODNN7EXAMPLE");
+        write(
+            root,
+            ".ai/permissions/permissions.yaml",
+            &format!("note: {secret}\n"),
+        );
+        let report = run(&inputs(root, &[], &[]));
+        assert_eq!(
+            finding(&report, "CTX-016").path,
+            ".ai/permissions/permissions.yaml"
+        );
+    }
+
+    #[test]
+    fn a_file_past_the_size_cap_is_not_scanned() {
+        let root = TempDir::new().expect("temp dir");
+        // `root` is the temp directory for its whole life, and the path inside it for the rest of
+        // the test, so the call sites read as the project root they are.
+        let root = root.path();
+        healthy(root);
+        let mut body = "x".repeat(1024 * 1024 + 16);
+        body.push_str(&synthetic("AKIA", "IOSFODNN7EXAMPLE"));
+        body.push('\n');
+        write(root, ".ai/big.env", &body);
+        let report = run(&inputs(root, &[], &[]));
+        assert!(
+            !report.findings.iter().any(|f| f.code == "CTX-016"),
+            "a file past the cap is skipped rather than loaded: {:?}",
+            report.findings
         );
     }
 

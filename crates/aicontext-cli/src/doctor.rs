@@ -32,7 +32,7 @@ const NO_INDEX_YET: &str = "there is no index cache to rebuild yet; CTX-017, CTX
 /// Also what `--help` and `--explain` name, and what the CLI test asserts against the crate, so a code
 /// cannot be claimed in one place and be missing from the other.
 pub(crate) const IMPLEMENTED_CODES: &[&str] = &[
-    "CTX-001", "CTX-002", "CTX-007", "CTX-012", "CTX-013", "CTX-014", "CTX-018",
+    "CTX-001", "CTX-002", "CTX-007", "CTX-012", "CTX-013", "CTX-014", "CTX-016", "CTX-018",
 ];
 
 /// Runs `doctor` and returns the exit code.
@@ -520,6 +520,7 @@ mod tests {
             ("CTX-012", "warning"),
             ("CTX-013", "warning"),
             ("CTX-014", "warning"),
+            ("CTX-016", "error"),
             ("CTX-018", "warning"),
         ] {
             assert_eq!(base_severity(code).as_str(), expected, "{code}");

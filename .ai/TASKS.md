@@ -11,7 +11,7 @@ updated: 2026-10-09
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-019
+**Current task:** TASK-020
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -613,16 +613,62 @@ done:
 ```yaml
 id: TASK-019
 title: Add the secret scan to doctor
-status: TODO
+status: DONE
 priority: HIGH
 phase: 1
 depends_on: [TASK-014]
 spec: docs/SECURITY.md
-touches: ["crates/aicontext-context/**"]
+touches: ["crates/aicontext-context/**", "crates/aicontext-cli/**"]
 acceptance:
   - Flags credential-shaped keys and values inside .ai
   - Never echoes the matched secret; reports the path, line, and rule only
-  - --strict makes it an error rather than a warning
+  - It is an error in the catalogue, so the scan fails the run without --strict
+scope_notes:
+  - 'crates/aicontext-cli/** was added to touches on developer approval so one implementation is
+    visible to the command that runs it: CTX-016 was added to IMPLEMENTED_CODES and to the severity
+    table''s test, so --explain and doctor --json no longer name it as deferred. Without the
+    amendment the crate would run the check while the CLI advertised it as missing, and RULES 2
+    forbids the fact living in two places'
+  - 'Acceptance 3 was reworded on developer approval. CTX-016 is an error in the catalogue
+    (CONTEXT_SPEC 8) and the CLI already classified it as one, so --strict is not what makes it an
+    error; the reworded criterion records that it is one without --strict. The severity is asserted
+    against the catalogue in every_severity_matches_the_catalogue_in_section_8'
+  - 'The CI half of SECURITY 6 is not here. Its bullet 135 promises a repository secret scan in CI as
+    a second, independent check, and .gitignore attributes that scan to TASK-019. It is deliberately
+    left out: an independent scanner is a third-party CI action, which the agent contract lists as a
+    hard stop needing approval, and the acceptance names only the doctor behaviour. doctor now
+    enforces CTX-016 on any project; a CI job that runs an independent scanner over this repository,
+    and the .gitignore wording that already claims it exists, are a follow-up for the developer'
+done:
+  - 'crates/aicontext-context/src/doctor.rs gains check_secrets and a rule set. It walks every file
+    below .ai/ - not only the Markdown documents - because init also copies permissions.yaml, and a
+    secret leaked there is exactly as public. The walk is bounded by the same MAX_DEPTH and
+    MAX_DOCUMENTS as the document reader, and a file past the 1 MiB cap or unreadable as UTF-8 is
+    skipped rather than loaded'
+  - 'Acceptance 1: the value-shaped rules are aws-access-key-id, private-key-block, github-token,
+    slack-token, google-api-key, stripe-secret-key, anthropic-api-key, openai-api-key,
+    json-web-token, bearer-token, and password-in-url, tried most specific first. The key-shaped
+    rule credential-key fires when a password/secret/token/api_key/... key holds a literal value
+    rather than a reference (${VAR}, keychain:...), a stub (changeme), a mask (xxxxxx), or structure'
+  - 'Acceptance 2: Finding carries the path; the message carries only the line number and the rule
+    name ("credential-shaped content on line N matched the `rule` rule") and never the match; the
+    remediation is static. The unit tests assert the secret appears nowhere in the serialized
+    findings, and the CLI end-to-end test asserts it appears nowhere on stdout'
+  - 'CTX-016 moved out of UNIMPLEMENTED into an Implemented rationale, and the CLI IMPLEMENTED_CODES
+    gained it, so doctor --explain CTX-016 and doctor --json name it as a check that runs.
+    explain_covers_every_code_a_check_can_emit and
+    every_code_the_cli_claims_to_run_is_known_to_the_checks both cover the entry'
+  - 'Tests: six unit tests in aicontext-context - a value-shaped secret reported and never echoed, a
+    key-shaped literal reported, the line number, references/stubs/masks not reported, a non-Markdown
+    file still scanned, and an oversize file skipped - and one end-to-end test in
+    crates/aicontext-cli/tests/doctor.rs (a credential in .ai/ is an error, exit 3, and stdout does
+    not contain the secret). Every credential-shaped value in a test is assembled at run time, so no
+    fixture holds a contiguous credential literal (RULES 7 and 12)'
+  - 'Verification: doctor over the dogfooded .ai/ still exits 0 with its one pre-existing CTX-012
+    warning and no CTX-016, so the scan does not flag this repository. cargo fmt --all --check clean;
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings clean, and the same
+    for --target x86_64-unknown-linux-gnu; cargo test --workspace --locked green; cargo doc under
+    RUSTDOCFLAGS=-D warnings clean; cargo +1.85 build --workspace --all-targets --locked green'
 ```
 
 ### TASK-020 — Implement export and import

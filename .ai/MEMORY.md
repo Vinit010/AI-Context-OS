@@ -514,6 +514,30 @@ test must supply the form the developer's own checkout cannot produce. This is t
 that running the suite locally cannot catch, because it lives exactly where the developer's git
 configuration and the CI runner's disagree (see `.ai/bugs/BUG-004-crlf-embedded-templates.md`).
 
+## MEM-019 - A credential check must not hold a credential, repeat one, or mistake prose for one
+
+```yaml
+id: MEM-019
+category: constraint
+scope: project
+status: active
+confidence: high
+recorded: 2026-10-09
+supersedes: null
+tags: [doctor, security, CTX-016, tests, false-positives]
+```
+
+`RULES.md` 7 and 12 forbid a credential-shaped literal anywhere - source, fixtures, snapshots. That
+rule applies to the credential scan itself, so the CTX-016 tests build each vector at run time (a
+prefix and a run of filler joined with `concat`) rather than committing a string any pattern would
+call a secret. The scanner is tested without the suite becoming the leak it warns about.
+
+The report must not become a second leak either: a finding names the file, the line, and the rule, and
+never the match, so a `doctor` run over a compromised tree, its JSON envelope, and its logs are all
+safe to share. A detector's own text is a false-positive risk in its own right - `openai-api-key`
+requires a word boundary before `sk-`, because the substring in `task-name` would otherwise report
+every document that mentions a task.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

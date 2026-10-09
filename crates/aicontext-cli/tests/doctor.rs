@@ -256,6 +256,31 @@ fn a_deprecated_decision_with_no_successor_is_a_warning() {
 }
 
 #[test]
+fn a_credential_in_the_tree_is_an_error_and_is_never_echoed() {
+    let (_outer, root) = initialised("payments-ledger");
+    // Assembled at run time so the fixture does not itself hold a credential-shaped literal.
+    let secret = format!("{}{}", "ghp_", "a".repeat(36));
+    write(
+        &root,
+        ".ai/permissions/permissions.yaml",
+        &format!("# a leaked token\nGITHUB_TOKEN: {secret}\n"),
+    );
+
+    let run = run_in(&root, &["doctor"]);
+    assert_eq!(run.code, 3, "a credential is an error: {}", run.stdout);
+    assert!(run.stdout.contains("CTX-016"), "{}", run.stdout);
+    assert!(
+        run.stdout.contains(".ai/permissions/permissions.yaml"),
+        "the report names the file: {}",
+        run.stdout
+    );
+    assert!(
+        !run.stdout.contains(&secret),
+        "the report must not repeat the secret it found"
+    );
+}
+
+#[test]
 fn only_narrows_the_run_to_the_codes_that_were_asked_for() {
     let (_outer, root) = initialised("payments-ledger");
     fs::remove_file(root.join(".ai/AI.md")).expect("remove");
