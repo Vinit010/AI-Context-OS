@@ -169,7 +169,7 @@ impl TempRepository {
     /// hermetic once stays hermetic everywhere.
     ///
     /// An empty value means the variable is *unset*, matching what `Git::with_environment` expects.
-    /// [`TempRepository::command`] sets an empty value empty rather than removing it, which is
+    /// This type's own command builder sets an empty value rather than removing it, which is
     /// equivalent for the one variable that is empty here: `GIT_ASKPASS`, which no read-only command
     /// consults.
     #[must_use]
