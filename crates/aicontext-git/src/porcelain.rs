@@ -796,6 +796,7 @@ mod tests {
         assert_eq!(normalise("docs/nested/file.md"), "docs/nested/file.md");
     }
 
+    #[test]
     #[cfg(not(windows))]
     fn a_backslash_is_part_of_a_unix_filename_and_is_left_alone() {
         // `a\b.md` is one file here, not a file `b.md` inside a directory `a`. Rewriting it would

@@ -476,13 +476,16 @@ that has not been initialised.
 
 ## Bugs encountered
 
-None shipped. Three defects were found before the task that introduced them was closed, so none
-reached a consumer. Two were found by running the binary against a scratch project before TASK-012
-was closed and are recorded under `MEM-013`: reported paths carried the Windows verbatim `\\?\`
-prefix, and the counts line said `directorys`. Both are fixed and covered by tests. The third was
-found by the integration suite on its first run, before TASK-017 was closed: the git log reader
-desynchronised on the newline git appends between commits, and is filed with its root cause under
-`.ai/bugs/BUG-001-git-log-record-separator.md`.
+None shipped. Four defects were found before a consumer saw them. Two were found by running the
+binary against a scratch project before TASK-012 was closed and are recorded under `MEM-013`:
+reported paths carried the Windows verbatim `\\?\` prefix, and the counts line said `directorys`.
+Both are fixed and covered by tests. The third was found by the integration suite on its first run,
+before TASK-017 was closed: the git log reader desynchronised on the newline git appends between
+commits, filed under `.ai/bugs/BUG-001-git-log-record-separator.md`. The fourth was found by CI on
+Linux after TASK-017 was closed: its Unix-only `normalise` test was missing its `#[test]`, so the
+branch never ran and the attribute-less function was dead code, filed under
+`.ai/bugs/BUG-002-unix-test-missing-test-attribute.md`; it is visible only on the platform the
+developer is not using, which is the lesson it records.
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.
