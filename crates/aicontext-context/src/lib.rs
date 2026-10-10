@@ -20,18 +20,21 @@
 //! Depends on `aicontext-core` only. Must not depend on `aicontext-providers`: this crate assembles
 //! context, it does not send it to a model.
 //!
-//! Modules arrive in `TASK-016` (parser), `TASK-030` (discovery), and `TASK-031` (index).
+//! The parser (`TASK-016`) and discovery (`TASK-030`) modules have arrived; the index arrives in
+//! `TASK-031`.
 
 #![forbid(unsafe_code)]
 
 mod body;
 mod codec;
+pub mod discovery;
 pub mod doctor;
 mod error;
 mod frontmatter;
 pub mod register;
 mod value;
 
+pub use discovery::{Confidence, ProjectProfile, Signal, discover};
 pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
 pub use error::ContextError;
 pub use frontmatter::{DOCUMENT_MAX_BYTES, Document, FRONT_MATTER_MAX_BYTES, FrontMatter};

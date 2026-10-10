@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-09
+updated: 2026-10-10
 ---
 
 # MEMORY
@@ -537,6 +537,45 @@ never the match, so a `doctor` run over a compromised tree, its JSON envelope, a
 safe to share. A detector's own text is a false-positive risk in its own right - `openai-api-key`
 requires a word boundary before `sk-`, because the substring in `task-name` would otherwise report
 every document that mentions a task.
+
+## MEM-020 - Discovery is bounded, deterministic, and never guesses
+
+```yaml
+id: MEM-020
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-10
+supersedes: null
+tags: [discovery, context-engine, determinism, project-profile, TASK-030]
+```
+
+`discover(root) -> ProjectProfile` is advisory and read-only: it inspects and reports, and never
+writes a finding into a document (`docs/CONTEXT_SPEC.md` 5). Three properties are what the next agent
+has to keep, and each is a choice rather than an accident.
+
+It is **infallible**. A root that cannot be listed reads as a root with nothing in it, so an
+unreadable or missing directory yields the same empty, `unrecognised` profile that a genuinely empty
+project does, rather than a `Result`. This is the same call `register::read` makes for a missing
+`TASKS.md` (`MEM-016`): a command that cannot report before `init` has run is a command that fails on
+the one case it most needs to describe. A caller that must tell "could not look" from "saw nothing"
+asks the filesystem directly.
+
+It is **bounded and deterministic**. At most `MAX_ENTRIES_SCANNED` top-level entries are examined and
+a manifest past `MAX_MANIFEST_BYTES` is skipped rather than truncated (`RULES.md` 11), every list is
+sorted, and no result depends on directory iteration order (`RULES.md` 8). Two runs over an unchanged
+tree are equal (`RULES.md` 12).
+
+It **never guesses**. An unknown stack yields `unrecognised: true` with every field empty and
+`confidence: None`; nothing is inferred from a directory name alone. Frameworks are read from
+manifest *text* with a bounded token scan, not a parsed dependency graph, because no TOML or JSON
+parser is available in the crate and adding one was refused for a discovery-only need (`RULES.md` 6).
+The scan is deliberately conservative (word boundaries, so `react` never matches `preact`) and every
+finding keeps the manifest or config file as its `evidence`, so a wrong hint is attributable and
+correctable by hand rather than silently authoritative. The typed `ProjectProfile` replaces the
+`Signal` list `init` carried (`MEM-013`); `init`'s own `detect.rs` is a separate, narrower reader and
+is not yet rewired to it.
 
 ## Open questions
 

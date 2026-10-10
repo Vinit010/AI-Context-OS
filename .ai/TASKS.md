@@ -10,8 +10,8 @@ updated: 2026-10-10
 
 # TASKS
 
-**Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-030
+**Current phase:** Phase 2 — Context engine
+**Current task:** TASK-031
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -746,7 +746,7 @@ annotated packet, deterministically, with no network.
 ```yaml
 id: TASK-030
 title: Implement the project discovery engine
-status: TODO
+status: DONE
 priority: HIGH
 phase: 2
 depends_on: [TASK-012]
@@ -756,6 +756,15 @@ acceptance:
   - Detects language, framework, package manager, tests, CI, containers, IaC, and cloud config
   - Produces an advisory ProjectProfile; never mutates the project
   - Unknown stacks yield an empty profile, not a guess
+done:
+  - 'crates/aicontext-context/src/discovery.rs is the engine: public discover(root) -> ProjectProfile plus Signal and Confidence. A fixed MARKERS table records what a name implies on its own (languages from manifests, vcs, ci, containers, tests, IaC, cloud hints), a LOCKFILES table maps lockfiles to package managers in priority order, and framework tables scan Cargo.toml, package.json, pyproject.toml/requirements.txt, go.mod, and the JVM builds for known dependencies. Framework config files (next.config.*, vite.config.*, manage.py, and the rest) are evidence without a manifest'
+  - 'Acceptance 1: one run detects language, framework, package manager, tests, CI, containers, IaC, and cloud config, each field a sorted, de-duplicated list of findings and each finding backed by a project-relative evidence path. package_manager is the highest-priority lockfile present while every lockfile is still recorded as a signal; vcs is git when .git exists; testing is true when any test-shaped signal was found'
+  - 'Acceptance 2: discovery never mutates. It only reads metadata and file contents through fs::metadata, fs::read_to_string, and fs::read_dir, and tests/discovery.rs snapshots the whole tree before and after a run and asserts the two are byte-for-byte equal'
+  - 'Acceptance 3: an unrecognised project yields an empty profile with unrecognised: true and confidence: None rather than a guess. Nothing is inferred from a directory name alone, and a root that cannot be listed reads as a root with nothing in it, so discover is infallible - the same deliberate choice register::read makes for a missing TASKS.md (MEM-016)'
+  - 'Bounded and deterministic: at most MAX_ENTRIES_SCANNED (512) top-level entries are examined and a manifest past MAX_MANIFEST_BYTES (256 KiB) is skipped rather than truncated (RULES 11); every list is sorted and nothing depends on directory iteration order (RULES 8), so two runs over an unchanged tree are equal (RULES 12)'
+  - 'Evidence and confidence are the model, not decoration: every Signal carries kind (the spec field name), value, evidence, and a Confidence, and the profile-level confidence is the weakest signal so one doubtful finding cannot be averaged away by certain ones'
+  - 'Tests: 13 unit tests in discovery.rs (empty and missing roots, rust and node and python projects, word-boundary framework matching so react never matches preact, the highest-priority lockfile, case-insensitive terraform found by extension, a medium-confidence tests directory, sort and repeatability, an oversize manifest skipped) and 7 integration tests in tests/discovery.rs through the public API (a fully described rust service, an empty profile, a non-mutation snapshot, a node project with TypeScript and its frameworks, a python project, every field keeps its evidence, two runs agree)'
+  - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked green. Scoped to crates/aicontext-context/** - the pre-existing init/detect.rs subset is left in place and rewiring init to the typed profile is a follow-up, not part of this task'
 ```
 
 ### TASK-031 — Build the content-hash index

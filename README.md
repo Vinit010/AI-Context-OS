@@ -28,7 +28,7 @@ binary.
 |-------|-------|-------|
 | 0 | Specification and architecture | Done |
 | 1 | Context MVP: `init`, `status`, `doctor`, `export`, `import` | Done |
-| 2 | Discovery, indexing, retrieval, budgets | Not started |
+| 2 | Discovery, indexing, retrieval, budgets | In progress |
 | 3 | AI provider layer (plan mode only) | Not started |
 | 4 | Plugin system, permissions, audit | Not started |
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
@@ -53,6 +53,13 @@ foundation underneath it is complete and tested: `aicontext-context` splits a do
 front matter into typed values, and renders it back so a rewrite preserves the author's meaning rather
 than the author's formatting, covered by unit tests, hand-written cases, and property tests over
 documents nobody wrote by hand.
+
+Phase 2 begins with the **project discovery engine** (`aicontext-context::discover`). It reports an
+advisory `ProjectProfile` — languages, frameworks, package manager, tests, CI, containers, IaC, and
+cloud hints — with every finding carrying the file that is its evidence, and an unrecognised project
+yielding an empty profile rather than a guess. Discovery is read-only, bounded, and deterministic; it
+never mutates the project it inspects. It is not yet wired to a command — that arrives with the
+context engine.
 
 ---
 
