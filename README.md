@@ -22,23 +22,25 @@ binary.
 
 ## Status
 
-**Specification complete. Implementation in progress (Phase 1 of 11).**
+**Specification complete. Implementation in progress (Phase 2 of 11).**
 
 | Phase | Scope | State |
 |-------|-------|-------|
 | 0 | Specification and architecture | Done |
-| 1 | Context MVP: `init`, `status`, `doctor` | In progress |
+| 1 | Context MVP: `init`, `status`, `doctor`, `export`, `import` | Done |
 | 2 | Discovery, indexing, retrieval, budgets | Not started |
 | 3 | AI provider layer (plan mode only) | Not started |
 | 4 | Plugin system, permissions, audit | Not started |
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**Three commands ship today: `init`, `status`, and `doctor`.** `init` creates the `.ai` skeleton,
-`status` reports where the project and its task register stand, and `doctor` validates the `.ai/` tree
-and explains what is wrong with it. Every other command in the plan refuses to run and names the task
-that will build it. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of
-what is being built, in what order, and what "done" means for each item.
+**Five commands ship today: `init`, `status`, `doctor`, `export`, and `import`.** `init` creates the
+`.ai` skeleton, `status` reports where the project and its task register stand, `doctor` validates the
+`.ai/` tree and explains what is wrong with it, `export` writes a deterministic archive of `.ai/` with
+a digest manifest, and `import` verifies such an archive and restores it without ever overwriting a
+file without `--force`. Every other command in the plan refuses to run and names the task that will
+build it. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
+being built, in what order, and what "done" means for each item.
 
 ```sh
 cargo run -p aicontext-cli -- init --dry-run   # show the plan, write nothing
@@ -128,12 +130,12 @@ without declaring what it may depend on fails the build.
 No C compiler and no system library are needed: every dependency is pure Rust.
 
 Third-party crates are added only with a written justification in
-[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries five
-in production — `thiserror` for typed errors, `yaml_serde` for YAML, `clap` for the command tree, and
-`serde` with `serde_json` for the published `--json` envelope — plus `proptest` and `tempfile` for
-tests. The YAML library is reached only through a private two-method trait, so no YAML type appears in
-a public signature and a future swap touches one module; see
-[`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
+[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries six
+in production — `thiserror` for typed errors, `yaml_serde` for YAML, `clap` for the command tree,
+`serde` with `serde_json` for the published `--json` envelope, and `sha2` for the SHA-256 digests in
+`export`/`import` — plus `proptest` and `tempfile` for tests. The YAML library is reached only through
+a private two-method trait, so no YAML type appears in a public signature and a future swap touches one
+module; see [`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
 
 ## Build and test
 
@@ -159,9 +161,9 @@ The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks
 
 ## Using the tool
 
-`init`, `status`, and `doctor` are the commands that run today. The rest are listed so the shape is on
-the record; each one exits with code 2 and names the task that will build it, rather than pretending to
-work. Exit codes and the `--json` envelope are a stable contract, in
+`init`, `status`, `doctor`, `export`, and `import` are the commands that run today. The rest are
+listed so the shape is on the record; each one exits with code 2 and names the task that will build
+it, rather than pretending to work. Exit codes and the `--json` envelope are a stable contract, in
 [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
 
 ```text
@@ -177,7 +179,7 @@ aicontext
 ├─ task | memory | decision | bug | change | workflow | agent               TASK-055
 ├─ ai | plugin              plugin management                              TASK-077
 ├─ connect | disconnect     configure or remove an integration              TASK-053
-├─ export | import          portable .ai archives                         TASK-020
+├─ export | import          portable .ai archives                                          available
 └─ audit                    audit log (show, verify, tail)                  TASK-075
 ```
 
@@ -239,6 +241,31 @@ owns it. `CTX-016` scans `.ai/` for credential-shaped content and reports only t
 never the match. `--explain <code>` answers what a check means without reading a project, `--only`
 narrows the run to matching codes, and `--rebuild-index` is accepted and says out loud that there is no
 index cache yet (that arrives with `TASK-031`).
+
+### `export` and `import`
+
+```sh
+aicontext export <archive> [--dry-run] [--force] [--json]
+aicontext import <archive> [--dry-run] [--force] [--json]
+```
+
+`export` writes a deterministic archive of `.ai/` — one pretty-printed JSON document with a manifest,
+a SHA-256 digest per file, and a digest over the whole manifest. `import` verifies every digest before
+planning a single write, then restores the tree. No timestamps, absolute paths, or host names leak
+into the archive, so exporting the same tree twice produces identical bytes and a round trip on an
+unedited tree is byte-identical. A relative `<archive>` path resolves against the project root.
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Run every check (including the terminal requirement for `--force`) and write or replace nothing. |
+| `--force` | `export`: replace an existing archive. `import`: overwrite a conflicting file. Requires an interactive terminal; an absent human is a deny (exit 5). |
+
+`import` is a merge, not a mirror: it never deletes a file the archive does not mention, and an
+existing file that already holds the archived bytes is reported unchanged rather than rewritten.
+Reads are bounded — 512 entries, 8 MiB per file, 16 path components, and 64 MiB for the archive — and
+a violation refuses the run instead of truncating. Full contract in
+[`docs/CLI_SPEC.md`](docs/CLI_SPEC.md) §4; format and rationale in
+[`ADR-008`](.ai/decisions/ADR-008-portable-archive-format.md).
 
 ---
 
