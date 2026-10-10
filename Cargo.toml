@@ -71,6 +71,12 @@ module_name_repetitions = "allow"
 #                has none and whose schemas are self-contained by design. rust-version is exactly
 #                1.85.0, our MSRV with no headroom, as with clap. TASK-015. The runtime validator
 #                and the production dependency decision belong to TASK-014.
+#   sha2       - per-file content digests in `aicontext export` archives and their verification on
+#                `aicontext import`. Pre-justified in ARCHITECTURE.md 2.2 ("content hashing — index
+#                invalidation, audit chain, argument digests. Widely audited"). A digest in a
+#                portable archive has to be one an external tool can reproduce, so a
+#                non-cryptographic hash would not be an honest answer; the hex encoding is six lines
+#                of our own code rather than a `hex` dependency. TASK-020.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
@@ -80,6 +86,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 jsonschema = { version = "0.58", default-features = false }
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3
