@@ -21,7 +21,7 @@
 //! run would report — the output already existing without `--force` — is still reported, so a script
 //! can predict the outcome rather than discover it.
 
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -267,20 +267,25 @@ fn walk(
     files: &mut Vec<(String, String)>,
     findings: &mut Vec<Finding>,
 ) -> Result<(), ExportError> {
-    let entries = fs::read_dir(directory).map_err(|source| ExportError::List {
-        path: project::display(directory),
-        source,
-    })?;
+    let mut entries = fs::read_dir(directory)
+        .map_err(|source| ExportError::List {
+            path: project::display(directory),
+            source,
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| ExportError::List {
+            path: project::display(directory),
+            source,
+        })?;
+    // readdir order is platform-defined; children are sorted by name so the walk,
+    // and therefore the archive, is the same on every machine.
+    entries.sort_by_key(DirEntry::file_name);
 
     for entry in entries {
         // A previous file already crossed the limit and recorded the finding: stop walking.
         if files.len() > MAX_ENTRIES {
             return Ok(());
         }
-        let entry = entry.map_err(|source| ExportError::List {
-            path: project::display(directory),
-            source,
-        })?;
         let path = entry.path();
         let file_type = entry.file_type().map_err(|source| ExportError::Read {
             path: project::display(&path),
