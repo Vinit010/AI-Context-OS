@@ -118,6 +118,19 @@ pub(crate) fn project_name(root: &Path) -> Result<String, ProjectError> {
     Ok(name)
 }
 
+/// The identity line's VCS label: a fact about the directory, not a branch lookup.
+///
+/// `doctor`, `export`, and `import` all label the same directory the same way, so the answer lives
+/// here rather than being written three times (`RULES.md` §2). It is a fact about the path — does a
+/// `.git` entry exist — not a Git query, so it cannot fail and reads nothing but the filesystem.
+pub(crate) fn vcs_label(root: &Path) -> &'static str {
+    if root.join(".git").exists() {
+        "git"
+    } else {
+        "no vcs"
+    }
+}
+
 /// A path in the spelling a person would type, with `/` separators.
 ///
 /// `canonicalize` answers in the verbatim `\\?\` form on Windows, and a drive letter or a UNC share

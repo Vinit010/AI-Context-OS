@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-09
+updated: 2026-10-10
 ---
 
 # TASKS
 
 **Current phase:** Phase 1 — Context MVP
-**Current task:** TASK-020
+**Current task:** TASK-030
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -676,7 +676,7 @@ done:
 ```yaml
 id: TASK-020
 title: Implement aicontext export and aicontext import
-status: TODO
+status: DONE
 priority: MEDIUM
 phase: 1
 depends_on: [TASK-013]
@@ -686,6 +686,52 @@ acceptance:
   - export writes a deterministic archive of .ai with a manifest and per-file digests
   - import verifies digests, reports conflicts, and never overwrites without --force
   - A round trip is byte-identical for a tree that was not edited between the two
+done:
+  - 'crates/aicontext-cli/src/archive.rs is the format layer: build/render/parse for one
+    pretty-printed JSON document (format aicontext-archive, version 1, trailing newline),
+    manifest_digest over the sorted manifest, sha256_hex for per-file digests, and safe_relative to
+    sanitise and bound relative paths. verify() runs the whole audit up front - format, version,
+    headline counts, manifest digest, path shape (no .., ., absolute, empty, colon, or control
+    characters; at most MAX_DEPTH components), duplicates, per-file sizes, and digests - so an
+    import is fully checked before a single write is planned. The caps are the same order of bounds
+    doctor applies: MAX_ENTRIES 512, MAX_DEPTH 16, MAX_FILE_BYTES 8 MiB, MAX_ARCHIVE_BYTES 64 MiB'
+  - 'Acceptance 1: export walks .ai/ top-down by sorted name, hashes every file, and writes the
+    archive. Nothing about the machine leaks into the bytes - no timestamps, absolute paths, host
+    names, or user names - so exporting the same tree twice writes identical bytes and a
+    same-named fresh root re-exports the same bytes. The manifest carries the project name, the
+    file count, the total bytes, a digest row per file sorted by path, and a SHA-256 digest over
+    the whole manifest. A relative <archive> path resolves against the project root, matching how
+    doctor and status see the project'
+  - 'Acceptance 2: import never plans a write before verify() passes; then it compares each
+    archived file against the tree, reports intact files as unchanged, and reports differing
+    existing files as conflicts. Conflicts without --force are a refusal (exit 5, IMP-020) that
+    writes nothing; with --force they are replaced. Files the archive does not mention are left
+    alone - an archive is a merge, not a mirror - and an empty archive imports with a note that it
+    holds no files'
+  - 'Acceptance 3: import writes verified file contents verbatim as UTF-8, and the export + import
+    e2e round trip on an unedited tree is byte-identical'
+  - 'Force requires a human: --force outside an interactive terminal is a deny (EXP-006/IMP-004,
+    exit 5) and --yes never satisfies it; --dry-run still runs every check and every non-write
+    guard, returns the exit a real run would return, and writes nothing'
+  - 'Codes: fatal export failures are EXP-001..EXP-014 and import failures IMP-001..IMP-015,
+    printed as the stderr error report outside --json and as findings in the shared envelope under
+    --json. Archive and data.files entry paths are .ai/-relative; findings and the human report
+    spell them .ai/-prefixed'
+  - 'Wiring: Command::Export | Import in src/args.rs with ExportArgs/ImportArgs, dispatch arms in
+    src/main.rs, and the crate module doc lists them. project.rs exposes vcs_label (shared by
+    doctor.rs) so the manifest can name the version-control system without duplicating the
+    detection'
+  - 'Tests: unit tests in archive.rs (deterministic manifest digest, capacity refusals, path
+    sandbox including ../../ escapes, split and appended-content detection, parse round trip) and
+    in export.rs/import.rs (writers refuse non-UTF-8, empty tree exports a zero-file archive, byte
+    determinism), plus 11 e2e tests in tests/export.rs and 12 in tests/import.rs that run the real
+    binary - documented archive shape, existing-output and conflict refusals leave the file
+    untouched, force-in-a-pipe refuses, force+dry-run writes nothing, relative paths, deep and
+    non-UTF-8 refusals, tampered archives write nothing, and the byte-identical round trip'
+  - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked
+    -- -D warnings clean on native and on x86_64-unknown-linux-gnu; cargo test --workspace --locked
+    green on stable and on the 1.85 MSRV; aicontext doctor over this repository still exits 0 with
+    its one pre-existing CTX-012 warning; cargo audit 0.22.2 reports no vulnerabilities'
 ```
 
 ---

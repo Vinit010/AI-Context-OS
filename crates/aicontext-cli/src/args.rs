@@ -1,10 +1,10 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
-//! Only `init` and `doctor` are declared to `clap`. The rest of the tree is listed in [`PENDING`]
-//! with the task that will provide it, so `--help` shows what exists and what does not, and an
-//! unimplemented command exits 2 naming its task instead of a usage error about an unknown word.
-//! Declaring the tree as stub subcommands would put a second copy of every command name in this
-//! file, and the two copies would drift.
+//! Only the commands that exist — `init`, `status`, `doctor`, `export`, and `import` — are declared
+//! to `clap`. The rest of the tree is listed in [`PENDING`] with the task that will provide it, so
+//! `--help` shows what exists and what does not, and an unimplemented command exits 2 naming its task
+//! instead of a usage error about an unknown word. Declaring the tree as stub subcommands would put
+//! a second copy of every command name in this file, and the two copies would drift.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -117,6 +117,10 @@ pub(crate) enum Command {
     Status(StatusArgs),
     /// Report what is wrong with this `.ai/` tree and what to do about it. Writes nothing.
     Doctor(DoctorArgs),
+    /// Write a deterministic, verifiable archive of `.ai/`.
+    Export(ExportArgs),
+    /// Read an archive, verify it, and write it into `.ai/`.
+    Import(ImportArgs),
 }
 
 /// `aicontext status`.
@@ -218,6 +222,44 @@ impl DoctorArgs {
     }
 }
 
+/// `aicontext export`.
+///
+/// Writes one deterministic archive of `.ai/`. A relative `<archive>` is resolved against the project
+/// root, not the working directory, so `--cwd` and a plain run agree on where it lands.
+#[derive(Debug, Args)]
+pub(crate) struct ExportArgs {
+    /// Where to write the archive.
+    #[arg(value_name = "archive")]
+    pub(crate) path: PathBuf,
+
+    /// Print what would be archived and write nothing.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+
+    /// Replace an existing archive. Needs an interactive terminal.
+    #[arg(long)]
+    pub(crate) force: bool,
+}
+
+/// `aicontext import`.
+///
+/// Verifies the archive's manifest and every per-file digest before writing anything, and refuses
+/// rather than overwriting a file that differs unless `--force` is given in an interactive terminal.
+#[derive(Debug, Args)]
+pub(crate) struct ImportArgs {
+    /// The archive to read.
+    #[arg(value_name = "archive")]
+    pub(crate) path: PathBuf,
+
+    /// Print the plan and write nothing.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+
+    /// Replace files that differ from the archive. Needs an interactive terminal.
+    #[arg(long)]
+    pub(crate) force: bool,
+}
+
 /// A command in the §3 tree that is specified but not built yet.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PendingCommand {
@@ -231,8 +273,9 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init` and `status` are deliberately absent: they are implemented. A command here exits 2 with the
-/// code below and names its task, which §3 requires — it is never a silent no-op.
+/// `init`, `status`, `doctor`, `export`, and `import` are deliberately absent: they are implemented. A
+/// command here exits 2 with the code below and names its task, which §3 requires — it is never a
+/// silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
     PendingCommand {
         name: "health",
@@ -305,16 +348,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         summary: "Remove a stored reference",
     },
     PendingCommand {
-        name: "export",
-        task: Some("TASK-020"),
-        summary: "Export `.ai` as a portable archive",
-    },
-    PendingCommand {
-        name: "import",
-        task: Some("TASK-020"),
-        summary: "Import and verify an archive",
-    },
-    PendingCommand {
         name: "audit",
         task: Some("TASK-075"),
         summary: "Audit log (show, verify, tail)",
@@ -361,6 +394,8 @@ Commands:
                                                              available
   doctor                   Report what is wrong with .ai/ and how to fix it
                                                              available
+  export <archive>         Write a deterministic archive of .ai/        available
+  import <archive>         Verify an archive and write it into .ai/     available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   health                   Transparent context metrics                            TASK-038
@@ -372,7 +407,6 @@ Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   ai                       Provider configuration
   plugin                   Plugin management                                      TASK-077
   connect | disconnect     Configure or remove an integration                     TASK-053
-  export | import          Portable .ai archives                                  TASK-020
   audit                    Audit log (show, verify, tail)                         TASK-075
 
 Flags:
@@ -399,6 +433,10 @@ doctor flags:
       --explain <code>     Explain one check code and exit; no project is read
       --only <prefix>      Run only checks whose code starts with <prefix>
       --rebuild-index      Accepted in v1; reports that the cache does not exist yet
+
+export / import flags:
+      --dry-run            Print the plan; write nothing
+      --force              Replace existing files. Needs an interactive terminal
 
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
@@ -500,7 +538,44 @@ mod tests {
             pending("doctor").is_none(),
             "doctor is implemented, so it must not also be pending"
         );
+        assert!(
+            pending("export").is_none(),
+            "export is implemented, so it must not also be pending"
+        );
+        assert!(
+            pending("import").is_none(),
+            "import is implemented, so it must not also be pending"
+        );
         assert!(pending("nonsense").is_none());
+    }
+
+    #[test]
+    fn export_and_import_require_an_archive_and_default_to_no_flags() {
+        let Cli {
+            command: Command::Export(export),
+            ..
+        } = Cli::try_parse_from(["aicontext", "export", "backup.aix"]).expect("export parses")
+        else {
+            panic!("expected the export command");
+        };
+        assert_eq!(export.path, std::path::PathBuf::from("backup.aix"));
+        assert!(!export.dry_run && !export.force);
+
+        let Cli {
+            command: Command::Import(import),
+            ..
+        } = Cli::try_parse_from(["aicontext", "import", "backup.aix", "--dry-run", "--force"])
+            .expect("import parses")
+        else {
+            panic!("expected the import command");
+        };
+        assert_eq!(import.path, std::path::PathBuf::from("backup.aix"));
+        assert!(import.dry_run && import.force);
+
+        assert!(
+            Cli::try_parse_from(["aicontext", "export"]).is_err(),
+            "the archive path is required"
+        );
     }
 
     #[test]

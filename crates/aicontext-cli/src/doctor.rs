@@ -109,7 +109,7 @@ fn print_human(
     counts: &str,
     terminal: &mut Terminal,
 ) {
-    terminal.identity("aicontext", name, vcs_label(root));
+    terminal.identity("aicontext", name, project::vcs_label(root));
 
     for finding in findings {
         let mark = if finding.is_error() {
@@ -329,15 +329,6 @@ fn observed_languages(root: &Path, terminal: &mut Terminal) -> Vec<String> {
             );
             Vec::new()
         }
-    }
-}
-
-/// The identity line's VCS label: a fact about the directory, not a branch lookup.
-fn vcs_label(root: &Path) -> &'static str {
-    if root.join(".git").exists() {
-        "git"
-    } else {
-        "no vcs"
     }
 }
 

@@ -169,11 +169,43 @@ result. `--yes` is accepted here (install is not itself a tool call) but the rec
 subject to `permissions.yaml`. `--as-plugin` registers a third-party MCP server as a plugin
 (`PLUGIN_SPEC.md` §10).
 
-### `aicontext export` / `aicontext import`
+### `aicontext export <archive>` / `aicontext import <archive>`
 
-`export` writes a deterministic archive of `.ai/` with a manifest and per-file digests. `import`
-verifies digests, reports conflicts, and requires `--force` to overwrite. A round trip on an
-unedited tree is byte-identical.
+`export` writes a deterministic archive of `.ai/`; `import` verifies it and writes it back. The
+format is one pretty-printed JSON document (`format` `aicontext-archive`, `version` 1): a manifest —
+project name, file count, total bytes, one digest row per file sorted by path, and a SHA-256 digest
+over the manifest — followed by the contents verbatim, in the same order (`ADR-008`). No timestamps,
+no absolute paths, no host names, so exporting the same tree twice produces the same bytes and an
+archive can be diffed and committed.
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Run every check and every non-write guard — including the interactive-terminal requirement for `--force` — report the outcome, and write or replace nothing |
+| `--force` | `export`: replace an existing archive. `import`: overwrite a conflicting file. Approval requires an interactive terminal; an absent human is a deny (exit 5). `--yes` never satisfies it |
+
+Guarantees:
+
+- **Verify everything before writing anything.** `import` checks the format, version, counts, paths,
+  sizes, and every digest before planning a single write; an archive that fails any check exits 3 and
+  leaves `.ai/` exactly as it was.
+- **A relative `<archive>` resolves against the project root**, matching how `doctor` and `status`
+  see the project, not against the working directory.
+- **Bounded reads.** `export` caps the tree at 512 files, 8 MiB per file, and 16 path components
+  (the same order of bounds `doctor` applies); a file breaking a cap is a finding and the run refuses
+  whole. `import` caps the archive file at 64 MiB before it is read (`RULES.md` §11).
+- **An archive is a merge, not a mirror.** `import` never deletes a file the archive does not
+  mention, and leaves an existing file alone — reporting it `unchanged` — when it already holds the
+  archived bytes.
+- **Conflicts are reported, not resolved.** An existing file that differs from the archive is a
+  conflict: without `--force` the run exits 5 and touches nothing; with `--force` it is overwritten.
+- **A round trip on an unedited tree is byte-identical** (PRD F10): content is UTF-8 text stored
+  verbatim, and a fresh same-named root re-exports the same bytes.
+
+Failure codes: fatal failures use `EXP-001`…`EXP-014` for `export` and `IMP-001`…`IMP-015` for
+`import`. Any usable-root, missing `.ai/`, archive-unreadable, or not-one-of-ours failure is a usage
+error (exit 2); an existing output without `--force`, or `--force` without a terminal, exits 5; a
+tree or an archive that fails validation exits 3; a filesystem failure exits 1. Exactly one code per
+run (§5).
 
 ---
 
@@ -262,6 +294,9 @@ jq -e '.findings[] | select(.code=="CTX-009")' doctor.json && exit 1 || true
 
 # Show the current task
 aicontext status --json | jq -r '.data.current_task.id'
+
+# Read the manifest digest of an export
+aicontext export backup.aix --json | jq -r '.data.digest'
 
 # Assemble context for a prompt
 aicontext context --task TASK-037 --format prompt > ctx.md
