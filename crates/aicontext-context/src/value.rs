@@ -25,6 +25,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// A YAML value, in the subset that front matter needs.
 ///
 /// `#[non_exhaustive]` on purpose, and it is worth being explicit about what that buys, because it
@@ -37,7 +39,8 @@ use std::fmt;
 /// The cost is that a caller who needs to build a value - a future command that edits one field -
 /// has to be given a way to do it, and this task deliberately does not invent one (`RULES.md` §2).
 /// Nothing needs it yet: documents are read here and nowhere written.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 #[non_exhaustive]
 pub enum Value {
     /// An explicit `null`, or an empty value such as `key:` with nothing after it.

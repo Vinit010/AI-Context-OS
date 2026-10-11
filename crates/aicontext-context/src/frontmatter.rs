@@ -477,7 +477,7 @@ impl FrontMatter {
     ///
     /// `tags` is written whenever the document had the key, empty list included: absence and an
     /// empty list are different facts, and rendering must not invent one from the other.
-    fn ordered_entries(&self) -> Vec<(String, Value)> {
+    pub(crate) fn ordered_entries(&self) -> Vec<(String, Value)> {
         let mut entries: Vec<(String, Value)> = Vec::with_capacity(8 + self.extras.len());
 
         let mut push = |key: &str, value: Value| entries.push((key.to_string(), value));

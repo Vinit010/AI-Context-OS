@@ -5,8 +5,9 @@
 //! body rather than in front matter â€” the current phase and the current task â€” because
 //! `schemas/tasks.schema.json` deliberately keeps them out of the machine block: they change on
 //! almost every task boundary, and a register rewritten by hand is not rewritten by a program that
-//! has to re-emit the whole file. Everything else (a task's title, status, and priority) is read from
-//! the task's own fenced block, using the same inline-entity parser `doctor` uses.
+//! has to re-emit the whole file. Everything else (a task's title, status, priority, and the keys
+//! that form the document graph — `spec`, `depends_on`, `touches`, and the rest) is read from the
+//! task's own fenced block, using the same inline-entity parser `doctor` uses.
 
 use std::fs;
 use std::path::Path;
@@ -14,7 +15,7 @@ use std::path::Path;
 use aicontext_core::DocumentId;
 
 use crate::body::{Entity, inline_entities};
-use crate::{Document, FrontMatter};
+use crate::{Document, FrontMatter, Value};
 
 /// The register's fixed location.
 const REGISTER_PATH: &str = ".ai/TASKS.md";
@@ -50,6 +51,10 @@ impl Register {
 }
 
 /// One task as the register declares it.
+///
+/// The type-specific keys a task graph needs (`spec`, `depends_on`, `touches`, `relates_to`, `epic`,
+/// `phase`) are read here rather than re-scraped from `TASKS.md` by whoever needs them, so there is
+/// one reader of the register format and one place for it to be right (`docs/CONTEXT_SPEC.md` §4).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskEntry {
     /// The task ID, from the block's `id` or, when that is absent, the heading.
@@ -60,6 +65,20 @@ pub struct TaskEntry {
     pub status: Option<String>,
     /// The task's priority, as written (`CRITICAL`, `HIGH`, â€¦).
     pub priority: Option<String>,
+    /// The task's `phase`, when its block carries one.
+    pub phase: Option<i64>,
+    /// The task's `epic`, when its block carries one.
+    pub epic: Option<String>,
+    /// The task's `spec`, when its block carries one. A `SPEC-*` id or a `docs/*.md` path.
+    pub spec: Option<String>,
+    /// The tasks this one depends on, in the order written.
+    pub depends_on: Vec<String>,
+    /// The path globs this task touches, in the order written.
+    pub touches: Vec<String>,
+    /// The bugs and changes this task relates to, in the order written.
+    pub relates_to: Vec<String>,
+    /// The task's `tags`, in the order written.
+    pub tags: Vec<String>,
 }
 
 impl TaskEntry {
@@ -115,12 +134,50 @@ impl TaskEntry {
             id: id.to_string(),
             title: front.and_then(FrontMatter::title).map(str::to_string),
             status: front.and_then(FrontMatter::status).map(str::to_string),
-            priority: front
-                .and_then(|front| front.extra("priority"))
-                .and_then(|value| value.as_str())
-                .map(str::to_string),
+            priority: string_extra(front, "priority"),
+            phase: int_extra(front, "phase"),
+            epic: string_extra(front, "epic"),
+            spec: string_extra(front, "spec"),
+            depends_on: string_list(front, "depends_on"),
+            touches: string_list(front, "touches"),
+            relates_to: string_list(front, "relates_to"),
+            tags: front.map(|front| front.tags().to_vec()).unwrap_or_default(),
         })
     }
+}
+
+/// The string value of an extra key, when it is one.
+fn string_extra(front: Option<&FrontMatter>, key: &str) -> Option<String> {
+    front
+        .and_then(|front| front.extra(key))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// The integer value of an extra key, when it is one.
+fn int_extra(front: Option<&FrontMatter>, key: &str) -> Option<i64> {
+    match front.and_then(|front| front.extra(key)) {
+        Some(Value::Int(number)) => Some(*number),
+        _ => None,
+    }
+}
+
+/// The string items of an extra list key, in the order written.
+///
+/// A `null` or absent key yields an empty list, and a non-string item is skipped rather than
+/// stringified: a graph edge that is not a string is not an edge.
+fn string_list(front: Option<&FrontMatter>, key: &str) -> Vec<String> {
+    front
+        .and_then(|front| front.extra(key))
+        .and_then(Value::as_list)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The value of a `**Label:** value` line in the register body, if it has one.

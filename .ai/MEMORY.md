@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-10
+updated: 2026-10-11
 ---
 
 # MEMORY
@@ -576,6 +576,109 @@ finding keeps the manifest or config file as its `evidence`, so a wrong hint is 
 correctable by hand rather than silently authoritative. The typed `ProjectProfile` replaces the
 `Signal` list `init` carried (`MEM-013`); `init`'s own `detect.rs` is a separate, narrower reader and
 is not yet rewired to it.
+
+## MEM-021 - The index is a cache: its identity is the content hash, and a scan reads nothing it does not have to
+
+```yaml
+id: MEM-021
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-11
+supersedes: null
+tags: [index, context-engine, incremental, content-hash, TASK-031]
+```
+
+`.aicontext/index.json` is a **cache, not a source of truth**. It is fully derived from `.ai/`, it is
+git-ignored, and a damaged or foreign-version cache is rebuilt rather than trusted (`RULES.md` 4.10).
+Three properties are what the next agent has to keep.
+
+Each entry's **content hash is its identity for invalidation**, and one edit invalidates one entry
+(`docs/CONTEXT_SPEC.md` 6). The map is keyed by repository-relative path, but the SHA-256 in the entry
+is what a rescan compares: when a file's bytes hash the same, its parsed entry is kept even if the path
+or the metadata moved. Keying the map itself by the hash would collapse two documents with identical
+bytes into one, which is why the two are separate.
+
+A scan reads as little as possible. A private `(size, mtime-in-nanoseconds)` fingerprint is compared
+before a file is opened; on a match the cached entry is reused and the file is never read. Only a moved
+fingerprint causes a read, and an unchanged hash then costs a rehash rather than a re-parse. This is
+asserted through `ScanReport::reads`, a deterministic count, because `RULES.md` 8 forbids asserting on
+the wall clock: "a second run over an unchanged tree re-reads nothing" is `reads() == 0`.
+
+The walk is `.gitignore`-aware and hermetic. `ContextIndex` walks `root/.ai` with the `ignore` crate at
+`hidden(false)` (the `.ai` directory is itself hidden, so hidden-off would walk nothing), `parents(true)`
+and `git_ignore(true)` with `require_git(false)` so ignore files apply without a `.git` repository, and
+`git_global(false)` so a developer's global ignore file cannot change what is indexed. The two fixed-path
+YAML files under `.ai/` are config, not documents, and are not indexed. A document larger than
+`DOCUMENT_MAX_BYTES`, or a path the walk cannot deliver, is counted in the report and skipped rather than
+aborting the scan (`RULES.md` 4.8); the body is never parsed for meaning (`ADR-003`), only scanned for
+headings and ID-shaped links.
+
+## MEM-022 - The retrieval plan is a request, not an action
+
+```yaml
+id: MEM-022
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-11
+supersedes: null
+tags: [retrieval, context-engine, plan, TASK-032]
+```
+
+`RetrievalPlan` defines what to ask for (`docs/CONTEXT_SPEC.md` §7.1) without reading documents. It
+records: the seed task (when one exists), any free-text query, the mandatory set (`.ai/AI.md` and
+`.ai/RULES.md`, plus `--include`), graph seeds (`linked_ids` = `spec` + `depends_on` + `relates_to`),
+path `globs` (task `touches` merged with `--globs`), `filters` (epic and phase derived from the task,
+merged with `--filters`), `include_kinds`, `exclude_ids`, and `ContextBudget`. All are serialisable
+and deterministically rendered by `RetrievalPlan::explain()`.
+
+The task's own graph keys are read once, by `register::read` and stored in `TaskEntry` (a public
+struct in `aicontext-context::register`). A predicate carries its value as text rather than a sealed
+`Value` so a `--filter` flag can be represented naturally; matching projects a document's front
+matter to a comparable string form (a scalar becomes its decimal, boolean, or string; a list is
+searched for equal items; a string is tested by substring for `contains`). The plan is a value object
+(exported from `aicontext-context::retrieval`) and is never the one that walks the filesystem — that
+is left to the retrievers and the `ContextIndex`.
+
+## MEM-023 - The lexical retriever is pure, and the body it scores lives in the index
+
+```yaml
+id: MEM-023
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-11
+supersedes: null
+tags: [retrieval, context-engine, bm25, index, TASK-033]
+```
+
+`LexicalRetriever` turns a plan and a `ContextIndex` into `Vec<ScoredDocument>` and reads nothing
+else. `ScoredDocument` and `RetrievalTrace` (`docs/CONTEXT_SPEC.md` §7.3) carry the id, path, tier,
+score, a human-readable reason, and the trace, so a candidate is self-describing. The `Retriever`
+trait signature is exactly the seam `ARCHITECTURE.md` §4.2 reserves —
+`fn retrieve(&self, plan: &RetrievalPlan, index: &ContextIndex) -> Vec<ScoredDocument>` — so the
+Always/Linked/Filter/Glob implementations (`TASK-034`) and a future `EmbeddingRetriever` are new
+implementations, not new call sites.
+
+Scoring is BM25F at `k1 = 1.2`, `b = 0.75` over the §7.2 field weights (title 3.0, id 2.5, tags 2.0,
+headings 1.5, other front-matter values 1.2, body 1.0). A term's weighted frequency is the sum over
+fields of weight × count, and a document's weighted length is the sum over fields of weight × token
+count; the non-negative IDF `ln(1 + (N - df + 0.5)/(df + 0.5))` is computed over the same documents
+the results come from. Ordering is score descending, then id ascending, then path ascending — a total
+order with no randomness and no dependence on hash-map order (`ADR-004`).
+
+Because §7.2 scores the body at weight 1.0 and the retriever never touches the filesystem, the body
+text has to be in the cache. `IndexEntry` therefore gains `body: String` (`docs/CONTEXT_SPEC.md` §6),
+serde-defaulted and filled at build time, and `CACHE_VERSION` is bumped from 1 to 2 so a version-1
+cache is rebuilt rather than read as an all-empty body. The serde default is what lets a v1 cache
+deserialize and then fail the version check with the precise `IndexError::Version` instead of a
+generic `Format` error. The cost is that the git-ignored cache now roughly mirrors the size of the
+`.ai` Markdown; the alternative — reading bodies during retrieval — would make `retrieve` do I/O and
+break the one property that makes the packet reproducible.
 
 ## Open questions
 

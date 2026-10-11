@@ -20,8 +20,9 @@
 //! Depends on `aicontext-core` only. Must not depend on `aicontext-providers`: this crate assembles
 //! context, it does not send it to a model.
 //!
-//! The parser (`TASK-016`) and discovery (`TASK-030`) modules have arrived; the index arrives in
-//! `TASK-031`.
+//! The parser (`TASK-016`), discovery (`TASK-030`), the content index (`TASK-031`), the retrieval
+//! plan (`TASK-032`), and the lexical retriever (`TASK-033`) have arrived; the graph, filter, and
+//! glob retrievers are `TASK-034`.
 
 #![forbid(unsafe_code)]
 
@@ -31,12 +32,22 @@ pub mod discovery;
 pub mod doctor;
 mod error;
 mod frontmatter;
+pub mod index;
 pub mod register;
+pub mod retrieval;
 mod value;
 
 pub use discovery::{Confidence, ProjectProfile, Signal, discover};
 pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
 pub use error::ContextError;
 pub use frontmatter::{DOCUMENT_MAX_BYTES, Document, FRONT_MATTER_MAX_BYTES, FrontMatter};
+pub use index::{
+    ContextIndex, DocumentKind, Heading, INDEX_PATH, IndexEntry, IndexError, ScanReport,
+};
 pub use register::{Register, TaskEntry};
+pub use retrieval::{
+    ContextBudget, DEFAULT_MAX_TOKENS, FrontMatterPredicate, LexicalRetriever,
+    MANDATORY_ENTRY_POINT, MANDATORY_RULES, PlanOptions, PredicateOp, RetrievalPlan,
+    RetrievalTrace, Retriever, ScoredDocument, Tier,
+};
 pub use value::Value;

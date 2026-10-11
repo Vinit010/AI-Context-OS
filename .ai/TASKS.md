@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-10
+updated: 2026-10-11
 ---
 
 # TASKS
 
 **Current phase:** Phase 2 — Context engine
-**Current task:** TASK-031
+**Current task:** TASK-034
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -772,7 +772,7 @@ done:
 ```yaml
 id: TASK-031
 title: Build the content-hash context index
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 2
 depends_on: [TASK-016]
@@ -783,6 +783,17 @@ acceptance:
   - Persists to .aicontext/index.json keyed by content hash
   - A second run over an unchanged tree re-reads nothing and is measurably faster
   - A changed file invalidates only its own entry
+done:
+  - 'crates/aicontext-context/src/index.rs is the index module: public ContextIndex, IndexEntry, DocumentKind, Heading, ScanReport, IndexError, and the INDEX_PATH constant, all re-exported from lib.rs. ContextIndex::refresh(root, cache) loads the existing cache (ignoring any failure), builds, and writes it back; build(root, previous) returns (index, report); load and save are the two halves on their own; empty, entries, get, len, is_empty, and IndexEntry::content_hash_hex complete the surface. Keyed by repository-relative path, each entry carrying its content_hash - the hash is the invalidation identity, not the map key, so two documents with identical bytes do not collapse into one entry'
+  - 'Acceptance 1: the scan walks root/.ai through ignore::WalkBuilder with hidden(false) (so the hidden .ai directory is walked), parents(true), git_ignore(true), git_exclude(true), git_global(false), and require_git(false) (so .gitignore applies without a .git repository and no developer-global ignore file can change the result). Only .md files are documents. docs/CONTEXT_SPEC.md 1 locations are read for DocumentKind (kebab-case serde names); a location that does not answer falls back to the front matter type key. The two fixed-path YAML files (ai.yaml, permissions/permissions.yaml) are config, not documents, and are not indexed'
+  - 'Acceptance 2: the cache is .aicontext/index.json, a versioned envelope (version: 1) holding entries and fingerprints. It is pretty-printed with a trailing newline, its parent directory is created on demand, and its path keys use forward slashes so the same bytes are written on Windows and Unix. load returns IndexError::Read, ::Format, or ::Version; refresh swallows those and rebuilds, so a corrupt or foreign cache can never be trusted - it is a cache and is fully derivable from the repository (RULES 4.10)'
+  - 'Acceptance 3: incrementality is decided by a (size, mtime-in-nanoseconds) fingerprint held in a private fingerprints map. When the fingerprint still matches, the cached entry is reused verbatim and the file is never opened. When it moved, the file is read and hashed: an unchanged hash keeps the parsed entry and counts a rehash, a changed hash rebuilds one entry and counts a parse. tests/index.rs asserts a second scan of an unchanged tree reports reads() == 0 and parsed == 0, and writes byte-identical output - a deterministic proxy for measurably faster, because RULES 8 forbids asserting on the wall clock'
+  - 'Acceptance 4: a changed file invalidates only its own entry. tests/index.rs edits one document, rescans, and asserts exactly one parse, one reuse, the changed hash moved, and the untouched entry is bit-for-bit the previous value. A file removed from the tree is counted in report.removed and absent from the rebuilt index'
+  - 'Honest partial failure (RULES 4.8): ScanReport counts documents, reused, rehashed, parsed, removed, oversize, and unreadable. A document larger than DOCUMENT_MAX_BYTES (1 MiB) is counted oversize and skipped, matching what the parser accepts (CTX-018), and a path the walk or the read cannot deliver is counted unreadable rather than silently treated as indexed. Nothing aborts the scan'
+  - 'The entry records what the body exposes without interpreting it (ADR-003): front matter through the crate Value model (Value gained serde Serialize/Deserialize, untagged, and FrontMatter::ordered_entries became pub(crate) to reuse the canonical key order), ATX headings ignoring fenced blocks, a heuristic token estimate, and the ID-shaped links found in front matter and body. IndexError reports CTX-019 (Index cache is stale or missing) at Info severity and converts into AicontextError, mirroring ContextError'
+  - 'Dependencies, each pre-justified in ARCHITECTURE.md 2.2 and commented in both Cargo.toml files: sha2 for the content hash, ignore for a gitignore-respecting walk, and serde plus serde_json for the cache. ignore 0.4 is pinned to the newest release that keeps the 1.85 MSRV floor. No aicontext-providers dependency is added and no unsafe code enters the crate'
+  - 'Tests: 15 integration tests in crates/aicontext-context/tests/index.rs through the public API - a fresh scan indexes every document under .ai and nothing outside it, an empty project, a gitignored document excluded while its neighbour is kept, persistence and an identical reload, a no-read second scan, byte-identical rewrite, one changed entry invalidating only itself, removal, a corrupt cache rebuilt, a foreign-version cache rebuilt, kinds from location, front matter and headings and links recorded, a document without front matter still indexed, and an oversize document counted and not indexed'
+  - 'Verification: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked green (544 passed, 0 failed). Scoped to crates/aicontext-context/** - wiring the cache to a command (doctor --rebuild-index and CTX-019 reporting, and the aicontext context command in TASK-037) is a follow-up outside this task, as is rewiring init/detect.rs'
 ```
 
 ### TASK-032 — Define the retrieval plan
@@ -790,7 +801,7 @@ acceptance:
 ```yaml
 id: TASK-032
 title: Define the retrieval plan
-status: TODO
+status: DONE
 priority: HIGH
 phase: 2
 depends_on: [TASK-031]
@@ -799,6 +810,13 @@ touches: ["crates/aicontext-context/**"]
 acceptance:
   - A RetrievalPlan derives mandatory documents, graph links, filters, and globs from the task
   - The plan is inspectable via --explain and is fully serialisable
+done:
+  - 'crates/aicontext-context/src/retrieval.rs is new: RetrievalPlan, ContextBudget, FrontMatterPredicate, PredicateOp, Tier, PlanOptions, plus constants MANDATORY_ENTRY_POINT, MANDATORY_RULES, DEFAULT_MAX_TOKENS. All are re-exported from lib.rs. The plan holds task, query, mandatory (AI.md and RULES.md are always present; include paths are de-duplicated and order-preserved), linked_ids (spec + depends_on + relates_to), globs, filters, include_kinds, exclude_ids, and budget. RetrievalPlan::new derives the mandatory set from options; RetrievalPlan::for_task seeds from the task and derives edges/filters/globs when the register knows that task.'
+  - 'register.rs extended TaskEntry with phase (i64), epic, spec, depends_on, touches, relates_to, tags; the reader extracts them from the task entity block. This keeps one reader of the register format (register::read) and exposes the graph keys the plan needs (TaskEntry is public).'
+  - 'FrontMatterPredicate compares using string projection (a document value is equal/contains against a predicate string by normalising Int/Bool/Null/Str; lists are searched for equal items, strings by substring), so command-line --filter values work without constructing Value. matches_document maps a Document to its canonical fields via ordered_entries. PlanOptions captures caller flags (--query, --include, --exclude, --globs, --filters, --include-kinds, --budget) and for_task combines them with task-derived facts (epic and phase become equality filters; globs and linked_ids merge with task.touches/spec/depends_on/relates_to). explain() prints every field deterministically (including (none) markers) so --explain is inspectable and comparable.'
+  - 'DocumentKind gains Display (kebab-case matching serde rename_all) so explain can render kinds; a new test asserts Display == serde JSON wire names.'
+  - 'Tests in crates/aicontext-context/tests/retrieval.rs (13 tests) cover derivation for a known and unknown task, options merging, JSON round-trip (including per-tier budget), budget defaults/overrides, explain rendering, predicate operators (Equals, NotEquals, Contains, NotContains, Exists, NotExists), integer equality by decimal, string substring contains, list contains, and Tier bounds. tests/index.rs gains one Display/serde agreement test. All pass.'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked 558 passed, 0 failed. The task''s public API additions are confined to crates/aicontext-context/**; no CLI wiring yet (the --explain flag wiring will land with TASK-037), no document-graph resolution beyond seeds (resolution stays in TASK-034).'
 ```
 
 ### TASK-033 — Implement the lexical retriever
@@ -806,7 +824,7 @@ acceptance:
 ```yaml
 id: TASK-033
 title: Implement the lexical retriever
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 2
 depends_on: [TASK-032]
@@ -816,6 +834,14 @@ acceptance:
   - BM25 over headings and body with per-field boosts, fully deterministic
   - No network, no embeddings, no model call
   - Every result carries a score and a human-readable reason
+done:
+  - 'crates/aicontext-context/src/retrieval.rs gains the retrieval result types and the retriever: ScoredDocument (id, path, tier, score, reason, trace), RetrievalTrace (the docs/CONTEXT_SPEC.md 7.3 shape - id, tier, score, reason, source_path, included, dropped_reason), the pure Retriever trait, and LexicalRetriever. All are re-exported from lib.rs. The trait matches ARCHITECTURE.md 4.2 exactly: fn retrieve(&self, plan: &RetrievalPlan, index: &ContextIndex) -> Vec<ScoredDocument>, so the Always/Linked/Filter/Glob retrievers named in ARCHITECTURE.md 6 (TASK-034) are additional impls, not a redesign, and the reserved seam in ARCHITECTURE.md 12 is honoured.'
+  - 'LexicalRetriever is BM25 with k1 = 1.2 and b = 0.75 (docs/CONTEXT_SPEC.md 7.2) over a field-weighted document. Fields and weights: title 3.0, id 2.5, tags 2.0 (the front-matter tags key), headings 1.5, other front-matter values 1.2, body 1.0. A term''s weighted frequency is the sum over fields of weight x count, and the document''s weighted length is the sum over fields of weight x token count, so a title term is both commoner in the numerator and counted longer in the denominator. A non-negative IDF, ln(1 + (N - df + 0.5)/(df + 0.5)), is computed per query term over the same documents the results come from. tokenize() lowercases ASCII alphanumerics and hyphens and drops every other character, for both the query and each field.'
+  - 'Every returned document carries a positive score and a human-readable reason naming the matched terms ("lexical match on ''term'', ''term''"); a document that matches no query term is not returned. Results are ordered by score descending, then id ascending, then path ascending - a total order with no randomness and no dependence on hash-map iteration order, so the same plan and index always produce the same candidates (ADR-004). The retriever reads only &ContextIndex: no network, no embeddings, no model call.'
+  - 'Acceptance 1 (BM25 over headings and body, per-field boosts, deterministic): the new integration tests build a real .ai tree, index it through ContextIndex::refresh, and assert a title match scores strictly above a body match, a document with no matching term is dropped, a tie is broken by identifier then path, and two runs produce bit-identical scores. Acceptance 2: the retriever reads only the index and imports nothing that could reach a model. Acceptance 3: every result is asserted to have score > 0 and a reason that names the matched term.'
+  - 'The body text is carried in the index so the body weight is real: IndexEntry gains a body: String field (docs/CONTEXT_SPEC.md 6), serde-defaulted and populated from the parsed body at build time. Because that changes the cached shape, CACHE_VERSION in index.rs is bumped 1 -> 2, so a version-1 cache is rebuilt rather than misread as an all-empty body; the serde default lets a v1 cache deserialize and fail the version check with the precise IndexError::Version instead of a generic Format error. tests/index.rs asserts the cache names version 2, and docs/CONTEXT_SPEC.md 6 now lists the body field and the version rule.'
+  - 'Tests: 4 new integration tests in crates/aicontext-context/tests/retrieval.rs (title outranks body, tie broken by identifier then path, determinism across two runs, no query yields nothing) alongside the 13 plan tests from TASK-032. They live in tests/ so they reach only the public API.'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean (the trivially-copy-pass-by-ref, match-same-arms, cast-precision-loss, and float-cmp findings are all resolved); cargo test --workspace --locked 562 passed, 0 failed. Scoped to crates/aicontext-context/**; the graph, filter, and glob retrievers remain TASK-034, the priority ladder TASK-035, and the CLI wiring (aicontext context, --explain) TASK-037.'
 ```
 
 ### TASK-034 — Implement the linked, filter, and glob retrievers

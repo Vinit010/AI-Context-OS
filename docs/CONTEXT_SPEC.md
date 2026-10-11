@@ -284,6 +284,7 @@ struct IndexEntry {
     title: String,
     front_matter: Map<String, Value>,
     headings: Vec<Heading>, // for lexical scoring only
+    body: String,           // body text, for lexical scoring only
     body_bytes: u64,
     token_estimate: u32,
     content_hash: [u8; 32],
@@ -295,6 +296,9 @@ struct IndexEntry {
 - Persisted to `.aicontext/index.json`. It is a **cache**, fully rebuildable with
   `doctor --rebuild-index`, and is git-ignored.
 - The index never contains external references; it is fully derivable from the repository.
+- `body` and `headings` are kept for lexical scoring; nothing else parses the body.
+- The cache carries a format version, bumped whenever this shape changes. A cache of another version
+  is rebuilt, not read.
 - `token_estimate` is a heuristic (bytes/4 plus heading and front-matter weighting). It is used for
   budgeting only and is never presented to a user as an exact count.
 
