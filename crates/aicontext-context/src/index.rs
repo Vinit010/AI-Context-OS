@@ -590,12 +590,48 @@ impl ContextIndex {
         self.entries.iter()
     }
 
+    /// The entries `target` names, resolved forward (`TASK-034`).
+    ///
+    /// `target` may be a front-matter `id`, a repository-relative path (so a task's `spec: <path>`
+    /// resolves when the path is indexed), or an id a register defines as an inline entity (so a
+    /// `depends_on` on an inline task in `TASKS.md` resolves to the register). Resolution is
+    /// deterministic and path-ordered (`ADR-004`): an id names its document, it is not matched
+    /// against every document that happens to mention it.
+    #[must_use]
+    pub fn resolve(&self, target: &str) -> Vec<&IndexEntry> {
+        self.entries
+            .iter()
+            .filter(|(key, entry)| {
+                entry.id.as_deref() == Some(target)
+                    || key.as_str() == target
+                    || headings_name(target, &entry.headings)
+            })
+            .map(|(_key, entry)| entry)
+            .collect()
+    }
+
     /// The previous entry at `relative`, when its content already hashes to `hash`.
     fn by_hash(&self, relative: &str, hash: [u8; 32]) -> Option<&IndexEntry> {
         self.entries
             .get(relative)
             .filter(|entry| entry.content_hash == hash)
     }
+}
+
+/// Whether any heading defines `target` as an inline entity: a heading that is the id exactly, or
+/// that begins with it and continues with a character an id cannot contain, so `TASK-014: the plan`
+/// names `TASK-014` while `TASK-0142` does not.
+fn headings_name(target: &str, headings: &[Heading]) -> bool {
+    headings.iter().any(|heading| {
+        let Some(rest) = heading.text.strip_prefix(target) else {
+            return false;
+        };
+        rest.is_empty()
+            || rest
+                .chars()
+                .next()
+                .is_some_and(|ch| !(ch.is_ascii_alphanumeric() || ch == '-'))
+    })
 }
 
 /// Builds one entry from a document's bytes.

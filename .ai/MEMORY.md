@@ -680,6 +680,36 @@ generic `Format` error. The cost is that the git-ignored cache now roughly mirro
 `.ai` Markdown; the alternative — reading bodies during retrieval — would make `retrieve` do I/O and
 break the one property that makes the packet reproducible.
 
+## MEM-024 - Graph, filter, and glob retrieval is exact; broken links are reported as dropped traces
+
+```yaml
+id: MEM-024
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-11
+supersedes: null
+tags: [retrieval, context-engine, graph, glob, filter, TASK-034]
+```
+
+The three non-lexical retrievers (`TASK-034`) are exact, not ranked. `LinkedRetriever` resolves each
+`RetrievalPlan` edge (`spec`, `depends_on`, `relates_to`) forward through `ContextIndex::resolve`: a
+front-matter `id`, a repository path, or a register heading that defines an inline entity — so a
+`depends_on` on an inline task resolves to `.ai/TASKS.md`. Every resolved edge scores 1.0 and the
+reason reads `linked from TASK-034 (depends_on)`, which is why the plan stores
+`LinkedId { id, edge }` rather than a bare id list: an edge remembers how it was reached instead of
+making the retriever re-derive the graph from the id's shape.
+
+An edge that resolves to nothing becomes a dropped trace (`included: false`,
+`dropped_reason: "broken link"`) at the tier its target would have sat at (spec → 4, depends_on → 5,
+relates_to → 9) — never skipped, the same honesty `doctor`'s `CTX-007` applies to front-matter
+references (`RULES.md` §4.8). Filter and glob retrieval keep every document that satisfies all
+predicates / matches a glob; the glob matcher is our own (`*` within a segment, `**` across segments,
+`?` one character) because the crate must not grow a dependency for the pattern subset a `touches`
+list needs (`ARCHITECTURE.md` §2.2). Ordering everywhere is score, then `id`, then path, so merged
+results stay reproducible (`ADR-004`).
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

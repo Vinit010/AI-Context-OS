@@ -11,7 +11,7 @@ updated: 2026-10-11
 # TASKS
 
 **Current phase:** Phase 2 — Context engine
-**Current task:** TASK-034
+**Current task:** TASK-035
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -849,7 +849,7 @@ done:
 ```yaml
 id: TASK-034
 title: Implement the linked, filter, and glob retrievers
-status: TODO
+status: DONE
 priority: HIGH
 phase: 2
 depends_on: [TASK-032]
@@ -859,6 +859,13 @@ acceptance:
   - Linked follows the task graph: spec, decisions, bugs, touched paths
   - Filter matches front-matter predicates; Glob matches repository paths
   - A broken link is reported, not silently skipped
+done:
+  - 'The plan now remembers how each edge was reached: retrieval.rs gains LinkedEdge (Spec | DependsOn | RelatesTo, Display renders the YAML key) and LinkedId { id, edge } with spec/depends_on/relates_to constructors, and RetrievalPlan.linked replaces linked_ids: Vec<String> with Vec<LinkedId>. absorb_task keeps the order spec, depends_on, relates_to and deduplicates first-occurrence-wins; explain() renders "id (edge)"; docs/CONTEXT_SPEC.md 7.1 shows the LinkedId shape.'
+  - 'ContextIndex gains resolve(target): the entries whose front-matter id equals target, whose repository-relative path equals target, or whose headings define target as an inline entity (so a depends_on on an inline task resolves to .ai/TASKS.md, and a MEM-* id to .ai/MEMORY.md). Pure, path-ordered, deterministic (ADR-004): an id names its document, it is not matched against whatever mentions it.'
+  - 'LinkedRetriever follows the task graph: each resolved edge scores 1.0 with a reason reading "linked from TASK-034 (depends_on)" and the tier of the document''s kind. An edge that resolves to nothing is reported, not skipped: a dropped candidate with trace.included = false, dropped_reason = "broken link", score 0.0, and the tier its target would have sat at (spec -> 4, depends_on -> 5, relates_to -> 9), matching doctor''s CTX-007 honesty and RULES.md 4.8.'
+  - 'FilterRetriever keeps every document satisfying all plan.filters (a conjunction) with a reason naming each matched predicate ("matches phase = 2, status exists"); GlobRetriever keeps every document whose canonical /-separated path matches a plan glob. The glob matcher is our own deterministic one - * within a segment, ** across whole segments (zero or more), ? for one character - so no glob crate and identical results on every host (ARCHITECTURE.md 2.2). Every match scores 1.0; all three exact retrievers share candidate_for/order_candidates and order by score descending, then id, then path, the same total order as the lexical retriever.'
+  - 'Tests: 7 new integration tests in crates/aicontext-context/tests/retrieval.rs (24 total) covering spec/dependency/bug resolution, inline-register resolution by heading, broken links reported as dropped candidates at the right tier, filter conjunction, glob path matching, glob segment boundaries (*, **, ?), and empty-plan behaviour. The three TASK-032 plan-shape assertions moved to the LinkedId shape, and explain asserts "docs/CONTEXT_SPEC.md (spec), TASK-031 (depends_on), BUG-001 (relates_to)".'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked 569 passed, 0 failed (was 562). Scoped to crates/aicontext-context/**; docs/CONTEXT_SPEC.md 7.1-7.2 updated for the plan shape and the exact retrievers. The priority ladder and conflict detection remain TASK-035, the budget TASK-036, and the CLI wiring (aicontext context, --explain) TASK-037.'
 ```
 
 ### TASK-035 — Implement the priority ladder and conflict detection

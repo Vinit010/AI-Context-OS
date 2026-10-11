@@ -15,10 +15,12 @@
 //! A [`Retriever`] turns a plan and an index into scored candidates. Retrieval is pure and
 //! deterministic — no network, no embeddings, no model — so the same plan and index always produce
 //! the same candidates (`decisions/ADR-004-deterministic-retrieval.md`). [`LexicalRetriever`] scores
-//! with BM25 over a field-weighted document (§7.2); the graph, filter, and glob retrievers follow
-//! (`TASK-034`).
+//! with BM25 over a field-weighted document (§7.2); [`LinkedRetriever`], [`FilterRetriever`], and
+//! [`GlobRetriever`] follow the task graph, the front-matter predicates, and the path globs — all
+//! exact, not ranked (`TASK-034`).
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -305,6 +307,69 @@ fn tokenize(s: &str) -> Vec<String> {
     tokens
 }
 
+/// How a linked id was reached from the task graph (`docs/CONTEXT_SPEC.md` §4).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum LinkedEdge {
+    /// The task's `spec`: a `SPEC-*` id or a document path.
+    Spec,
+    /// A task this one depends on.
+    DependsOn,
+    /// A bug or change this task relates to.
+    RelatesTo,
+}
+
+impl fmt::Display for LinkedEdge {
+    /// The YAML key the edge came from, so a reason reads `linked from TASK-034 (depends_on)`.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Spec => "spec",
+            Self::DependsOn => "depends_on",
+            Self::RelatesTo => "relates_to",
+        })
+    }
+}
+
+/// One graph edge from the current task, before it is resolved to a document
+/// (`docs/CONTEXT_SPEC.md` §7.1).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LinkedId {
+    /// The referenced id or path, exactly as the task wrote it.
+    pub id: String,
+    /// How the task reached the reference.
+    pub edge: LinkedEdge,
+}
+
+impl LinkedId {
+    /// An edge that names the task's spec, a `SPEC-*` id or a document path.
+    #[must_use]
+    pub fn spec(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            edge: LinkedEdge::Spec,
+        }
+    }
+
+    /// An edge that names a task this one depends on.
+    #[must_use]
+    pub fn depends_on(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            edge: LinkedEdge::DependsOn,
+        }
+    }
+
+    /// An edge that names a bug or change this task relates to.
+    #[must_use]
+    pub fn relates_to(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            edge: LinkedEdge::RelatesTo,
+        }
+    }
+}
+
 /// What a context request asks for, before retrieval runs (`docs/CONTEXT_SPEC.md` §7.1).
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RetrievalPlan {
@@ -317,9 +382,10 @@ pub struct RetrievalPlan {
     /// Documents that are always included: `AI.md`, `RULES.md`, and any `--include`.
     #[serde(default)]
     pub mandatory: Vec<PathBuf>,
-    /// IDs reached across the task graph, before they are resolved to documents.
+    /// Graph edges from the current task, before they are resolved to documents
+    /// (`docs/CONTEXT_SPEC.md` §4).
     #[serde(default)]
-    pub linked_ids: Vec<String>,
+    pub linked: Vec<LinkedId>,
     /// Front-matter predicates the caller asked for.
     #[serde(default)]
     pub filters: Vec<FrontMatterPredicate>,
@@ -626,14 +692,232 @@ impl Retriever for LexicalRetriever {
             });
         }
 
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.id.cmp(&b.id))
-                .then_with(|| a.path.cmp(&b.path))
-        });
+        order_candidates(&mut scored);
         scored
+    }
+}
+
+/// A scored, included candidate for `entry` with a uniform `score` and a human-readable `reason`.
+///
+/// Shared by the exact retrievers: the graph, filter, and glob retrievers all stamp the document's
+/// tier from its kind (like the lexical retriever) and build the same trace shape.
+fn candidate_for(entry: &crate::index::IndexEntry, score: f64, reason: String) -> ScoredDocument {
+    let tier = entry.kind.map_or(Tier::SOURCE, tier_for_kind);
+    let name = entry
+        .id
+        .clone()
+        .unwrap_or_else(|| entry.path.display().to_string());
+    let trace = RetrievalTrace {
+        id: name,
+        tier,
+        score,
+        reason: reason.clone(),
+        source_path: entry.path.clone(),
+        included: true,
+        dropped_reason: None,
+    };
+    ScoredDocument {
+        id: entry.id.clone(),
+        path: entry.path.clone(),
+        tier,
+        score,
+        reason,
+        trace,
+    }
+}
+
+/// Orders candidates by score descending, then by identifier ascending, then by path — the total
+/// order every retriever returns, so merged results stay reproducible (`ADR-004`).
+fn order_candidates(candidates: &mut [ScoredDocument]) {
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+            .then_with(|| a.path.cmp(&b.path))
+    });
+}
+
+/// The tier a broken graph edge's target would have sat at had it resolved, by the edge's kind
+/// (`docs/CONTEXT_SPEC.md` §7.4): a spec is tier 4, a dependency is tier 5, a bug or change tier 9.
+fn edge_tier(edge: LinkedEdge) -> Tier {
+    match edge {
+        LinkedEdge::Spec => Tier::SPECIFICATION,
+        LinkedEdge::DependsOn => Tier::TASK,
+        LinkedEdge::RelatesTo => Tier::HISTORY,
+    }
+}
+
+/// Follows the current task's graph edges (`docs/CONTEXT_SPEC.md` §4) to the documents they name.
+///
+/// An edge resolves forward, through the index: a front-matter `id`, a repository path, or a
+/// heading that defines an inline entity in a register — so a `depends_on` on an inline task in
+/// `TASKS.md` resolves to the register that defines it. Resolution is not matching against every
+/// document that happens to mention the id. Every resolved edge scores 1.0 and the reason says
+/// which edge it was. An edge that resolves to nothing is reported as a broken link — a dropped
+/// trace with `dropped_reason: "broken link"` — never skipped (`RULES.md` §4.8).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LinkedRetriever;
+
+impl Retriever for LinkedRetriever {
+    fn retrieve(
+        &self,
+        plan: &RetrievalPlan,
+        index: &crate::index::ContextIndex,
+    ) -> Vec<ScoredDocument> {
+        let from = plan.task.as_deref().unwrap_or("the current task");
+        let mut candidates = Vec::new();
+        for linked in &plan.linked {
+            let resolved = index.resolve(&linked.id);
+            if resolved.is_empty() {
+                let tier = edge_tier(linked.edge);
+                let reason = format!(
+                    "linked from {from} ({}): '{}' resolves to no indexed document",
+                    linked.edge, linked.id
+                );
+                let trace = RetrievalTrace {
+                    id: linked.id.clone(),
+                    tier,
+                    score: 0.0,
+                    reason: reason.clone(),
+                    source_path: PathBuf::new(),
+                    included: false,
+                    dropped_reason: Some("broken link".to_string()),
+                };
+                candidates.push(ScoredDocument {
+                    id: Some(linked.id.clone()),
+                    path: PathBuf::new(),
+                    tier,
+                    score: 0.0,
+                    reason,
+                    trace,
+                });
+                continue;
+            }
+            for entry in resolved {
+                let reason = format!("linked from {from} ({})", linked.edge);
+                candidates.push(candidate_for(entry, 1.0, reason));
+            }
+        }
+        order_candidates(&mut candidates);
+        candidates
+    }
+}
+
+/// Keeps every document whose front matter satisfies all of the plan's predicates
+/// (`docs/CONTEXT_SPEC.md` §7.1).
+///
+/// The predicates form a conjunction: a document must match every one to be a candidate. Each
+/// matched predicate is named in the reason, so an `--explain` reader sees exactly what was asked
+/// for. Not ranked: every match scores 1.0.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FilterRetriever;
+
+impl Retriever for FilterRetriever {
+    fn retrieve(
+        &self,
+        plan: &RetrievalPlan,
+        index: &crate::index::ContextIndex,
+    ) -> Vec<ScoredDocument> {
+        if plan.filters.is_empty() {
+            return Vec::new();
+        }
+        let reason = format!("matches {}", {
+            let parts: Vec<String> = plan.filters.iter().map(describe_filter).collect();
+            parts.join(", ")
+        });
+        let mut candidates = Vec::new();
+        for entry in index.entries() {
+            if plan
+                .filters
+                .iter()
+                .all(|predicate| predicate.matches(&entry.front_matter))
+            {
+                candidates.push(candidate_for(entry, 1.0, reason.clone()));
+            }
+        }
+        order_candidates(&mut candidates);
+        candidates
+    }
+}
+
+/// Keeps every document whose repository path matches one of the plan's globs (a task's `touches`,
+/// plus any `--globs`).
+///
+/// A glob is matched against the canonical, `/`-separated repository-relative path of each indexed
+/// document. The supported syntax is the subset a `touches` list needs: `*` within a path segment,
+/// `**` across whole segments (zero or more), and `?` for one character. A glob that matches
+/// nothing is not itself an error — with `touches` covering source directories this is the rule
+/// rather than the exception — and the reason names the first glob, in plan order, that matched.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GlobRetriever;
+
+impl Retriever for GlobRetriever {
+    fn retrieve(
+        &self,
+        plan: &RetrievalPlan,
+        index: &crate::index::ContextIndex,
+    ) -> Vec<ScoredDocument> {
+        if plan.globs.is_empty() {
+            return Vec::new();
+        }
+        let mut candidates = Vec::new();
+        for (key, entry) in index.entries_map() {
+            let Some(glob) = plan.globs.iter().find(|glob| matches_glob(glob, key)) else {
+                continue;
+            };
+            let reason = format!("matches glob '{glob}'");
+            candidates.push(candidate_for(entry, 1.0, reason));
+        }
+        order_candidates(&mut candidates);
+        candidates
+    }
+}
+
+/// Whether a repository path, in canonical `/`-separated form, matches a glob pattern.
+///
+/// `*` matches any run of characters inside one path segment, `?` matches exactly one, and `**`
+/// matches zero or more whole segments. Every other character matches itself. Paths are matched
+/// case-sensitively and the comparison depends on nothing but the two strings, so it runs
+/// identically on every host — no filesystem, no glob crate.
+fn matches_glob(pattern: &str, path: &str) -> bool {
+    let pattern: Vec<&str> = pattern.split('/').collect();
+    let path: Vec<&str> = path.split('/').collect();
+    match_segments(&pattern, &path)
+}
+
+/// The segment-by-segment comparison behind [`matches_glob`].
+fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern.first() {
+        None => path.is_empty(),
+        Some(segment) if *segment == "**" => {
+            match_segments(&pattern[1..], path) || match_segments(pattern, &path[1..])
+        }
+        Some(segment) => {
+            path.first()
+                .is_some_and(|part| match_segment(segment, part))
+                && match_segments(&pattern[1..], &path[1..])
+        }
+    }
+}
+
+/// Whether a single path segment matches a single pattern segment.
+fn match_segment(pattern: &str, segment: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let segment: Vec<char> = segment.chars().collect();
+    match_chars(&pattern, &segment)
+}
+
+/// The character-level comparison behind [`match_segment`], so `*` and `?` never cross a `/`.
+fn match_chars(pattern: &[char], segment: &[char]) -> bool {
+    match pattern.first() {
+        None => segment.is_empty(),
+        Some('*') => {
+            match_chars(&pattern[1..], segment)
+                || (!segment.is_empty() && match_chars(pattern, &segment[1..]))
+        }
+        Some('?') => !segment.is_empty() && match_chars(&pattern[1..], &segment[1..]),
+        Some(ch) => segment.first() == Some(ch) && match_chars(&pattern[1..], &segment[1..]),
     }
 }
 
@@ -688,10 +972,11 @@ impl RetrievalPlan {
     /// A plan seeded from the task `task_id` names, when the register declares it.
     ///
     /// The task contributes graph edges, not document contents: `spec`, `depends_on`, and
-    /// `relates_to` become [`linked_ids`](Self::linked_ids); `touches` becomes
-    /// [`globs`](Self::globs); `epic` and `phase` become equality [`filters`](Self::filters). An ID
-    /// the register does not declare still names the task — the plan is a request, and a missing
-    /// task is worth reporting rather than hiding — but contributes no edges.
+    /// `relates_to` become [`linked`](Self::linked), each remembering which edge it was; `touches`
+    /// becomes [`globs`](Self::globs); `epic` and `phase` become equality
+    /// [`filters`](Self::filters). An ID the register does not declare still names the task — the
+    /// plan is a request, and a missing task is worth reporting rather than hiding — but contributes
+    /// no edges.
     #[must_use]
     pub fn for_task(register: &Register, task_id: &str, options: &PlanOptions) -> Self {
         let mut plan = Self::new(options);
@@ -715,13 +1000,13 @@ impl RetrievalPlan {
 
     /// Adds the graph edges and derived filters a task carries.
     fn absorb_task(&mut self, task: &TaskEntry) {
-        let mut linked: Vec<String> = Vec::new();
+        let mut linked: Vec<LinkedId> = Vec::new();
         if let Some(spec) = &task.spec {
-            linked.push(spec.clone());
+            linked.push(LinkedId::spec(spec));
         }
-        linked.extend(task.depends_on.iter().cloned());
-        linked.extend(task.relates_to.iter().cloned());
-        self.linked_ids = dedup(linked);
+        linked.extend(task.depends_on.iter().map(LinkedId::depends_on));
+        linked.extend(task.relates_to.iter().map(LinkedId::relates_to));
+        self.linked = dedup(linked);
 
         let globs = self
             .globs
@@ -751,7 +1036,7 @@ impl RetrievalPlan {
         let _ = writeln!(out, "  task:      {}", or_none(self.task.as_deref()));
         let _ = writeln!(out, "  query:     {}", or_none(self.query.as_deref()));
         let _ = writeln!(out, "  mandatory: {}", join_paths(&self.mandatory));
-        let _ = writeln!(out, "  linked:    {}", join_strings(&self.linked_ids));
+        let _ = writeln!(out, "  linked:    {}", join_linked(&self.linked));
         let _ = writeln!(out, "  globs:     {}", join_strings(&self.globs));
         let _ = writeln!(out, "  filters:   {}", join_filters(&self.filters));
         let _ = writeln!(out, "  kinds:     {}", join_kinds(&self.include_kinds));
@@ -803,6 +1088,19 @@ fn join_strings(items: &[String]) -> String {
         "(none)".to_string()
     } else {
         items.join(", ")
+    }
+}
+
+/// The graph edges as `id (edge)`, or a visible marker when there are none.
+fn join_linked(items: &[LinkedId]) -> String {
+    if items.is_empty() {
+        "(none)".to_string()
+    } else {
+        items
+            .iter()
+            .map(|linked| format!("{} ({})", linked.id, linked.edge))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 

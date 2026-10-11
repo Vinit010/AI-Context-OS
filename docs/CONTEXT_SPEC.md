@@ -313,14 +313,22 @@ struct RetrievalPlan {
     task: Option<TaskId>,
     query: Option<String>,
     mandatory: Vec<PathBuf>,      // AI.md, RULES.md, and any --include
-    linked_ids: Vec<String>,      // resolved from the task graph
+    linked: Vec<LinkedId>,        // graph edges from the current task (§4)
     filters: Vec<FrontMatterPredicate>,
     globs: Vec<String>,
     include_kinds: Vec<DocumentKind>,
     exclude_ids: Vec<String>,
     budget: ContextBudget,
 }
+
+struct LinkedId {
+    id: String,                   // a SPEC-* id, a document path, or a task/bug/change id
+    edge: Spec | DependsOn | RelatesTo
+}
 ```
+
+An edge remembers *how* it was reached, so a retriever can say `linked from TASK-037 (spec)`
+without re-deriving the graph from the id's shape.
 
 `--explain` prints the resolved plan before retrieval, so a human can see what was asked for.
 
@@ -339,6 +347,18 @@ struct RetrievalPlan {
 
 Deterministic tie-breaking: by score descending, then by `id` ascending. There is no randomness
 and no dependence on hash-map iteration order.
+
+The other retrievers are exact, not ranked. `LinkedRetriever` resolves the plan's `linked` edges
+(`spec`, `depends_on`, `relates_to`) forward through the index: a matching front-matter `id`, a
+repository path, or a register heading that defines an inline entity (so a `depends_on` on an inline
+task resolves to `TASKS.md`). `FilterRetriever` keeps every document that satisfies all of the plan's
+predicates; `GlobRetriever` keeps every document whose repository path matches a glob — a task's
+`touches`, with `*` within a path segment, `**` across whole segments, and `?` for one character.
+Every match scores 1.0 and carries a reason naming the edge, predicate, or glob that produced it;
+results are ordered by score, then `id`, then path, so merged output stays reproducible. An edge that
+resolves to no indexed document is reported as a broken link — a dropped trace with
+`dropped_reason: "broken link"` at the tier its target would have sat at — never silently skipped
+(`CTX-007`).
 
 ### 7.3 Provenance
 

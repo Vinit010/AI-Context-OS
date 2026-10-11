@@ -21,8 +21,8 @@
 //! context, it does not send it to a model.
 //!
 //! The parser (`TASK-016`), discovery (`TASK-030`), the content index (`TASK-031`), the retrieval
-//! plan (`TASK-032`), and the lexical retriever (`TASK-033`) have arrived; the graph, filter, and
-//! glob retrievers are `TASK-034`.
+//! plan (`TASK-032`), and the lexical, linked, filter, and glob retrievers (`TASK-033`–`TASK-034`)
+//! have arrived; the priority ladder is `TASK-035`.
 
 #![forbid(unsafe_code)]
 
@@ -46,8 +46,9 @@ pub use index::{
 };
 pub use register::{Register, TaskEntry};
 pub use retrieval::{
-    ContextBudget, DEFAULT_MAX_TOKENS, FrontMatterPredicate, LexicalRetriever,
-    MANDATORY_ENTRY_POINT, MANDATORY_RULES, PlanOptions, PredicateOp, RetrievalPlan,
-    RetrievalTrace, Retriever, ScoredDocument, Tier,
+    ContextBudget, DEFAULT_MAX_TOKENS, FilterRetriever, FrontMatterPredicate, GlobRetriever,
+    LexicalRetriever, LinkedEdge, LinkedId, LinkedRetriever, MANDATORY_ENTRY_POINT,
+    MANDATORY_RULES, PlanOptions, PredicateOp, RetrievalPlan, RetrievalTrace, Retriever,
+    ScoredDocument, Tier,
 };
 pub use value::Value;
