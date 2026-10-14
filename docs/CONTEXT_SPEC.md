@@ -414,7 +414,11 @@ struct ContextBudget {
 
 Degradation order, strictly: drop tier 9 → tier 8 → tier 7 → tier 6. Within a tier, drop the
 lowest-scoring document first. Tiers 1–5 are never dropped; if they do not fit, assembly fails with
-`CTX-030` and an actionable message. Every drop is reported with a reason.
+`CTX-030` and an actionable message. Every drop is reported with a reason. A `per_tier` cap bounds one
+tier: a tier over its cap drops its lowest-scoring documents until it fits, and a never-dropped tier
+that cannot fit its cap is the same `CTX-030`. `reserved_policy_tokens` names the room a caller holds
+for the instruction and policy it injects outside retrieval; tiers 1–2 are kept unconditionally, so it
+does not change which documents fit.
 
 ### 7.6 Context packet
 
@@ -467,8 +471,13 @@ ignores this field is violating the contract.
 | `CTX-018` | warning | Document larger than the configured maximum |
 | `CTX-019` | info | Index cache is stale or missing |
 | `CTX-020` | info | Document recommends the inline-to-split switch |
+| `CTX-030` | error | Context assembly cannot fit tiers 1–5 within the token budget (raised by `context`, never by `doctor`) |
 
 `--strict` promotes every warning to an error. `--explain <code>` prints the rationale and a fix.
+
+`CTX-030` is the one code `doctor` never emits: `aicontext context` raises it when the budget is too
+small for the tiers that may never be dropped (§7.5). It is listed here because this is the `CTX`
+catalogue; `--explain` describes the `doctor` checks.
 
 ---
 

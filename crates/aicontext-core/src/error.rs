@@ -76,7 +76,8 @@ pub struct ErrorCode {
 }
 
 impl ErrorCode {
-    /// A code in the `CTX` family, the `doctor` check catalogue in `docs/CONTEXT_SPEC.md` §8.
+    /// A code in the `CTX` family, the catalogue in `docs/CONTEXT_SPEC.md` §8 — the `doctor` checks,
+    /// plus the context-assembly error `CTX-030`.
     ///
     /// Only the checks in that catalogue are codes. A failure with no entry there is a new
     /// failure mode, and adding it to the spec is the point: an unlisted code is a finding the
@@ -147,6 +148,8 @@ impl ErrorCode {
     pub const CTX_019: Self = Self::context(19);
     /// A document recommends the inline-to-split switch.
     pub const CTX_020: Self = Self::context(20);
+    /// The context budget is too small for the tiers that may never be dropped.
+    pub const CTX_030: Self = Self::context(30);
 
     // The GIT family, introduced by TASK-017. Unlike CTX there is no external catalogue to
     // transcribe: these are the failure modes of spawning a read-only `git`, and the set is closed

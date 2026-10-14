@@ -27,6 +27,7 @@
 #![forbid(unsafe_code)]
 
 mod body;
+pub mod budget;
 mod codec;
 pub mod discovery;
 pub mod doctor;
@@ -38,6 +39,7 @@ pub mod resolve;
 pub mod retrieval;
 mod value;
 
+pub use budget::{BudgetError, BudgetReport, ContextBudget, DEFAULT_MAX_TOKENS, DroppedDocument};
 pub use discovery::{Confidence, ProjectProfile, Signal, discover};
 pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
 pub use error::ContextError;
@@ -48,9 +50,8 @@ pub use index::{
 pub use register::{Register, TaskEntry};
 pub use resolve::{ASSERTION_KEYS, Assertion, Conflict, PriorityResolver, Resolution};
 pub use retrieval::{
-    ContextBudget, DEFAULT_MAX_TOKENS, FilterRetriever, FrontMatterPredicate, GlobRetriever,
-    LexicalRetriever, LinkedEdge, LinkedId, LinkedRetriever, MANDATORY_ENTRY_POINT,
-    MANDATORY_RULES, PlanOptions, PredicateOp, RetrievalPlan, RetrievalTrace, Retriever,
-    ScoredDocument, Tier,
+    FilterRetriever, FrontMatterPredicate, GlobRetriever, LexicalRetriever, LinkedEdge, LinkedId,
+    LinkedRetriever, MANDATORY_ENTRY_POINT, MANDATORY_RULES, PlanOptions, PredicateOp,
+    RetrievalPlan, RetrievalTrace, Retriever, ScoredDocument, Tier,
 };
 pub use value::Value;

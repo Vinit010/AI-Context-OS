@@ -752,6 +752,47 @@ points at a document of a different `feature` is left undetected on purpose: no 
 `feature` key today, so there is nothing to compare, and guessing one would be inventing scope
 (`RULES.md` §2). It is recorded in §7.4 as deferred, to be implemented when a `feature` field arrives.
 
+## MEM-026 - The budget protects the whole upper half of the ladder, and its cost is the index's one number
+
+```yaml
+id: MEM-026
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [retrieval, context-engine, budget, degradation, TASK-036]
+```
+
+The context budget (`TASK-036`, `docs/CONTEXT_SPEC.md` §7.5) is a pure, deterministic function from a
+candidate list and an index to a kept set and a report (`decisions/ADR-004`). Three properties are what
+the next agent has to keep.
+
+The **protected floor is tier 5**, not tier 2. Only tiers 6–9 are droppable, and they go in the order
+9 → 8 → 7 → 6, lowest score first within a tier, with id then path as the total tie-break. This is
+stricter than the task's acceptance wording ("tiers 1–2 are never dropped") and satisfies it; the flow
+was widened deliberately because policy, architecture, specification, and the task itself are as
+undroppable as the entry point in practice. Because the ladder numbers tier 1 highest (`MEM-025`), "drop
+from the lowest tier upward" means the **largest** number first — the same inversion the conflict rule
+warns about, and the reason this entry repeats it: when reading the ladder, "down" is toward 9. A budget
+that cannot fit tiers 1–5 is refused with `CTX-030`, never silently truncated; the same code covers a
+protected tier that exceeds a `per_tier` cap.
+
+A candidate is **priced from the index**, `IndexEntry::token_estimate` by its portable path, so the
+budget charges the exact heuristic §6 already publishes and invents no second number. `apply_with`
+exposes the same rule with an explicit cost function, which is the seam `ARCHITECTURE.md` §12 reserves
+for a per-model tokenizer rather than a speculative generalisation. `ContextBudget` lives in its own
+module `crates/aicontext-context/src/budget.rs` (re-exported from `lib.rs`, so the public path is
+unchanged), because §7.5 is its one home (`RULES.md` §2). `reserved_policy_tokens` is documented as
+satisfied by construction — tiers 1–2 are kept unconditionally — and reserved for the per-model policy
+of a later phase; no numeric semantics were invented for it.
+
+`CTX-030` is the first `CTX` code that is **not a `doctor` check**: it is raised by `aicontext context`,
+and `doctor --explain` deliberately returns `Unknown` for it, because the `Explanation` type is scoped
+to doctor checks. It is listed in the §8 table anyway, with a note, because that table is the `CTX`
+catalogue a reader will look in.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |

@@ -26,6 +26,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::budget::ContextBudget;
 use crate::index::DocumentKind;
 use crate::register::{Register, TaskEntry};
 use crate::resolve::PriorityResolver;
@@ -36,9 +37,6 @@ pub const MANDATORY_ENTRY_POINT: &str = ".ai/AI.md";
 
 /// Project policy, always mandatory (`docs/CONTEXT_SPEC.md` §7.4, tier 2).
 pub const MANDATORY_RULES: &str = ".ai/RULES.md";
-
-/// The default token budget, the value `docs/CONTEXT_SPEC.md` §7.6 uses in its example packet.
-pub const DEFAULT_MAX_TOKENS: u32 = 32_000;
 
 /// One rung of the fixed priority ladder (`docs/CONTEXT_SPEC.md` §7.4, `ARCHITECTURE.md` §6).
 ///
@@ -86,42 +84,10 @@ impl Tier {
     }
 }
 
-/// How many tokens there are to spend, and how they are reserved (`docs/CONTEXT_SPEC.md` §7.5).
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextBudget {
-    /// The ceiling for the whole packet.
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
-    /// Optional per-tier ceilings. An absent tier uses the whole budget.
-    #[serde(default)]
-    pub per_tier: BTreeMap<Tier, u32>,
-    /// Tokens held back for tiers 1–2, which are never dropped.
-    #[serde(default)]
-    pub reserved_policy_tokens: u32,
-}
-
-impl Default for ContextBudget {
-    fn default() -> Self {
-        Self {
-            max_tokens: DEFAULT_MAX_TOKENS,
-            per_tier: BTreeMap::new(),
-            reserved_policy_tokens: 0,
-        }
+impl fmt::Display for Tier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)
     }
-}
-
-impl ContextBudget {
-    /// This budget with `max_tokens` overridden, as `aicontext context --budget` does.
-    #[must_use]
-    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
-        self.max_tokens = max_tokens;
-        self
-    }
-}
-
-/// The default for a missing `max_tokens`, so a partial budget still names a number.
-fn default_max_tokens() -> u32 {
-    DEFAULT_MAX_TOKENS
 }
 
 /// How a [`FrontMatterPredicate`] compares a document's key to its value.

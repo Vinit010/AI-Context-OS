@@ -11,7 +11,7 @@ updated: 2026-10-14
 # TASKS
 
 **Current phase:** Phase 2 — Context engine
-**Current task:** TASK-036
+**Current task:** TASK-037
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -898,16 +898,23 @@ done:
 ```yaml
 id: TASK-036
 title: Implement the context budget and degradation
-status: TODO
+status: DONE
 priority: HIGH
 phase: 2
 depends_on: [TASK-035]
 spec: docs/CONTEXT_SPEC.md
-touches: ["crates/aicontext-context/**"]
+touches: ["crates/aicontext-context/**", "crates/aicontext-core/src/error.rs", "docs/CONTEXT_SPEC.md"]
 acceptance:
   - Per-tier token caps with a documented degradation order from the lowest tier upward
   - Tiers 1-2 are never dropped; a budget too small for them is an explicit error
   - The report states what was dropped and why
+done:
+  - 'crates/aicontext-context/src/budget.rs is new and is the single home for docs/CONTEXT_SPEC.md 7.5. ContextBudget (max_tokens, per_tier, reserved_policy_tokens) and DEFAULT_MAX_TOKENS moved out of retrieval.rs, and lib.rs re-exports them from budget, so the public path is unchanged; retrieval.rs keeps only the plan''s budget field and imports the type. The degradation floor is the whole protected half of the ladder, tiers 1-5: only tiers 6-9 are droppable, cut in the order 9 -> 8 -> 7 -> 6, and within a tier the lowest score first, with id then path as a total tie-break (ADR-004). This is deliberately stricter than the acceptance wording''s tiers 1-2, and satisfies it.'
+  - 'ContextBudget::apply prices each candidate from the index''s token_estimate by its portable path, so a budget charges the same heuristic doc §6 already publishes and invents no second number; apply_with is the identical rule with an explicit cost function, the seam ARCHITECTURE.md §12 reserves for a per-model tokenizer. A candidate retrieval already excluded is not budgeted, and its dropped_reason is left untouched. A budget that cannot hold tiers 1-5 is refused, not truncated: BudgetError::TooSmall, or TierTooSmall when a protected tier exceeds its per_tier cap, both reported as CTX-030 with an actionable remediation.'
+  - 'BudgetReport { requested, used, dropped: [DroppedDocument { id, tier, reason }] } is the doc §7.6 budget block. apply writes each cut candidate''s trace with included = false and dropped_reason = "budget", so the packet''s per-item trace and the budget report agree. reserved_policy_tokens is documented as satisfied by construction (tiers 1-2 are kept unconditionally) and reserved for the per-model cost policy of a later phase (§12), rather than given invented semantics.'
+  - 'CTX-030 is added to aicontext-core''s ErrorCode catalogue and to the docs/CONTEXT_SPEC.md §8 table with a note that it is raised by aicontext context and never by doctor, so doctor --explain does not describe it (the Explanation design keeps --explain to doctor checks). §7.5 was clarified for per-tier caps and reserved_policy_tokens. Tier gained a Display impl for the error message.'
+  - 'Tests: 7 unit tests in budget.rs drive the pure ordering and admission logic through apply_with (protected kept and history cut bottom-up, lowest score first within a tier, a budget below the floor is CTX-030, a protected tier over its cap is CTX-030, a droppable tier bounded by a cap, an already-excluded candidate ignored, the report JSON shape). 8 integration tests in the new crates/aicontext-context/tests/budget.rs exercise apply through a real ContextIndex and TempProject: protected tiers survive a budget that cannot hold history, a budget below the floor is CTX-030, cuts run 9 -> 7 before 6, a candidate is priced from the index, a per-tier cap bounds a droppable tier, a protected tier over its cap is CTX-030, determinism across two runs, and the packet JSON shape.'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked 596 passed, 0 failed (was 581). Scope widened from the declared crates/aicontext-context/** to add crates/aicontext-core/src/error.rs (the CTX-030 constant) and docs/CONTEXT_SPEC.md (the §7.5 and §8 text), a public-API change approved before starting. The CLI wiring (aicontext context, --budget, --explain) remains TASK-037 and health TASK-038.'
 ```
 
 ### TASK-037 — Implement aicontext context
