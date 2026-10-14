@@ -72,18 +72,20 @@ list for Phase 1–2:
 | `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2**. In `TASK-015` it is a **dev-dependency only**, with `default-features = false`, used by the CI meta-schema check; the runtime dependency decision is deferred to `TASK-014` |
 | `thiserror` | Error types | Removes boilerplate; errors must be typed (RULES §5) |
 | `anyhow` | CLI boundary only | Contextual error chaining at the top, nowhere else |
-| `tokio` | Async runtime | Provider HTTP and plugin process supervision are I/O-bound |
-| `reqwest` + `rustls` | HTTP | Provider calls and plugin transports. `rustls` avoids a system OpenSSL dependency |
+| `tokio` | Async runtime | Provider HTTP and plugin process supervision are I/O-bound. Added by `TASK-051`, the first crate to make a network call; features are per use (`rt`, `time`, `sync`, `macros`) |
+| `reqwest` + `rustls` | HTTP | Provider calls and plugin transports. `rustls` avoids a system OpenSSL dependency. Added by `TASK-051` with `default-features = false` so `native-tls` cannot arrive, and only the `rustls-tls` and `stream` features. The `rustls-tls` feature resolves to `rustls` with the `ring` provider, which compiles C through `cc` at **build time** — the one recorded deviation from `RULES.md` §6, scoped in `ADR-009`: `ring` needs a C toolchain to build but adds no system library and no runtime-or-network prerequisite |
 | `keyring` | OS keychain | Credential storage without writing secrets to disk in our own format |
 | `sha2` | Content hashing | Index invalidation, audit chain, argument digests. Widely audited |
 | `ignore` / `walkdir` | File discovery | Respects `.gitignore`; avoids walking `target/` and `node_modules/` |
 | `async-trait` | Async methods on a dyn-safe trait | The provider interface is `async` and the registry holds `Box<dyn AIProvider>`, which a native `async fn` in a trait cannot satisfy; this is the macro `docs/AI_PROVIDER_SPEC.md` §2 names. Added by `TASK-050` |
 | `futures-core` | `Stream` / `BoxStream` | The minimal, runtime-agnostic home of the stream trait `AIProvider::stream` returns — no executor, no reactor, so no network stack enters the workspace before an adapter needs one. Added by `TASK-050` |
-| `tracing`, `tracing-subscriber` | Diagnostics | Structured, level-controlled, stderr-only by default |
+| `tracing`, `tracing-subscriber` | Diagnostics | Structured, level-controlled, stderr-only by default. `TASK-051` adds `tracing` so a retry is logged rather than silent (`RULES.md` §6); `tracing-subscriber` is still unadded |
 
 Dev-only: `tempfile`, `assert_cmd`, `predicates`, `insta` (snapshot tests for CLI output),
 `proptest` (parsers and the permission resolver), `futures-executor` (`block_on` drives the async
-provider tests without pulling an async runtime into the workspace; added by `TASK-050`).
+provider tests without pulling an async runtime into the workspace; added by `TASK-050`). `TASK-051`
+adds no dev-dependency: its contract tests drive the adapter against a `std`-only fake HTTP server in
+`crates/aicontext-providers/tests/support`.
 
 Explicitly rejected for the MVP: a vector database, an ORM, a web framework, a state-machine or
 workflow-orchestration library, a CLI framework beyond `clap`, and any telemetry SDK.

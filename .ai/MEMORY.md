@@ -915,11 +915,84 @@ has no write capability whatsoever (ADR-006), and mapping a `ProviderError` onto
 to the command that runs a provider, not to this crate. The crate deliberately does not depend on
 `aicontext-core`: nothing in it uses a core type, and an unused dependency would be a false one.
 
+## MEM-030 - An adapter is honest only if its failures are typed and its retries are bounded and visible
+
+```yaml
+id: MEM-030
+category: constraint
+scope: provider-layer
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [providers, openai, reliability, retries, cancellation, secrets, TASK-051]
+```
+
+`TASK-051` adds the OpenAI-compatible adapter: one implementation over a configurable `base_url` that
+reaches the hosted endpoint and every local server speaking the same shape. `MEM-029` records the
+abstraction's honest signature; this entry records what the first implementation had to get right, and
+each is a choice the next adapter must repeat rather than rediscover.
+
+**Translation lives in one module and never leaks a wire type.** `openai/wire.rs` maps to and from
+`serde_json::Value` by hand instead of deriving types, so no provider-shaped struct reaches the
+neutral API, and `PolicyRegion` becomes `system` messages while every `DataBlock` becomes one
+enveloped `user` message. T9 ("never place external content in a policy region") is therefore a
+property of the mapping, and a test asserts it on the bytes the fake server received rather than on
+the types alone.
+
+**A failure is a typed value with a next step.** Every HTTP status and every transport fault maps onto
+a `ProviderError` variant carrying a stable `PROVIDER_*` code and a `remediation()` hint; a body that
+is not JSON is `MalformedResponse`, not a panic. The adapter never falls back to another provider or
+model: a failure is returned, not hidden.
+
+**Reliability is bounded, and a retry is visible.** Three timeouts (connect, request, total) are each
+configurable and each failure names its phase. A retry happens only for an idempotent request (one
+with an idempotency key), only for a retryable failure (transport, 429, 5xx), at most
+`RetryPolicy::max_retries` times, honours a provider `Retry-After`, and is logged through `tracing` so
+it is never silent (`RULES.md` §6). A `CancellationToken` races the whole call and the stream, so
+cancellation returns `Cancelled` promptly rather than waiting out a timeout.
+
+Two consequences carry forward. A stream carries no error variant, so the reader task ends the stream
+on a failure rather than emitting one, and hands events to the host through a bounded channel - which
+is also why `bytes` is not a dependency. And a credential in `Auth::Bearer` is a `Secret` that renders
+`[redacted]` in every `Debug` and `Display`, so a config three types up cannot print it (T10); the
+adapter never resolves a credential itself, which is `TASK-052`.
+
+The transport itself deviates once from `RULES.md` §6, recorded in `ADR-009`: `reqwest`'s `rustls-tls`
+feature resolves to `rustls` with the `ring` provider, which compiles C at build time. `ring` adds a
+build-time C toolchain, not a runtime system library, which is the intent that clause protects.
+
+## MEM-031 — A documented CI guard that is not run is not a guard, and the private-doc-link defect recurred
+
+```yaml
+id: MEM-031
+category: bug
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [context, rustdoc, ci, documentation, BUG-005]
+```
+
+`BUG-003` fixed one public doc comment that linked to a private item, and recorded the guard for the
+class: run the documentation gate with CI's flags. Two milestones later the same defect was found
+again, this time in `aicontext-context`'s `discovery` module, whose public documentation linked to the
+private constants `MAX_ENTRIES_SCANNED` and `MAX_MANIFEST_BYTES`. It is filed as
+`.ai/bugs/BUG-005-private-intra-doc-link-discovery.md`.
+
+The lesson is not the link, which is mechanical to fix, but that a guard written down is only a guard
+if it runs. The bare `cargo doc` prints `rustdoc::private-intra-doc-links` as a warning and exits 0,
+so the failure exists only under `RUSTDOCFLAGS=-D warnings`, and it surfaces in whichever crate the
+task at hand is not touching - here, a provider-layer task found a defect in the context engine.
+Run the documentation gate with the flags CI uses, over the whole workspace, as part of the routine
+rather than only when a documentation change is made.
+
 ---
 
 ## Bugs encountered
 
-None shipped. Six defects were found before a consumer saw them. Two were found by running the
+None shipped. Seven defects were found before a consumer saw them. Two were found by running the
 binary against a scratch project before TASK-012 was closed and are recorded under `MEM-013`:
 reported paths carried the Windows verbatim `\\?\` prefix, and the counts line said `directorys`.
 Both are fixed and covered by tests. The third was found by the integration suite on its first run,
@@ -937,7 +1010,12 @@ the same Windows job, was that templates embedded with `include_str!` carried th
 endings, so `init` wrote CRLF documents its own front-matter reader rejected and CTX-012 compared an LF
 copy against a CRLF source, filed under `.ai/bugs/BUG-004-crlf-embedded-templates.md`; it adds a second
 lesson - an embedded file's bytes are a property of the checkout, not the repository, so text that
-enters a comparison must be normalised at the boundary (see `MEM-018`).
+enters a comparison must be normalised at the boundary (see `MEM-018`). The seventh, found while
+closing `TASK-051`, was the same private-link defect as the fifth in a second crate:
+`aicontext-context`'s public `discovery` documents linked to two private constants, filed under
+`.ai/bugs/BUG-005-private-intra-doc-link-discovery.md`. Its lesson is that a guard written down is not
+yet a habit - the flag-carrying documentation command has to run over the whole workspace every time,
+because the defect surfaces in a crate the current task is not touching (`MEM-031`).
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.

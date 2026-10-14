@@ -6,6 +6,7 @@
 
 #![allow(dead_code)]
 
+use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -122,7 +123,9 @@ impl FakeServer {
     #[must_use]
     pub(crate) fn start(responses: Vec<Canned>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
-        let address = listener.local_addr().expect("a bound listener has an address");
+        let address = listener
+            .local_addr()
+            .expect("a bound listener has an address");
         listener.set_nonblocking(true).expect("set non-blocking");
         let requests = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -285,10 +288,14 @@ fn write_response(stream: &mut TcpStream, response: &Canned) {
     if let Some(delay) = response.delay {
         thread::sleep(delay);
     }
-    let mut head = format!("HTTP/1.1 {} {}\r\n", response.status, reason(response.status));
-    head.push_str(&format!("content-length: {}\r\n", response.body.len()));
+    let mut head = format!(
+        "HTTP/1.1 {} {}\r\n",
+        response.status,
+        reason(response.status)
+    );
+    let _ = write!(head, "content-length: {}\r\n", response.body.len());
     for (name, value) in &response.headers {
-        head.push_str(&format!("{name}: {value}\r\n"));
+        let _ = write!(head, "{name}: {value}\r\n");
     }
     head.push_str("\r\n");
     let _ = stream.write_all(head.as_bytes());

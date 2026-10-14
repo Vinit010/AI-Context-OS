@@ -11,7 +11,7 @@ updated: 2026-10-14
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-051
+**Current task:** TASK-052
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1056,7 +1056,7 @@ done:
 ```yaml
 id: TASK-051
 title: Implement the OpenAI-compatible adapter
-status: TODO
+status: DONE
 priority: HIGH
 phase: 3
 depends_on: [TASK-050]
@@ -1067,6 +1067,70 @@ acceptance:
   - Timeouts, retries with backoff, and cancellation are bounded and reported
   - A provider error becomes a typed error with a remediation hint, never a panic
   - Contract tests run against a local fake server
+scope_notes:
+  - 'Root Cargo.toml, Cargo.lock, and .ai/ARCHITECTURE.md 2.2 are touched beside the declared
+    crates/aicontext-providers/**. The two new production dependencies (tokio, reqwest) and the
+    already-listed tracing need a written justification in 2.2 per RULES 6, and their versions
+    resolve into Cargo.lock. .ai/TASKS.md, .ai/MEMORY.md, and a new decisions/ADR-009 are the task
+    bookkeeping. No crate outside aicontext-providers changed'
+  - 'RULES 6 forbids a dependency that requires a C compiler, a system library, or a network install
+    at runtime, and reqwest''s rustls-tls feature resolves to rustls with the ring provider, which
+    compiles C and assembly through the cc crate at build time. This is recorded as a deviation in
+    decisions/ADR-009: ring needs a C toolchain at build time but adds no system library and no
+    runtime or network prerequisite, which is the part of the rule that protects the static binary.
+    The alternative, rustls''s default aws-lc-rs, needs cmake as well and is worse'
+  - 'crates/aicontext-context/src/discovery.rs is touched for a docs-only fix. The documentation gate
+    CI runs (RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps --locked) failed at HEAD, in a
+    crate this task does not touch: the public discovery module document linked to the private
+    constants MAX_ENTRIES_SCANNED and MAX_MANIFEST_BYTES. The defect predates this task and is filed
+    as BUG-005; the two links became prose with the values spelled out. It is included here because a
+    red documentation gate is a red build, and it was found only by running that gate'
+done:
+  - 'crates/aicontext-providers/src/openai is new: the OpenAI-compatible adapter AI_PROVIDER_SPEC 3
+    names. One implementation over a configurable base_url reaches OpenAI and every server that
+    speaks the same /chat/completions shape (Ollama, llama.cpp, vLLM, LM Studio, OpenRouter, Azure),
+    which is acceptance 1. OpenAiCompatibleConfig carries the id, base_url, model, Auth, Timeouts,
+    RetryPolicy, and a shared CancellationToken; Auth::Bearer holds a Secret, which renders
+    [redacted] in every Debug and Display, so a credential cannot be printed by accident (T10)'
+  - 'wire.rs is the mapping, over serde_json::Value by hand rather than derived types so no
+    provider-shaped type enters the neutral API. PolicyRegion becomes system messages and DataBlocks
+    become one enveloped user message (<untrusted-data ...>), so T9 is true by construction and a
+    test asserts it on the bytes the server received. FinishReason maps stop/tool_calls/length/
+    content_filter/error and preserves anything else as Unknown (T12). ToolCall arguments are parsed
+    from the JSON-encoded arguments string, the provider payload is kept as raw for audit, usage maps
+    prompt/completion/cached tokens (T4), and max_tokens is always sent (T11)'
+  - 'Reliability is AI_PROVIDER_SPEC 6 and acceptance 2. Three timeouts - connect, request, total -
+    are each configurable and each surfaces as ProviderError::Timeout carrying its phase. Retries are
+    bounded by RetryPolicy.max_retries, apply only to an idempotent request (a non-empty
+    idempotency_key), wait out a provider Retry-After when it sends one, use exponential backoff with
+    deterministic jitter capped at max_delay, and log every attempt through tracing so a retry is
+    never silent (RULES 6). A CancellationToken races both complete and stream, so cancellation ends
+    the call or the stream promptly rather than waiting for a timeout'
+  - 'Failures are typed and actionable and never a panic, which is acceptance 3: 400/401/403/404/429/
+    5xx map onto the ProviderError variants TASK-050 defined, each with a PROVIDER_* code and a
+    remediation() hint, and a body that is not JSON is MalformedResponse. The adapter writes nothing
+    and never falls back to another provider or model on a failure (AI_PROVIDER_SPEC 6)'
+  - 'stream returns a BoxStream<StreamEvent> with no error variant (AI_PROVIDER_SPEC 2), so a spawned
+    reader task reads the response and translates it, ends the stream on a failure rather than
+    emitting one, and stops on the shared cancellation token. It hands events to the host through a
+    bounded tokio::sync::mpsc channel, which is why bytes is not a direct dependency'
+  - 'Tests: the crate now runs 40 unit tests (cancel.rs, secret.rs, openai/retry.rs, openai/sse.rs,
+    and openai/wire.rs - including the T9 body assertion and the T12 unknown reason - beside
+    TASK-050''s types, error, and registry tests), 21 contract tests in the new
+    crates/aicontext-providers/tests/openai_contract.rs covering T1-T12 plus streaming, 6 integration
+    tests from TASK-050, and 2 doctests'
+  - 'The contract tests run against crates/aicontext-providers/tests/support, a std-only fake HTTP
+    server that binds an ephemeral localhost port and serves canned responses in order over HTTP/1.1
+    keep-alive while recording every request, so no test touches the network and no dependency is
+    added for the server (acceptance 4). T6 uses the RFC 5737 documentation range for the connect
+    timeout, which is the only address a test needs that is not the fake server'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked --
+    -D warnings clean; cargo test --workspace --locked green (704 passed, 0 failed, was 659 - all 45
+    new tests are the crate''s own and the rest of the workspace is unchanged); RUSTDOCFLAGS=-D
+    warnings cargo doc --workspace --no-deps --locked clean (it was not at HEAD - see BUG-005 and the
+    scope note). Acceptance 3 of TASK-050, "adding an adapter touches no other crate", is proven by
+    this task: the adapter is written entirely inside crates/aicontext-providers and neither the
+    boundary matrix nor the crate-boundary test changed'
 ```
 
 ### TASK-052 — Implement the credential resolver

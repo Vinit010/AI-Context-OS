@@ -1,14 +1,14 @@
-//! The OpenAI-compatible adapter: one implementation that reaches OpenAI and any server that
+//! The OpenAI-compatible adapter: one implementation that reaches `OpenAI` and any server that
 //! speaks the same `/chat/completions` shape.
 //!
 //! `docs/AI_PROVIDER_SPEC.md` §3 names this adapter and explains why it is first: the hosted model
-//! and the local model (Ollama, llama.cpp, vLLM, LM Studio, OpenRouter, Azure) are one
+//! and the local model (Ollama, llama.cpp, vLLM, LM Studio, `OpenRouter`, Azure) are one
 //! implementation over a configurable `base_url`, which is the cheapest possible proof that the
 //! abstraction is real.
 //!
 //! ```no_run
 //! use aicontext_providers::openai::{OpenAiCompatible, OpenAiCompatibleConfig};
-//! use aicontext_providers::ProviderId;
+//! use aicontext_providers::{AIProvider, ProviderId};
 //!
 //! # async fn run() -> Result<(), aicontext_providers::ProviderError> {
 //! let config = OpenAiCompatibleConfig::new(
@@ -51,32 +51,25 @@ pub use retry::RetryPolicy;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, RETRY_AFTER};
 use serde_json::Value;
 
 use crate::cancel::CancellationToken;
 use crate::error::{ProviderError, TimeoutPhase};
 use crate::provider::{AIProvider, BoxStream};
 use crate::secret::Secret;
-use crate::types::{
-    Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent,
-};
+use crate::types::{Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent};
 
 /// How the adapter proves who it is.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub enum Auth {
     /// No credential. A typical local server does not want one.
+    #[default]
     None,
     /// A bearer token, sent as `Authorization: Bearer …`. The value is a [`Secret`], so it cannot be
     /// printed by accident (`docs/AI_PROVIDER_SPEC.md` §11 T10).
     Bearer(Secret),
-}
-
-impl Default for Auth {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// The three timeouts the spec requires, each configurable (`docs/AI_PROVIDER_SPEC.md` §6).
@@ -164,7 +157,7 @@ impl OpenAiCompatibleConfig {
     }
 }
 
-/// A provider that speaks the OpenAI chat-completions shape.
+/// A provider that speaks the `OpenAI` chat-completions shape.
 #[derive(Debug)]
 pub struct OpenAiCompatible {
     config: OpenAiCompatibleConfig,
@@ -196,7 +189,11 @@ impl OpenAiCompatible {
 
     /// The absolute URL of the chat-completions endpoint.
     fn endpoint(&self) -> String {
-        format!("{}{}", self.config.base_url.trim_end_matches('/'), wire::PATH)
+        format!(
+            "{}{}",
+            self.config.base_url.trim_end_matches('/'),
+            wire::PATH
+        )
     }
 
     /// Answers in one shot; the total-timeout wrapper is in `AIProvider::complete`.
@@ -226,12 +223,14 @@ impl OpenAiCompatible {
         if let Auth::Bearer(secret) = &self.config.auth {
             // Constructing the header by hand keeps an invalid credential a typed error rather than
             // a panic inside reqwest, and none of this prints the value.
-            let header = HeaderValue::from_str(&format!("Bearer {}", secret.expose())).map_err(|_| {
-                ProviderError::InvalidRequest {
-                    provider: provider.clone(),
-                    detail: "the configured credential is not a valid HTTP header value".to_owned(),
-                }
-            })?;
+            let header =
+                HeaderValue::from_str(&format!("Bearer {}", secret.expose())).map_err(|_| {
+                    ProviderError::InvalidRequest {
+                        provider: provider.clone(),
+                        detail: "the configured credential is not a valid HTTP header value"
+                            .to_owned(),
+                    }
+                })?;
             request = request.header(AUTHORIZATION, header);
         }
         let encoded = serde_json::to_vec(body).map_err(|error| ProviderError::InvalidRequest {

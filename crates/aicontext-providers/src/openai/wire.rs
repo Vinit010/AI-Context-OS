@@ -1,4 +1,4 @@
-//! Translation between the neutral types and the OpenAI chat-completions wire shape.
+//! Translation between the neutral types and the `OpenAI` chat-completions wire shape.
 //!
 //! Everything provider-shaped lives here, and one rule governs the whole file: the two regions are
 //! mapped to two roles. `PolicyRegion` becomes `system` messages; `DataBlock`s become a `user`
@@ -139,8 +139,8 @@ pub(super) fn parse_completion(
     provider: &ProviderId,
     bytes: &[u8],
 ) -> Result<CompletionResponse, ProviderError> {
-    let value: Value = serde_json::from_slice(bytes)
-        .map_err(|error| malformed(provider, &error.to_string()))?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| malformed(provider, &error.to_string()))?;
     let choice = value
         .get("choices")
         .and_then(Value::as_array)
@@ -336,7 +336,10 @@ mod tests {
         for message in messages {
             if message["role"] == "system" {
                 assert!(
-                    !message["content"].as_str().unwrap_or_default().contains("ATTACK"),
+                    !message["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains("ATTACK"),
                     "untrusted content reached the system role"
                 );
             }
@@ -347,7 +350,10 @@ mod tests {
             .filter_map(|message| message["content"].as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(rendered.contains("ATTACK"), "the content must still be sent");
+        assert!(
+            rendered.contains("ATTACK"),
+            "the content must still be sent"
+        );
         assert!(rendered.contains("<untrusted-data"), "it must be enveloped");
     }
 

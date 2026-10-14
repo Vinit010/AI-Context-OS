@@ -103,7 +103,10 @@ async fn t1_maps_a_text_response() {
     let server = FakeServer::start(vec![Canned::json(200, &body)]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(response.text, "hello");
     assert_eq!(response.finish_reason, FinishReason::Stop);
@@ -117,7 +120,10 @@ async fn t1_maps_an_empty_response() {
     let server = FakeServer::start(vec![Canned::json(200, &reply("", "stop"))]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(response.text, "");
 }
@@ -148,7 +154,10 @@ async fn t2_maps_a_tool_call_and_its_arguments() {
     let server = FakeServer::start(vec![Canned::json(200, &body)]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(response.finish_reason, FinishReason::ToolUse);
     assert_eq!(response.tool_calls.len(), 1);
@@ -156,7 +165,10 @@ async fn t2_maps_a_tool_call_and_its_arguments() {
     assert_eq!(call.id, "call_1");
     assert_eq!(call.tool, "aws.ec2.stop");
     assert_eq!(call.arguments, serde_json::json!({ "instance_id": "i-1" }));
-    assert_eq!(response.tool_calls[0].raw["function"]["name"], "aws.ec2.stop");
+    assert_eq!(
+        response.tool_calls[0].raw["function"]["name"],
+        "aws.ec2.stop"
+    );
 }
 
 #[tokio::test]
@@ -175,7 +187,10 @@ async fn t3_maps_every_finish_reason() {
         let server = FakeServer::start(vec![Canned::json(200, &reply("x", wire))]);
         let provider = provider(config(&server));
 
-        let response = provider.complete(request()).await.expect("a successful call");
+        let response = provider
+            .complete(request())
+            .await
+            .expect("a successful call");
 
         assert_eq!(response.finish_reason, expected, "for wire reason `{wire}`");
     }
@@ -194,7 +209,10 @@ async fn t4_reports_usage() {
     let server = FakeServer::start(vec![Canned::json(200, &body)]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(response.usage.input_tokens, Some(10));
     assert_eq!(response.usage.output_tokens, Some(4));
@@ -207,7 +225,10 @@ async fn t4_tolerates_absent_usage() {
     let server = FakeServer::start(vec![Canned::json(200, &reply("x", "stop"))]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(response.usage, Usage::default());
 }
@@ -339,7 +360,10 @@ async fn t7_retries_an_idempotent_request_with_backoff() {
     ]);
     let provider = provider(config(&server).with_retry(tiny_retry(2)));
 
-    let response = provider.complete(request()).await.expect("the third try works");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("the third try works");
 
     assert_eq!(response.text, "recovered");
     assert_eq!(server.request_count(), 3, "exactly two retries");
@@ -444,9 +468,8 @@ async fn t10_never_emits_a_credential() {
         401,
         &serde_json::json!({ "error": { "message": "bad key" } }),
     )]);
-    let provider = provider(
-        config(&server).with_auth(Auth::Bearer(Secret::new(secret.to_owned()))),
-    );
+    let provider =
+        provider(config(&server).with_auth(Auth::Bearer(Secret::new(secret.to_owned()))));
 
     let failure = provider
         .complete(request())
@@ -483,7 +506,10 @@ async fn t12_reports_an_unknown_finish_reason() {
     let server = FakeServer::start(vec![Canned::json(200, &reply("x", "solar_flare"))]);
     let provider = provider(config(&server));
 
-    let response = provider.complete(request()).await.expect("a successful call");
+    let response = provider
+        .complete(request())
+        .await
+        .expect("a successful call");
 
     assert_eq!(
         response.finish_reason,

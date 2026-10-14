@@ -22,8 +22,8 @@
 //!
 //! # Reading is bounded
 //!
-//! The scan is a fixed table of names plus at most [`MAX_ENTRIES_SCANNED`] top-level entries, and a
-//! manifest larger than [`MAX_MANIFEST_BYTES`] is not read at all (`RULES.md` §11). Discovery is
+//! The scan is a fixed table of names plus at most 512 top-level entries, and a manifest larger than
+//! 256 KiB is not read at all (`RULES.md` §11). Discovery is
 //! advisory and must never become the slow part of a command.
 //!
 //! # Infallible on purpose

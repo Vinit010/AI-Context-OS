@@ -36,7 +36,7 @@
 //! - It holds no credential. [`Secret`] redacts a value that was handed in; resolving one from the
 //!   environment or a keychain is a later task, per `decisions/ADR-005-credential-handling.md`.
 //! - It ships exactly one adapter, [`openai`]: one implementation over a configurable `base_url`
-//!   that reaches OpenAI and every server speaking the same shape, and adding it changed no other
+//!   that reaches `OpenAI` and every server speaking the same shape, and adding it changed no other
 //!   crate (`docs/AI_PROVIDER_SPEC.md` §12).
 //!
 //! # Example

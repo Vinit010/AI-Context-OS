@@ -24,7 +24,10 @@ use super::wire;
 const CAPACITY: usize = 32;
 
 /// A [`StreamEvent`] stream backed by the reader task; the task owns the HTTP response.
-pub(super) fn open(response: reqwest::Response, cancel: CancellationToken) -> BoxStream<StreamEvent> {
+pub(super) fn open(
+    response: reqwest::Response,
+    cancel: CancellationToken,
+) -> BoxStream<StreamEvent> {
     let (sender, receiver) = mpsc::channel::<StreamEvent>(CAPACITY);
     tokio::spawn(async move {
         let mut response = response;
@@ -100,7 +103,7 @@ fn collect_tool_calls(delta: &Value, tools: &mut ToolNames, events: &mut Vec<Str
         let named = tools.entry(index).or_default();
         if let Some(id) = call.get("id").and_then(Value::as_str) {
             if !id.is_empty() {
-                named.0 = id.to_owned();
+                id.clone_into(&mut named.0);
             }
         }
         let function = call.get("function");
@@ -109,7 +112,7 @@ fn collect_tool_calls(delta: &Value, tools: &mut ToolNames, events: &mut Vec<Str
             .and_then(Value::as_str)
         {
             if !name.is_empty() {
-                named.1 = name.to_owned();
+                name.clone_into(&mut named.1);
             }
         }
         let arguments = function
