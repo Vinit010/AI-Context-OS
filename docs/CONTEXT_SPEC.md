@@ -445,6 +445,12 @@ untrusted_content_ids: [SPEC-context, BUG-002]
 `untrusted_content_ids` lists everything the caller must place in a data role. A caller that
 ignores this field is violating the contract.
 
+`aicontext context` publishes this object. `--json` — and its alias `--format json` — puts it
+unchanged in the envelope's `data`, so the packet stays the one machine contract; `--format prompt`
+is the only view that reads document bodies, rendering `policy` as trusted and wrapping each
+`retrieved` document in a data envelope marked untrusted; `--explain` adds the resolved plan to the
+human and prompt views and leaves the packet itself unchanged.
+
 ---
 
 ## 8. `doctor` checks

@@ -44,8 +44,6 @@ aicontext
 ├── doctor                   Validate and diagnose context
 ├── health                   Transparent context metrics
 ├── context                  Assemble a context packet
-│   ├── show                 Render the packet
-│   └── explain              Show the plan, scores, and drops
 ├── plan                     Produce an implementation plan for a task
 ├── task                     Task management
 │   ├── list | show | create | set | link | done | next
@@ -146,6 +144,14 @@ score.
 | `--explain` | Show the plan, per-document scores and reasons, conflicts, and drops |
 | `--format <text\|json\|prompt>` | `prompt` renders the packet as provider input |
 
+The two views a plain tree would have split into `show` and `explain` are one command: the default
+writes the packet, and `--explain` adds the resolved plan, per-document scores and reasons, the
+conflicts, and every drop. `--format json` is an alias for the global `--json` and yields to it when
+both are given; under `--json` the envelope's `data` is the `ContextPacket` of `CONTEXT_SPEC.md`
+§7.6 — references and metadata only. `--format prompt` reads the bodies from the index at render time
+and is the only form that writes document content, wrapping every retrieved document in a data
+envelope marked untrusted. A budget that cannot hold tiers 1–5 exits 3 naming `CTX-030`.
+
 ### `aicontext plan --task <ID>`
 
 Produces a plan listing files to modify, create, and delete; dependencies affected; schema and data
@@ -216,7 +222,7 @@ run (§5).
 | 0 | `OK` | Success |
 | 1 | `GENERAL` | Unclassified failure |
 | 2 | `USAGE` | Bad arguments, unknown command, or not yet implemented |
-| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding |
+| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding, or a command's request cannot be satisfied (`context` names `CTX-030` when tiers 1–5 do not fit the budget) |
 | 4 | `PERMISSION_DENIED` | The permission resolver denied the action |
 | 5 | `APPROVAL_REQUIRED` | Approval was required and not granted (including every non-interactive case) |
 | 6 | `PROVIDER_ERROR` | The AI provider failed, timed out, or was unreachable |

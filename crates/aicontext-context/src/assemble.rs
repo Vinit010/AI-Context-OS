@@ -22,8 +22,8 @@ use crate::budget::{BudgetError, BudgetReport};
 use crate::index::ContextIndex;
 use crate::resolve::{Conflict, PriorityResolver};
 use crate::retrieval::{
-    FilterRetriever, GlobRetriever, LexicalRetriever, LinkedRetriever, RetrievalPlan,
-    RetrievalTrace, Retriever, ScoredDocument, Tier, MANDATORY_ENTRY_POINT, MANDATORY_RULES,
+    FilterRetriever, GlobRetriever, LexicalRetriever, LinkedRetriever, MANDATORY_ENTRY_POINT,
+    MANDATORY_RULES, RetrievalPlan, RetrievalTrace, Retriever, ScoredDocument, Tier,
     order_candidates,
 };
 
@@ -40,8 +40,8 @@ const DROP_REASON_MISSING: &str = "missing";
 /// The reason every mandatory document carries.
 const REASON_MANDATORY: &str = "always included";
 
-/// The highest tier the packet keeps in its trusted `policy` region: the caller's instruction (tier
-/// 1) and project policy (tier 2). Everything above it is untrusted `retrieved` data
+/// The highest tier the packet keeps in its trusted `policy` region: the instruction (tier one) and
+/// project policy (tier two). Everything above it is untrusted `retrieved` data
 /// (`docs/CONTEXT_SPEC.md` §7.4, §7.6).
 const POLICY_MAX_TIER: u8 = 2;
 
@@ -204,12 +204,10 @@ impl ContextPacket {
 
 /// The body of an indexed document, or a placeholder when the index does not hold it.
 fn content_of(index: &ContextIndex, reference: &Path) -> String {
-    index
-        .get(&reference.to_string_lossy())
-        .map_or_else(
-            || format!("[not indexed: {}]", reference.display()),
-            |entry| entry.body.trim_end().to_string(),
-        )
+    index.get(&reference.to_string_lossy()).map_or_else(
+        || format!("[not indexed: {}]", reference.display()),
+        |entry| entry.body.trim_end().to_string(),
+    )
 }
 
 /// Assembles a [`ContextPacket`] from a plan and an index (`ARCHITECTURE.md` §4.3).
@@ -462,6 +460,9 @@ fn build_packet(
         retrieved,
         conflicts: PriorityResolver::conflicts(index),
         budget,
-        provenance: candidates.iter().map(|candidate| candidate.trace.clone()).collect(),
+        provenance: candidates
+            .iter()
+            .map(|candidate| candidate.trace.clone())
+            .collect(),
     }
 }

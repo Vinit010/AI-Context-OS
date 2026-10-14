@@ -22,8 +22,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use aicontext_context::{
-    ContextAssembler, ContextBudget, ContextIndex, ContextPacket, PlanOptions, RetrievalPlan,
-    RetrievalTrace, INDEX_PATH,
+    ContextAssembler, ContextBudget, ContextIndex, ContextPacket, INDEX_PATH, PlanOptions,
+    RetrievalPlan, RetrievalTrace,
 };
 
 use crate::args::{ContextArgs, GlobalArgs, OutputFormat};
@@ -66,7 +66,13 @@ pub(crate) fn run(args: &ContextArgs, global: &GlobalArgs, terminal: &mut Termin
 
     // The global `--json` is the machine contract, so it wins over a contradictory `--format prompt`.
     if global.json || args.format == OutputFormat::Json {
-        let body = envelope("context", Exit::Ok.code(), &packet, findings, summary_line(&packet));
+        let body = envelope(
+            "context",
+            Exit::Ok.code(),
+            &packet,
+            findings,
+            summary_line(&packet),
+        );
         if let Err(error) = terminal.json(&body) {
             terminal.error_report(
                 "CONTEXT-001",
@@ -91,7 +97,7 @@ fn plan_options(args: &ContextArgs) -> PlanOptions {
         exclude: args.exclude.clone(),
         budget: args
             .budget
-            .map(ContextBudget::default().with_max_tokens),
+            .map(|tokens| ContextBudget::default().with_max_tokens(tokens)),
         ..PlanOptions::default()
     }
 }
@@ -200,7 +206,11 @@ fn manifest(packet: &ContextPacket, explain: bool) -> String {
         budget.dropped.len()
     );
     for dropped in &budget.dropped {
-        let _ = writeln!(out, "  {}  tier {}  {}", dropped.id, dropped.tier, dropped.reason);
+        let _ = writeln!(
+            out,
+            "  {}  tier {}  {}",
+            dropped.id, dropped.tier, dropped.reason
+        );
     }
 
     if explain {

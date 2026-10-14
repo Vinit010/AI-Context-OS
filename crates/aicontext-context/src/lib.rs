@@ -27,8 +27,8 @@
 
 #![forbid(unsafe_code)]
 
-mod body;
 pub mod assemble;
+mod body;
 pub mod budget;
 mod codec;
 pub mod discovery;
