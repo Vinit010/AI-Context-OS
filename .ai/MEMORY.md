@@ -990,6 +990,40 @@ rather than only when a documentation change is made.
 
 ---
 
+## MEM-032 — Credentials resolve behind ports, and redaction lives at the one boundary
+
+```yaml
+id: MEM-032
+category: constraint
+scope: providers
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [credentials, security, adr-005, keyring, redaction]
+```
+
+The credential path has two halves and one rule. `Secret` is the type-level half — a value that
+renders `[redacted]` and can only be read by asking — and `CredentialResolver` is the decision half.
+Its order is fixed by `SECURITY.md` §6 and `ADR-005`: an explicit flag, then an environment variable,
+then the OS keychain. `Environment` and `Keychain` are traits rather than calls, for two reasons that
+outlast this task: a test must not read the developer's real environment or keychain (`RULES.md` §8),
+and `std::env::set_var` is `unsafe` in edition 2024 (`RULES.md` §3), so the only hermetic way to test
+resolution is to inject the ports; and `connect` (`TASK-053`) writes through the same seam that
+resolution reads through.
+
+Redaction is one type, `Redactor`, applied at one place: the provider's error body, which is the one
+string in a call that the provider, not we, built. That placement is what "at the logging boundary,
+not ad hoc" (`SECURITY.md` §6) means in practice — the adapter redacts there so no other call site has
+to remember to. It masks a known value exactly, a value it was never told about by shape (`sk-`,
+`ghp_`, `Bearer`, …), and a value by key name where the key is credential-shaped.
+
+`keyring` supplies the OS keychain. Each backend is the OS credential store and nothing else — the
+Windows Credential Manager, the macOS Keychain, the Linux kernel keyring — so `RULES.md` §6 holds with
+no C compiler and no third-party system library, and, unlike TASK-051's `rustls`/`ring`, no `ADR`
+deviation is needed. `3.6.3` was chosen over `4.2.0` by MSRV-aware resolution: `4.2.0` requires Rust
+1.88, above the workspace floor of 1.85.
+
 ## Bugs encountered
 
 None shipped. Seven defects were found before a consumer saw them. Two were found by running the

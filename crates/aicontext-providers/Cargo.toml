@@ -36,6 +36,10 @@ reqwest = { workspace = true }
 # ARCHITECTURE.md 2.2 already names. TASK-051.
 tracing = { workspace = true }
 
+# The OS keychain backend for the credential resolver. Pre-justified in ARCHITECTURE.md 2.2; the
+# dependency reasoning and the RULES.md 6 analysis are on the workspace entry. TASK-052.
+keyring = { workspace = true }
+
 [dev-dependencies]
 # `rt-multi-thread` is the multi-threaded flavour for `#[tokio::test]`; `macros` and `rt` already
 # arrive through the library's own tokio. TASK-051.

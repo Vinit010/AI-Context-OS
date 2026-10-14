@@ -489,6 +489,36 @@ async fn t10_never_emits_a_credential() {
 }
 
 #[tokio::test]
+async fn t10_redacts_a_credential_the_provider_echoes() {
+    let secret = "sk-do-not-print-me";
+    // A provider that reflects the key it was sent back in its error message: the one string in a
+    // call that the provider, not we, built.
+    let echoed = format!("bad key: {secret}");
+    let server = FakeServer::start(vec![Canned::json(
+        400,
+        &serde_json::json!({ "error": { "message": echoed } }),
+    )]);
+    let provider =
+        provider(config(&server).with_auth(Auth::Bearer(Secret::new(secret.to_owned()))));
+
+    let failure = provider
+        .complete(request())
+        .await
+        .expect_err("a 400 must fail");
+
+    for rendered in [format!("{failure}"), format!("{failure:?}")] {
+        assert!(
+            !rendered.contains(secret),
+            "the provider's echo leaked: {rendered}"
+        );
+        assert!(
+            rendered.contains("[redacted]"),
+            "the reader must be told what was removed: {rendered}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn t11_respects_the_output_ceiling() {
     let server = FakeServer::start(vec![Canned::json(200, &reply("x", "stop"))]);
     let provider = provider(config(&server));

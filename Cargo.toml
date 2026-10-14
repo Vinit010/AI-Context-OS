@@ -105,6 +105,16 @@ module_name_repetitions = "allow"
 #   tracing    - structured diagnostics, pre-justified in ARCHITECTURE.md 2.2. RULES.md 6 forbids a
 #                silent retry, and tracing is how the adapter logs each attempt without printing to
 #                stdout from a library. TASK-051.
+#   keyring    - the OS keychain, pre-justified in ARCHITECTURE.md 2.2 ("Credential storage without
+#                writing secrets to disk in our own format"). FR-16 and ADR-005 allow exactly two
+#                homes for a credential, and this is the persistent one. Each backend is the OS
+#                credential store and nothing else - the Windows Credential Manager (windows-sys),
+#                the macOS Keychain (security-framework), or the Linux kernel keyring
+#                (linux-keyutils) - so no C compiler and no third-party system library is required,
+#                which is the RULES.md 6 test rustls already passes. default-features is false so the
+#                D-Bus Secret Service backend cannot arrive; the three native features are chosen per
+#                target. 3.6.3 declares rust-version 1.75, below our 1.85 floor, and the lockfile is
+#                resolved MSRV-aware (resolver 3). TASK-052.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
@@ -119,6 +129,7 @@ ignore = "0.4"
 async-trait = "0.1"
 futures-core = "0.3"
 futures-executor = "0.3"
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
 # TASK-051. Both are pre-justified in ARCHITECTURE.md 2.2 ("Provider HTTP ..."). `tokio` is reached
 # for `time` (the three timeouts) and `sync` (the cancellation token); `macros`/`rt` are enabled only
 # by the dev-dependency, for `#[tokio::test]`. `reqwest` turns off its default features so

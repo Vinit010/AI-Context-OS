@@ -37,9 +37,10 @@
 //!
 //! # What this adapter does not do
 //!
-//! It never resolves a credential (that is a later task): [`Auth::Bearer`] carries a value that was
-//! handed in, and the value is redacted everywhere it could be printed. It never switches provider
-//! or model on a failure (`docs/AI_PROVIDER_SPEC.md` §6): a failure is a failure.
+//! It never resolves a credential — [`crate::CredentialResolver`] does, and hands [`Auth::Bearer`] a
+//! value. The value is redacted everywhere it could be printed, including the provider's own error
+//! body. It never switches provider or model on a failure (`docs/AI_PROVIDER_SPEC.md` §6): a failure
+//! is a failure.
 
 mod retry;
 mod sse;
@@ -55,6 +56,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, RETRY
 use serde_json::Value;
 
 use crate::cancel::CancellationToken;
+use crate::credential::Redactor;
 use crate::error::{ProviderError, TimeoutPhase};
 use crate::provider::{AIProvider, BoxStream};
 use crate::secret::Secret;
@@ -302,13 +304,28 @@ impl OpenAiCompatible {
         self.config.retry.delay(attempt, seed)
     }
 
+    /// The redactor for this provider's own credential.
+    ///
+    /// A provider's error body is the one string in a call that the provider, not we, built, so it is
+    /// the one place a credential we sent could be echoed back. Redacting it here keeps the rule at a
+    /// single boundary (`docs/SECURITY.md` §6) instead of remembering it at each call site.
+    fn redactor(&self) -> Redactor {
+        match &self.config.auth {
+            Auth::Bearer(secret) => Redactor::new().with_secret(secret.clone()),
+            Auth::None => Redactor::new(),
+        }
+    }
+
     /// The typed error for an HTTP failure, read from the provider's own body.
     async fn failure(&self, response: reqwest::Response) -> ProviderError {
         let provider = self.config.id.clone();
         let status = response.status();
         let retry_after = retry_after(response.headers());
         let detail = match response.bytes().await {
-            Ok(bytes) => wire::error_detail(&bytes),
+            Ok(bytes) => self
+                .redactor()
+                .redact(&wire::error_detail(&bytes))
+                .into_owned(),
             Err(error) => return self.classify(error),
         };
         match status.as_u16() {

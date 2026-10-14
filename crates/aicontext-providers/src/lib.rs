@@ -65,6 +65,7 @@
 #![forbid(unsafe_code)]
 
 mod cancel;
+mod credential;
 mod error;
 pub mod openai;
 mod provider;
@@ -78,6 +79,10 @@ pub use async_trait::async_trait;
 pub use futures_core::Stream;
 
 pub use cancel::CancellationToken;
+pub use credential::{
+    CredentialError, CredentialResolver, CredentialSource, Environment, Keychain, KeychainError,
+    KeychainReference, KeyringKeychain, ProcessEnvironment, Redactor,
+};
 pub use error::{ProviderError, TimeoutPhase};
 pub use openai::{Auth, OpenAiCompatible, OpenAiCompatibleConfig, RetryPolicy, Timeouts};
 pub use provider::{AIProvider, BoxStream};

@@ -11,7 +11,7 @@ updated: 2026-10-14
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-052
+**Current task:** TASK-053
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1138,7 +1138,7 @@ done:
 ```yaml
 id: TASK-052
 title: Implement the credential resolver
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 3
 depends_on: [TASK-050]
@@ -1149,6 +1149,55 @@ acceptance:
   - Values are never written to .ai, stdout, logs, or the audit log
   - Redaction is applied at the logging boundary, not ad hoc
   - Unit tests assert no credential appears in any error or debug output
+scope_notes:
+  - 'Root Cargo.toml, Cargo.lock, and .ai/ARCHITECTURE.md 2.2 are touched beside the declared
+    crates/aicontext-providers/**. The one new dependency, keyring, needs a written justification in
+    2.2 per RULES 6, and its version resolves into Cargo.lock. .ai/TASKS.md and .ai/MEMORY.md are the
+    task bookkeeping. No crate outside aicontext-providers changed'
+  - 'RULES 6 forbids a dependency that requires a C compiler, a system library, or a network install
+    at runtime. keyring''s backends are the OS credential store and nothing else - the Windows
+    Credential Manager (windows-sys), the macOS Keychain (security-framework), the Linux kernel
+    keyring (linux-keyutils) - so no C compiler and no third-party system library is required. The OS
+    store is the dependency ADR-005 chose, and FR-16 allows exactly two homes for a credential; this
+    differs from TASK-051''s rustls-and-ring, which needed ADR-009 for a build-time C toolchain, and
+    needs no deviation'
+done:
+  - 'crates/aicontext-providers/src/credential.rs is new: CredentialSource (none, environment,
+    keychain, or environment-or-keychain - the shapes AI_PROVIDER_SPEC 4 names), KeychainReference (a
+    service-and-account key), the Keychain and Environment ports, CredentialResolver, CredentialError,
+    Redactor, and KeyringKeychain. Resolution is explicit flag, then environment, then the OS keychain
+    (acceptance 1); an empty explicit flag or an empty variable is treated as absent, and a named but
+    unresolvable source is an error rather than a silent fallback (RULES 4.10) carrying a CREDENTIAL_*
+    code and a remediation hint'
+  - 'Environment and Keychain are traits, not direct calls, so no test reads the developer''s real
+    environment or keychain (RULES 8) and no test calls std::env::set_var, which is unsafe in edition
+    2024 and forbidden by RULES 3 - the fakes are injected instead'
+  - 'Redaction (acceptance 3) has one type, Redactor, applied at one place: the adapter redacts a
+    provider''s own error body before it becomes a ProviderError detail, because that is the one
+    string in a call the provider, not we, built (wire::error_detail was the only such path).
+    Redactor::redact masks a known value exactly and also masks values it was not told about by their
+    well-known shape (sk-, ghp_, Bearer, ...); Redactor::redact_field drops a value whose field name is
+    credential-shaped. It returns a borrow when nothing matched, so the common path allocates nothing'
+  - 'Values reach no output (acceptance 2): the type-level half is Secret, which renders [redacted];
+    CredentialError and KeychainError name only the source - a variable or a service and account -
+    never a value. KeychainError carries no #[source] and KeyringKeychain maps keyring::Error onto
+    those coarse variants, deliberately dropping the platform text, because a platform message can
+    echo the entry it was reading and I5 makes "no secret in any output" absolute'
+  - 'Tests (acceptance 4): 18 new unit tests in credential.rs. The resolution-order suite runs
+    against fake ports for every path (explicit wins, empty explicit falls through, environment
+    precedes keychain, keychain last, empty variable is absent, none needs no credential, and each
+    failure code). no_credential_in_any_output asserts that no CredentialError, KeychainError, or
+    Redactor Debug or Display carries a known credential, naming the SECURITY 3 I5 invariant'
+  - 'One contract test is added: t10_redacts_a_credential_the_provider_echoes. The fake server answers
+    400 with a body containing the exact credential that was sent, and both the Display and the Debug
+    of the resulting ProviderError must show [redacted] and not the value. This is the adapter half of
+    acceptance 2 and 4'
+  - 'Gates: cargo fmt --all -- --check clean; cargo clippy --workspace --all-targets --locked -- -D
+    warnings clean; cargo test --workspace --locked 723 passed, 0 failed (was 704; +18 unit and +1
+    contract); RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps --locked clean; aicontext
+    doctor exit 0, the one CTX-012 warning about .ai/schemas being pre-existing and unrelated.
+    keyring 3.6.3 was selected over 4.2.0 by MSRV-aware resolution: 4.2.0 requires Rust 1.88, above
+    our 1.85 floor'
 ```
 
 ### TASK-053 — Implement aicontext connect
