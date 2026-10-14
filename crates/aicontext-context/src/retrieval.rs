@@ -9,8 +9,8 @@
 //! what makes `--explain` trustworthy: it prints what the plan *is*, not what a scan happened to
 //! find.
 //!
-//! The plan is fully serialisable, so `aicontext context --explain --format json` can print it and a
-//! test can assert on the exact bytes (`docs/CONTEXT_SPEC.md` §7.1).
+//! The plan is fully serialisable, so a test can assert on the exact bytes and `context --explain`
+//! can print it (`docs/CONTEXT_SPEC.md` §7.1).
 //!
 //! A [`Retriever`] turns a plan and an index into scored candidates. Retrieval is pure and
 //! deterministic — no network, no embeddings, no model — so the same plan and index always produce
@@ -668,7 +668,10 @@ fn candidate_for(entry: &crate::index::IndexEntry, score: f64, reason: String) -
 
 /// Orders candidates by score descending, then by identifier ascending, then by path — the total
 /// order every retriever returns, so merged results stay reproducible (`ADR-004`).
-fn order_candidates(candidates: &mut [ScoredDocument]) {
+///
+/// Shared with [`crate::assemble`], which merges what the retrievers returned and must preserve the
+/// same order across the merged set.
+pub(crate) fn order_candidates(candidates: &mut [ScoredDocument]) {
     candidates.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)

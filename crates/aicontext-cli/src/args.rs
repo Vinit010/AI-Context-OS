@@ -1,10 +1,10 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
-//! Only the commands that exist — `init`, `status`, `doctor`, `export`, and `import` — are declared
-//! to `clap`. The rest of the tree is listed in [`PENDING`] with the task that will provide it, so
-//! `--help` shows what exists and what does not, and an unimplemented command exits 2 naming its task
-//! instead of a usage error about an unknown word. Declaring the tree as stub subcommands would put
-//! a second copy of every command name in this file, and the two copies would drift.
+//! Only the commands that exist — `init`, `status`, `doctor`, `context`, `export`, and `import` — are
+//! declared to `clap`. The rest of the tree is listed in [`PENDING`] with the task that will provide
+//! it, so `--help` shows what exists and what does not, and an unimplemented command exits 2 naming its
+//! task instead of a usage error about an unknown word. Declaring the tree as stub subcommands would
+//! put a second copy of every command name in this file, and the two copies would drift.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -117,6 +117,8 @@ pub(crate) enum Command {
     Status(StatusArgs),
     /// Report what is wrong with this `.ai/` tree and what to do about it. Writes nothing.
     Doctor(DoctorArgs),
+    /// Assemble a context packet for a task or a query.
+    Context(ContextArgs),
     /// Write a deterministic, verifiable archive of `.ai/`.
     Export(ExportArgs),
     /// Read an archive, verify it, and write it into `.ai/`.
@@ -222,6 +224,53 @@ impl DoctorArgs {
     }
 }
 
+/// How `aicontext context` renders the packet (`docs/CLI_SPEC.md` §4).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub(crate) enum OutputFormat {
+    /// A human manifest of the packet: policy, retrieved items, conflicts, and the budget.
+    #[default]
+    Text,
+    /// The JSON envelope, the same object the global `--json` prints.
+    Json,
+    /// The packet as provider input, with every retrieved document in an untrusted-data envelope.
+    Prompt,
+}
+
+/// `aicontext context`.
+///
+/// Assembles one `ContextPacket` for a task or a free-text query and prints it. It writes no
+/// document; the only file it may touch is the rebuildable index cache under `.aicontext/`.
+#[derive(Debug, Args)]
+pub(crate) struct ContextArgs {
+    /// Seed the plan from a task in `.ai/TASKS.md`.
+    #[arg(long, value_name = "ID")]
+    pub(crate) task: Option<String>,
+
+    /// Seed the plan from free text.
+    #[arg(long, value_name = "text")]
+    pub(crate) query: Option<String>,
+
+    /// Force-include a document, in addition to `AI.md` and `RULES.md`. Repeatable.
+    #[arg(long = "include", value_name = "path")]
+    pub(crate) include: Vec<PathBuf>,
+
+    /// Force-exclude a document by id or path. Repeatable; the always-on pair is never removed.
+    #[arg(long = "exclude", value_name = "ID|path")]
+    pub(crate) exclude: Vec<String>,
+
+    /// Override the token budget.
+    #[arg(long, value_name = "tokens")]
+    pub(crate) budget: Option<u32>,
+
+    /// Show the resolved plan, per-document scores and reasons, conflicts, and drops.
+    #[arg(long)]
+    pub(crate) explain: bool,
+
+    /// How to render the packet.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 /// `aicontext export`.
 ///
 /// Writes one deterministic archive of `.ai/`. A relative `<archive>` is resolved against the project
@@ -273,19 +322,14 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init`, `status`, `doctor`, `export`, and `import` are deliberately absent: they are implemented. A
-/// command here exits 2 with the code below and names its task, which §3 requires — it is never a
-/// silent no-op.
+/// `init`, `status`, `doctor`, `context`, `export`, and `import` are implemented and must not appear
+/// here, or a working command would be refused by the pending check. A command here exits 2 with the
+/// code below and names its task, which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
     PendingCommand {
         name: "health",
         task: Some("TASK-038"),
         summary: "Transparent context metrics",
-    },
-    PendingCommand {
-        name: "context",
-        task: Some("TASK-037"),
-        summary: "Assemble a context packet (show, explain)",
     },
     PendingCommand {
         name: "plan",
@@ -394,12 +438,13 @@ Commands:
                                                              available
   doctor                   Report what is wrong with .ai/ and how to fix it
                                                              available
+  context                  Assemble a context packet for a task or query
+                                                             available
   export <archive>         Write a deterministic archive of .ai/        available
   import <archive>         Verify an archive and write it into .ai/     available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   health                   Transparent context metrics                            TASK-038
-  context                  Assemble a context packet (show, explain)             TASK-037
   plan                     Produce an implementation plan for a task
   task | memory | decision | bug | change | workflow
                            Project registers
@@ -434,6 +479,15 @@ doctor flags:
       --only <prefix>      Run only checks whose code starts with <prefix>
       --rebuild-index      Accepted in v1; reports that the cache does not exist yet
 
+context flags:
+      --task <ID>          Seed the plan from a task in .ai/TASKS.md
+      --query <text>       Seed the plan from free text
+      --include <path>     Force-include a document; repeatable
+      --exclude <ID|path>  Force-exclude a document; repeatable
+      --budget <tokens>    Override the token budget
+      --explain            Show the plan, scores, reasons, conflicts, and drops
+      --format <how>       text | json | prompt (prompt is provider input)
+
 export / import flags:
       --dry-run            Print the plan; write nothing
       --force              Replace existing files. Needs an interactive terminal
@@ -443,8 +497,8 @@ Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, ColorChoice, Command, DoctorArgs, GlobalArgs, code_or_prefix, first_command_word,
-        pending,
+        Cli, ColorChoice, Command, ContextArgs, DoctorArgs, GlobalArgs, OutputFormat,
+        code_or_prefix, first_command_word, pending,
     };
     use clap::Parser;
 
@@ -539,6 +593,10 @@ mod tests {
             "doctor is implemented, so it must not also be pending"
         );
         assert!(
+            pending("context").is_none(),
+            "context is implemented, so it must not also be pending"
+        );
+        assert!(
             pending("export").is_none(),
             "export is implemented, so it must not also be pending"
         );
@@ -618,6 +676,69 @@ mod tests {
         assert!(strict && rebuild_index);
         assert_eq!(explain.as_deref(), Some("CTX-007"));
         assert_eq!(only.as_deref(), Some("CTX-01"));
+    }
+
+    #[test]
+    fn context_flags_parse_and_their_defaults_are_off() {
+        let Cli {
+            command: Command::Context(context),
+            ..
+        } = Cli::try_parse_from(["aicontext", "context"]).expect("context parses")
+        else {
+            panic!("expected the context command");
+        };
+        assert_eq!(context.task, None);
+        assert_eq!(context.query, None);
+        assert!(context.include.is_empty() && context.exclude.is_empty());
+        assert_eq!(context.budget, None);
+        assert!(!context.explain);
+        assert_eq!(context.format, OutputFormat::Text);
+
+        let Cli {
+            command:
+                Command::Context(ContextArgs {
+                    task,
+                    query,
+                    include,
+                    exclude,
+                    budget,
+                    explain,
+                    format,
+                }),
+            ..
+        } = Cli::try_parse_from([
+            "aicontext",
+            "context",
+            "--task",
+            "TASK-037",
+            "--query",
+            "budget",
+            "--include",
+            ".ai/PRD.md",
+            "--exclude",
+            "CHG-004",
+            "--budget",
+            "8000",
+            "--explain",
+            "--format",
+            "prompt",
+        ])
+        .expect("every context flag parses")
+        else {
+            panic!("expected the context command");
+        };
+        assert_eq!(task.as_deref(), Some("TASK-037"));
+        assert_eq!(query.as_deref(), Some("budget"));
+        assert_eq!(include, vec![std::path::PathBuf::from(".ai/PRD.md")]);
+        assert_eq!(exclude, vec!["CHG-004".to_string()]);
+        assert_eq!(budget, Some(8000));
+        assert!(explain);
+        assert_eq!(format, OutputFormat::Prompt);
+    }
+
+    #[test]
+    fn an_unknown_output_format_is_refused() {
+        assert!(Cli::try_parse_from(["aicontext", "context", "--format", "xml"]).is_err());
     }
 
     #[test]

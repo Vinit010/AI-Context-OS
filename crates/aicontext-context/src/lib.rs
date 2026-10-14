@@ -22,11 +22,13 @@
 //!
 //! The parser (`TASK-016`), discovery (`TASK-030`), the content index (`TASK-031`), the retrieval
 //! plan (`TASK-032`), the lexical, linked, filter, and glob retrievers (`TASK-033`–`TASK-034`), and
-//! the priority ladder with its conflict rule (`TASK-035`) have arrived; the budget is `TASK-036`.
+//! the priority ladder with its conflict rule (`TASK-035`) have arrived; the budget is `TASK-036`
+//! and assembly into the packet `TASK-037`.
 
 #![forbid(unsafe_code)]
 
 mod body;
+pub mod assemble;
 pub mod budget;
 mod codec;
 pub mod discovery;
@@ -39,6 +41,9 @@ pub mod resolve;
 pub mod retrieval;
 mod value;
 
+pub use assemble::{
+    ContextAssembler, ContextPacket, PACKET_VERSION, PolicyItem, Request, RetrievedItem, Trust,
+};
 pub use budget::{BudgetError, BudgetReport, ContextBudget, DEFAULT_MAX_TOKENS, DroppedDocument};
 pub use discovery::{Confidence, ProjectProfile, Signal, discover};
 pub use doctor::{Checked, Explanation, Finding, Inputs, Report};
