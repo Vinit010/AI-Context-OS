@@ -51,7 +51,10 @@ fn is_provider_id(raw: &str) -> bool {
         _ => return false,
     }
     characters.all(|character| {
-        character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-' || character == '_'
+        character.is_ascii_lowercase()
+            || character.is_ascii_digit()
+            || character == '-'
+            || character == '_'
     })
 }
 
@@ -412,7 +415,15 @@ mod tests {
 
     #[test]
     fn a_provider_id_rejects_anything_that_is_not_a_slug() {
-        for raw in ["", " Local", "Local", "1local", "local id", "local/other", "local."] {
+        for raw in [
+            "",
+            " Local",
+            "Local",
+            "1local",
+            "local id",
+            "local/other",
+            "local.",
+        ] {
             assert!(
                 ProviderId::new(raw).is_err(),
                 "`{raw}` must be rejected as a provider id"
@@ -433,12 +444,15 @@ mod tests {
     fn usage_absent_and_estimated_are_distinct() {
         // A provider that reports nothing and a host estimate are different facts, and the flag is
         // what keeps them apart (`docs/AI_PROVIDER_SPEC.md` 7).
-        assert_eq!(Usage::default(), Usage {
-            input_tokens: None,
-            output_tokens: None,
-            cached_input_tokens: None,
-            estimated: false,
-        });
+        assert_eq!(
+            Usage::default(),
+            Usage {
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
+                estimated: false,
+            }
+        );
         assert!(!Usage::reported(1, 2).estimated);
         assert!(Usage::estimated(1, 2).estimated);
     }

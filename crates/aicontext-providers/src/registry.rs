@@ -199,7 +199,10 @@ mod tests {
         let mut registry = ProviderRegistry::new(ProviderId::new("local").expect("valid"));
         registry.register(Box::new(FakeProvider::new("local")));
         let replaced = registry.register(Box::new(FakeProvider::new("local")));
-        assert!(replaced.is_some(), "the second registration displaces the first");
+        assert!(
+            replaced.is_some(),
+            "the second registration displaces the first"
+        );
         assert_eq!(registry.len(), 1);
     }
 
@@ -208,10 +211,7 @@ mod tests {
         // Even a request carrying another provider's name is not consulted in the MVP
         // (`docs/AI_PROVIDER_SPEC.md` 8).
         let registry = ProviderRegistry::new(ProviderId::new("local").expect("valid"));
-        assert_eq!(
-            registry.route(&RoutingRequest::default()).as_str(),
-            "local"
-        );
+        assert_eq!(registry.route(&RoutingRequest::default()).as_str(), "local");
     }
 
     #[test]

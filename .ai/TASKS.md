@@ -11,7 +11,7 @@ updated: 2026-10-14
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-050
+**Current task:** TASK-051
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -979,7 +979,7 @@ from assembled context. Plan mode only — no writes.
 ```yaml
 id: TASK-050
 title: Define the AIProvider trait and registry
-status: TODO
+status: DONE
 priority: HIGH
 phase: 3
 depends_on: [TASK-037]
@@ -989,6 +989,66 @@ acceptance:
   - CompletionRequest, CompletionResponse, ToolCall, and Usage are provider-neutral types
   - The trait has no provider-specific types in its signature
   - Adding an adapter touches no other crate
+scope_notes:
+  - 'Root Cargo.toml and .ai/ARCHITECTURE.md 2.2 are touched beside the declared
+    crates/aicontext-providers/**. A new crate cannot be built otherwise: the workspace members
+    list must name it, or cargo cannot see the directory and the boundary test fails, and the three
+    direct dependencies need a written justification in 2.2 per RULES 6 (recorded there as three new
+    rows, async-trait and futures-core in the table and futures-executor in the dev-only list).
+    Cargo.lock records the seven transitive additions the three pull in. All three were named in the
+    approved plan before the crate was written'
+  - 'The crate deliberately does not depend on aicontext-core, though the boundary matrix permits
+    it. Nothing here uses a core type: errors carry their own string codes, ids are a local
+    ProviderId, and the registry keys on it. A dependency added for symmetry would be an unused one'
+done:
+  - 'crates/aicontext-providers is new, and aicontext-providers is added to the root members list
+    (the boundary matrix already had its entry). Its public surface is exactly AI_PROVIDER_SPEC 2:
+    the AIProvider trait (id, complete, stream, capabilities) as Send + Sync and dyn-compatible
+    through async-trait, the neutral request and response types, and the registry. The signature
+    names no provider, URL, header, or wire type - only CompletionRequest, CompletionResponse,
+    StreamEvent, Capabilities, ProviderError, and ProviderId - so "no provider-specific types in its
+    signature" holds by construction rather than by convention'
+  - 'The neutral types are the spec 2 shapes: PolicyRegion (instruction + PolicyBlock list),
+    DataBlock { source, path, tier, trust, content }, Message/Role, ToolSpec, TokenBudget,
+    ModelOptions, CompletionRequest, CompletionResponse, ToolCall, FinishReason (Stop/ToolUse/
+    Length/Refusal/Error plus a non_exhaustive Unknown(String), so T12 reports an unrecognised
+    reason rather than guessing), Usage (reported and estimated constructors, with the estimated flag
+    keeping a host estimate distinct from a provider report, section 7), StreamEvent, Capabilities,
+    and RoutingRequest'
+  - 'The two regions are two types, not one type with a flag. PolicyRegion and DataBlock are
+    separate, and DataBlock.trust is a one-variant Trust::Untrusted with no other constructor, so a
+    DataBlock cannot be read as an instruction and external content cannot enter the policy region
+    (AI_PROVIDER_SPEC 2.1, SECURITY I1). A refusal is a FinishReason on a successful
+    CompletionResponse, never an Err, and every ToolCall is a proposal the gateway verifies'
+  - 'ProviderId validates a lowercase slug and returns ProviderError::InvalidId naming the offending
+    value, so a typo in .ai/ai.yaml is caught where it is read. ProviderError carries one variant per
+    failure mode - transport, three-phase timeout, 401/403/404/400/429/5xx, malformed body,
+    unsupported capability, cancellation, invalid id - each with a stable PROVIDER_* code() to branch
+    on and a remediation() hint, and transport errors keep their source rather than flattening it
+    (RULES 4.4). No ErrorFamily or PREFIX-NNN code is added to aicontext-core: there is no external
+    catalogue to number, and the mapping onto exit 6 belongs to the command that runs a provider'
+  - 'ProviderRegistry holds a BTreeMap<ProviderId, Box<dyn AIProvider>>, so adapters of different
+    concrete types live in one map and adding one changes no caller. register returns the provider it
+    replaced rather than dropping it. route(&RoutingRequest) -> ProviderId is the seam AI_PROVIDER_SPEC
+    8 asks for: in the MVP it returns the configured default and ignores the request, so inventing
+    routing later changes no signature. Its Debug prints ids only, never a provider body, because a
+    body could hold a credential (T10). The crate re-exports async_trait and Stream, and defines
+    BoxStream<T>, so an adapter implements the trait and reads a stream with only this crate in scope'
+  - 'Tests: 17 unit tests across types.rs, error.rs, and registry.rs (id acceptance and rejection,
+    the code set being complete and distinct, a timeout naming its phase, a transport failure keeping
+    its source, usage absent vs estimated, an unknown finish reason preserved, registry register/get/
+    replace/default, and route ignoring its request) plus 6 integration tests in the new
+    crates/aicontext-providers/tests/provider.rs that implement the trait using only the crate''s
+    re-exports, drive complete and a hand-rolled stream through futures_executor::block_on with no
+    async runtime, and assert a provider that cannot stream reports Unsupported rather than failing
+    late, and 1 doctest on the crate docs.'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked --
+    -D warnings clean; cargo test --workspace --locked green (659 passed, 0 failed, was 635 - the 24
+    new tests are the crate''s own, the rest of the workspace is unchanged). Acceptance 3 ("adding an
+    adapter touches no other crate") is met by construction and exercised by tests/provider.rs: the
+    trait is implemented and the registry reached from outside the crate naming only its exports, with
+    no other crate in the dependency graph. TASK-051 adds the first real adapter and is the
+    integration proof'
 ```
 
 ### TASK-051 — Implement the OpenAI-compatible adapter

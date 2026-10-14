@@ -209,7 +209,9 @@ impl ProviderError {
             Self::Unsupported { .. } => {
                 "choose a provider that supports this capability, or turn the feature off"
             }
-            Self::Cancelled { .. } => "re-run when you are ready; the call was cancelled, not failed",
+            Self::Cancelled { .. } => {
+                "re-run when you are ready; the call was cancelled, not failed"
+            }
             Self::InvalidId { .. } => {
                 "name the provider with a lowercase slug, for example `local` or `openai-hosted`"
             }
@@ -313,7 +315,10 @@ mod tests {
                 !error.remediation().is_empty(),
                 "{error} has no remediation, so a caller would be left guessing"
             );
-            assert!(!error.to_string().is_empty(), "a variant renders as nothing");
+            assert!(
+                !error.to_string().is_empty(),
+                "a variant renders as nothing"
+            );
         }
     }
 

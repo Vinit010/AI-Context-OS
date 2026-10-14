@@ -12,9 +12,7 @@ use async_trait::async_trait;
 use futures_core::Stream;
 
 use crate::error::ProviderError;
-use crate::types::{
-    Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent,
-};
+use crate::types::{Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent};
 
 /// A stream of [`StreamEvent`]s, `'static` and `Send` so it can cross an `.await` in an async host.
 ///

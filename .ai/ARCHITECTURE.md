@@ -77,10 +77,13 @@ list for Phase 1–2:
 | `keyring` | OS keychain | Credential storage without writing secrets to disk in our own format |
 | `sha2` | Content hashing | Index invalidation, audit chain, argument digests. Widely audited |
 | `ignore` / `walkdir` | File discovery | Respects `.gitignore`; avoids walking `target/` and `node_modules/` |
+| `async-trait` | Async methods on a dyn-safe trait | The provider interface is `async` and the registry holds `Box<dyn AIProvider>`, which a native `async fn` in a trait cannot satisfy; this is the macro `docs/AI_PROVIDER_SPEC.md` §2 names. Added by `TASK-050` |
+| `futures-core` | `Stream` / `BoxStream` | The minimal, runtime-agnostic home of the stream trait `AIProvider::stream` returns — no executor, no reactor, so no network stack enters the workspace before an adapter needs one. Added by `TASK-050` |
 | `tracing`, `tracing-subscriber` | Diagnostics | Structured, level-controlled, stderr-only by default |
 
 Dev-only: `tempfile`, `assert_cmd`, `predicates`, `insta` (snapshot tests for CLI output),
-`proptest` (parsers and the permission resolver).
+`proptest` (parsers and the permission resolver), `futures-executor` (`block_on` drives the async
+provider tests without pulling an async runtime into the workspace; added by `TASK-050`).
 
 Explicitly rejected for the MVP: a vector database, an ORM, a web framework, a state-machine or
 workflow-orchestration library, a CLI framework beyond `clap`, and any telemetry SDK.

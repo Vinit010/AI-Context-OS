@@ -876,6 +876,45 @@ once its source exists.
 | Q-5 | Does an audit record need a stable third-party timestamp authority to resist backdating? | TASK-075 | Phase 4 |
 | Q-6 | Task inline-vs-split threshold is set at 300 entities; confirm against real usage before Phase 4 | TASK-038 | **RESOLVED in TASK-038: the register holds 41 inline tasks, well under the 300-entity threshold, and `aicontext health` now reports the register's task count, so crossing it is observable. Keep 300 and revisit if the count approaches it** |
 
+## MEM-029 - The provider abstraction is honest only if its signature names no provider
+
+```yaml
+id: MEM-029
+category: constraint
+scope: provider-layer
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [providers, ai-provider, abstraction, boundaries, TASK-050]
+```
+
+`TASK-050` defines `AIProvider`, the provider-neutral request and response types, and the registry. The
+constraint that decides every question is `docs/AI_PROVIDER_SPEC.md` §1: the context engine must not know
+that models exist. The test of whether the abstraction is honest is mechanical, not aesthetic — adding an
+adapter must touch no other crate. Three shapes enforce it rather than a convention:
+
+- The trait's signature names no provider. Only `CompletionRequest`, `CompletionResponse`,
+  `StreamEvent`, `Capabilities`, `ProviderError`, and `ProviderId` appear in it — no URL, header, status,
+  or wire type. The trait is `async` and dyn-compatible (the registry holds `Box<dyn AIProvider>`), which
+  is why it uses `async-trait`: a native `async fn` in a trait is not object-safe. The crate re-exports
+  `async_trait` and `Stream` so an adapter implements the trait with only this crate in scope.
+- The two regions are two types, not two fields. Trusted instruction is `PolicyRegion`; external content
+  is `DataBlock`, whose `trust` is a one-variant `Trust::Untrusted`. No constructor moves one into the
+  other, so "never place external content in a policy region" (T9) is a type rule, not a review habit.
+- Failure and refusal are different facts. `ProviderError` carries one variant per transport, HTTP,
+  capability, and cancellation failure, each with a stable `PROVIDER_*` code and a `remediation()` hint.
+  A model *refusal* is not an error: it is a successful `CompletionResponse` with
+  `finish_reason: Refusal`, and an unrecognised finish reason is preserved as `Unknown`, never guessed
+  (T12).
+
+`ProviderRegistry` holds `Box<dyn AIProvider>` keyed by a validated `ProviderId`, and `route` is the seam
+`docs/AI_PROVIDER_SPEC.md` §8 asks for: in the MVP it returns the configured default and ignores its
+request, so adding routing later changes no signature. Two consequences carry forward: the provider layer
+has no write capability whatsoever (ADR-006), and mapping a `ProviderError` onto process exit `6` belongs
+to the command that runs a provider, not to this crate. The crate deliberately does not depend on
+`aicontext-core`: nothing in it uses a core type, and an unused dependency would be a false one.
+
 ---
 
 ## Bugs encountered

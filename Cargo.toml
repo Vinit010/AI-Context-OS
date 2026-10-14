@@ -5,6 +5,7 @@ members = [
     "crates/aicontext-context",
     "crates/aicontext-git",
     "crates/aicontext-cli",
+    "crates/aicontext-providers",
     "crates/aicontext-testkit",
 ]
 # Crates added as their tasks land, per ARCHITECTURE.md 3:
@@ -12,7 +13,6 @@ members = [
 #   aicontext-audit            (TASK-075)
 #   aicontext-plugin-sdk       (TASK-070)
 #   aicontext-plugin-runtime   (TASK-073)
-#   aicontext-providers        (TASK-050)
 # Adding a member without adding it to the boundary matrix in
 # crates/aicontext-testkit/tests/crate_boundaries.rs fails `cargo test`.
 
@@ -84,6 +84,15 @@ module_name_repetitions = "allow"
 #                1.85 floor (0.4.33 wants 1.88), and hand-rolling the precedence rules between
 #                .gitignore, .git/info/exclude and the global file is exactly the kind of correctness
 #                that is cheaper to depend on than to re-derive. TASK-031.
+#   async-trait - the AIProvider trait is `async` and dyn-compatible (the registry holds
+#                `Box<dyn AIProvider>`), and a native async fn in a trait is neither dyn-compatible
+#                nor object-safe. This is the macro docs/AI_PROVIDER_SPEC.md 2 names. TASK-050.
+#   futures-core - `Stream` and `BoxStream`, which AIProvider::stream returns. The minimal,
+#                runtime-agnostic home of the trait: no executor, no reactor, no tokio, so the
+#                providers crate stays free of a network stack until an adapter needs one. TASK-050.
+#   futures-executor - dev-only. `block_on` drives the async trait methods in tests without pulling
+#                an async runtime into the workspace; tokio arrives only when TASK-051 needs it for
+#                HTTP. TASK-050.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
@@ -95,6 +104,9 @@ tempfile = "3"
 jsonschema = { version = "0.58", default-features = false }
 sha2 = "0.10"
 ignore = "0.4"
+async-trait = "0.1"
+futures-core = "0.3"
+futures-executor = "0.3"
 
 [profile.release]
 opt-level = 3
