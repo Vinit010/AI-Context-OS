@@ -11,7 +11,7 @@ updated: 2026-10-14
 # TASKS
 
 **Current phase:** Phase 2 — Context engine
-**Current task:** TASK-037
+**Current task:** TASK-038
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -922,7 +922,7 @@ done:
 ```yaml
 id: TASK-037
 title: Implement aicontext context
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 2
 depends_on: [TASK-033, TASK-035, TASK-036]
@@ -934,6 +934,12 @@ acceptance:
   - Retrieved content is wrapped in a data envelope marked untrusted and never placed in an
     instruction role
   - Warm run under 1 s
+done:
+  - 'crates/aicontext-cli/src/context.rs is new and is the single `aicontext context` command, wired through args.rs (Command::Context, ContextArgs, OutputFormat) and main.rs, and removed from args::PENDING. The two views CLI_SPEC §3 would have split into `context show` and `context explain` are one command whose flag shape was approved before starting: the default renders the packet, `--explain` adds RetrievalPlan::explain and every provenance trace, `--format prompt` writes provider input, and `--json` (aliased by `--format json`, which loses to the global flag when both are given) puts the packet in the envelope. The index is loaded from `.aicontext/index.json` when present and rebuilt with the previous entries as fingerprints, so a warm run re-reads only what changed; the save is best-effort and reports CTX-019 at info level when it fails. A budget that cannot hold tiers 1-5 is forwarded as CTX-030 and exits 3.'
+  - 'crates/aicontext-context/src/assemble.rs is new and owns the packet: PACKET_VERSION 1, Request, PolicyItem, RetrievedItem, Trust (one Untrusted variant, so the type cannot mark retrieved content as instruction), ContextPacket, and ContextAssembler. Tiers 1-2 (the mandatory AI.md and RULES.md plus any --include) are the policy region; every other candidate is retrieved and untrusted. include_kinds and exclude_ids are applied before the budget so a dropped trace carries `excluded` rather than `budget`; AI.md and RULES.md are exclusion-protected. Conflicts come from PriorityResolver and the budget report from ContextBudget, and provenance holds one RetrievalTrace per candidate considered, merged by max score with reasons joined. render_prompt lives here, at the trust boundary, and wraps each retrieved document in a BEGIN/END UNTRUSTED DATA envelope; retrieval.rs gained only a pub(crate) on order_candidates.'
+  - 'The packet carries references and metadata only, so `--json` publishes the bare ContextPacket as the envelope`s `data`, satisfying CONTEXT_SPEC §7.6 without inventing a second shape. `--format prompt` is the only form that reads document bodies, and it reads them from the index at render time, so no document content is in the packet itself.'
+  - 'Tests: 10 integration tests in the new crates/aicontext-cli/tests/context.rs drive the real binary in a fixture project (`--task`, `--query`, `--include`, `--exclude`, `--budget`, `--explain`, `--format json`, `--format prompt`, the CTX-030 exit 3, the cache-only write, the warm run under one second, and byte-identical output across two runs). Each spawns env!("CARGO_BIN_EXE_aicontext") in a TempDir and asserts the observable contract: the JSON envelope shape and values, prompt output wrapped in an untrusted-data envelope, and a failed assembly leaving stdout empty. 9 integration tests in the new crates/aicontext-context/tests/assemble.rs cover the assembler through its public API: policy and retrieved regions with tiers and provenance, a query seeding lexical retrieval, the ladder`s cross-tier conflict, a capped droppable tier cut and reported, a budget below the floor as CTX-030, exclusions that cannot touch AI.md/RULES.md, an include_kinds narrow, the untrusted prompt envelope, and determinism across two runs.'
+  - 'Timing: a warm run measured 212 ms end to end through `cargo run` on this Windows host, well inside the one-second target. Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked green. Scope is the declared crates/aicontext-cli/** and crates/aicontext-context/**; docs/CLI_SPEC.md (§3 folds show/explain into flags, §4 context prose, §5 exit 3) and docs/CONTEXT_SPEC.md (§7.6 note on the CLI views) were updated because the public command surface changed, the same widening TASK-036 recorded. The index still scans only root/.ai, so a task whose spec or touches point at crates/** becomes a dropped trace with reason `missing`; widening the index is not part of this task.'
 ```
 
 ### TASK-038 — Implement aicontext health
