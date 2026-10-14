@@ -93,6 +93,17 @@ module_name_repetitions = "allow"
 #   futures-executor - dev-only. `block_on` drives the async trait methods in tests without pulling
 #                an async runtime into the workspace; tokio arrives only when TASK-051 needs it for
 #                HTTP. TASK-050.
+#   tokio      - the async runtime the provider contract in ARCHITECTURE.md 2.2 and 2.2's "Provider
+#                HTTP" row assume; TASK-051 is the first crate to make a network call. Features are
+#                per use: `time` for the three timeouts, `sync` for the cancellation token, `rt` for
+#                the streaming task; dev-only `macros` gives the tests `#[tokio::test]`. TASK-051.
+#   reqwest    - the HTTP client for the OpenAI-compatible adapter. default-features is false so
+#                native-tls (and the system OpenSSL the sql/jsonschema comment above avoids) cannot
+#                arrive; `rustls-tls` is the TLS backend ARCHITECTURE 2.2 names, and `stream` is what
+#                `AIProvider::stream` reads. TASK-051.
+#   tracing    - structured diagnostics, pre-justified in ARCHITECTURE.md 2.2. RULES.md 6 forbids a
+#                silent retry, and tracing is how the adapter logs each attempt without printing to
+#                stdout from a library. TASK-051.
 [workspace.dependencies]
 thiserror = "2"
 yaml_serde = "0.10"
@@ -107,6 +118,13 @@ ignore = "0.4"
 async-trait = "0.1"
 futures-core = "0.3"
 futures-executor = "0.3"
+# TASK-051. Both are pre-justified in ARCHITECTURE.md 2.2 ("Provider HTTP ..."). `tokio` is reached
+# for `time` (the three timeouts) and `sync` (the cancellation token); `macros`/`rt` are enabled only
+# by the dev-dependency, for `#[tokio::test]`. `reqwest` turns off its default features so
+# `default-tls` (native-tls) cannot arrive, and turns on `rustls-tls` + `stream` (SSE).
+tokio = { version = "1", features = ["rt", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tracing = "0.1"
 
 [profile.release]
 opt-level = 3

@@ -26,8 +26,18 @@ futures-core = { workspace = true }
 serde_json = { workspace = true }
 # Error enums derive thiserror::Error, per RULES.md 4.2.
 thiserror = { workspace = true }
+# The three timeouts (`time`), the cancellation token (`sync`), and the streaming task (`rt`).
+# Pre-justified in ARCHITECTURE.md 2.2 ("Provider HTTP ..."). TASK-051.
+tokio = { workspace = true }
+# The HTTP layer for the OpenAI-compatible adapter; pre-justified in ARCHITECTURE.md 2.2. TASK-051.
+reqwest = { workspace = true }
+# RULES.md 6 forbids a silent retry, so each attempt is logged through the diagnostics crate
+# ARCHITECTURE.md 2.2 already names. TASK-051.
+tracing = { workspace = true }
 
 [dev-dependencies]
-# `block_on` drives the async trait methods in tests without pulling an async runtime into the
-# workspace; tokio does not arrive until TASK-051 needs it for HTTP. TASK-050.
+# The contract tests drive the async trait with `#[tokio::test]`; `macros` is the only feature the
+# library itself does not already enable. TASK-051.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# `block_on` drives the async trait methods in tests without a runtime. TASK-050.
 futures-executor = { workspace = true }
