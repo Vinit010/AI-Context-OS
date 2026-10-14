@@ -1,0 +1,33 @@
+[package]
+name = "aicontext-providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Provider-neutral request and response types, the AIProvider trait, and the registry"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The AIProvider trait is `async` and the registry holds heterogeneous `Box<dyn AIProvider>`; a
+# native `async fn` in a trait is not dyn-compatible, so the methods are boxed. This is the macro the
+# spec names (`docs/AI_PROVIDER_SPEC.md` 2) and the de-facto standard for it. Justified in
+# ARCHITECTURE.md 2.2. TASK-050.
+async-trait = { workspace = true }
+# `Stream` and `BoxStream`, which `stream` returns (`docs/AI_PROVIDER_SPEC.md` 2). The minimal,
+# runtime-agnostic home of the trait: no executor, no reactor, no tokio. TASK-050.
+futures-core = { workspace = true }
+# `serde_json::Value` for the fields that are deliberately opaque or provider-shaped:
+# `ToolCall.arguments`, `ToolCall.raw`, and `CompletionResponse.provider_meta`
+# (`docs/AI_PROVIDER_SPEC.md` 2, 2.2). Pre-justified in ARCHITECTURE.md 2.2 as "wire + file formats".
+serde_json = { workspace = true }
+# Error enums derive thiserror::Error, per RULES.md 4.2.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# `block_on` drives the async trait methods in tests without pulling an async runtime into the
+# workspace; tokio does not arrive until TASK-051 needs it for HTTP. TASK-050.
+futures-executor = { workspace = true }
