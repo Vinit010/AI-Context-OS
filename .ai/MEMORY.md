@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-11
+updated: 2026-10-14
 ---
 
 # MEMORY
@@ -709,6 +709,48 @@ predicates / matches a glob; the glob matcher is our own (`*` within a segment, 
 `?` one character) because the crate must not grow a dependency for the pattern subset a `touches`
 list needs (`ARCHITECTURE.md` §2.2). Ordering everywhere is score, then `id`, then path, so merged
 results stay reproducible (`ADR-004`).
+
+## MEM-025 - The ladder numbers tier 1 highest; only project-wide scalar assertions can conflict
+
+```yaml
+id: MEM-025
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [retrieval, context-engine, priority, conflict, TASK-035]
+```
+
+The priority ladder (`TASK-035`, `docs/CONTEXT_SPEC.md` §7.4, `ARCHITECTURE.md` §6) numbers tier 1 the
+**highest** priority (the caller's instruction) and tier 9 the lowest (history). So "a lower tier
+contradicts a higher tier" means the loser has the **larger** number, and the winner is the
+**smallest** tier. `PriorityResolver::conflicts` picks that winner per asserted key; a lower tier that
+disagrees becomes one `Conflict { asserted_by, conflicts_with, resolution: higher-tier-wins }`. The
+first implementation had this backwards — it treated the largest number as the winner — which is
+exactly the kind of inversion the spec's ten-line ladder invites, so it is worth a memory entry: when
+reading the ladder, "up" is toward 1.
+
+Detection compares **scalar** front-matter values over one documented allowlist, `ASSERTION_KEYS`
+(`store`, `database`), which is the single opt-in point. Comparing every shared key would report a
+conflict for each pair of documents that do not happen to agree, because a document's own keys
+(`status`, `phase`, `spec`, `feature`, ...) describe that document and are expected to differ. A list
+or map is a collection of claims rather than one value, and `null` is the absence of a claim, so
+neither is compared. A key asserted once, or by documents that agree, is not a conflict.
+
+Same-tier disagreement is deliberately **not** reported: it is not a lower-versus-higher conflict, so
+neither side is made to lose. A same-tier tie-break on the smallest id only decides which assertion
+the comparison is made against, which keeps the output a total order and therefore reproducible
+(`ADR-004`). `Assertion.path` carries `#[serde(skip)]`, so a conflict serializes as the §7.6
+`{tier, id, value}` shape while `doctor` can still point at the loser's file.
+
+`doctor` reuses the existing `CTX-013` rather than adding a code: "a lower tier contradicts a higher
+tier" now names both `check_architecture`'s declared-stack-versus-discovery half and
+`check_conflicts`'s assertion half. Finally, the third category the spec lists a task whose `spec`
+points at a document of a different `feature` is left undetected on purpose: no document carries a
+`feature` key today, so there is nothing to compare, and guessing one would be inventing scope
+(`RULES.md` §2). It is recorded in §7.4 as deferred, to be implemented when a `feature` field arrives.
 
 ## Open questions
 

@@ -21,8 +21,8 @@
 //! context, it does not send it to a model.
 //!
 //! The parser (`TASK-016`), discovery (`TASK-030`), the content index (`TASK-031`), the retrieval
-//! plan (`TASK-032`), and the lexical, linked, filter, and glob retrievers (`TASK-033`–`TASK-034`)
-//! have arrived; the priority ladder is `TASK-035`.
+//! plan (`TASK-032`), the lexical, linked, filter, and glob retrievers (`TASK-033`–`TASK-034`), and
+//! the priority ladder with its conflict rule (`TASK-035`) have arrived; the budget is `TASK-036`.
 
 #![forbid(unsafe_code)]
 
@@ -34,6 +34,7 @@ mod error;
 mod frontmatter;
 pub mod index;
 pub mod register;
+pub mod resolve;
 pub mod retrieval;
 mod value;
 
@@ -45,6 +46,7 @@ pub use index::{
     ContextIndex, DocumentKind, Heading, INDEX_PATH, IndexEntry, IndexError, ScanReport,
 };
 pub use register::{Register, TaskEntry};
+pub use resolve::{ASSERTION_KEYS, Assertion, Conflict, PriorityResolver, Resolution};
 pub use retrieval::{
     ContextBudget, DEFAULT_MAX_TOKENS, FilterRetriever, FrontMatterPredicate, GlobRetriever,
     LexicalRetriever, LinkedEdge, LinkedId, LinkedRetriever, MANDATORY_ENTRY_POINT,

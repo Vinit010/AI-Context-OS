@@ -389,12 +389,18 @@ dropped_reason: null      # or "budget", "excluded", "lower tier", "denied"
 ```
 
 **Conflict rule.** When a lower tier contradicts a higher tier on an asserted value, the higher tier
-wins, the conflict is recorded in the packet, and `doctor` reports it as a warning. The higher-tier
-document is never modified. Detection covers:
+wins, the conflict is recorded in the packet, and `doctor` reports it as a warning (`CTX-013`). The
+higher-tier document is never modified. An *assertion* is a scalar front-matter value under one of
+the project-wide keys in `ASSERTION_KEYS` — today `store` and `database`. A document's own keys
+(`id`, `status`, `phase`, `spec`, `feature`, `depends_on`, ...) describe that document and are
+expected to differ, so they are never compared. Detection covers:
 
 - structural facts (detected stack vs `ARCHITECTURE.md` claims),
-- same-key front-matter assertions across documents,
-- a task whose `spec` points at a document of a different `feature`.
+- same-key front-matter assertions across documents, over `ASSERTION_KEYS`.
+
+A task whose `spec` points at a document of a different `feature` is not yet detected: no document
+carries a `feature` key today, so there is nothing to compare. It is recorded here so the rule is
+complete, and is implemented when a `feature` field arrives.
 
 ### 7.5 Budget and degradation
 
@@ -453,7 +459,7 @@ ignores this field is violating the contract.
 | `CTX-010` | error | Dependency cycle in tasks or specs |
 | `CTX-011` | error | Illegal task status transition in history |
 | `CTX-012` | warning | Schema copy in `.ai/schemas` differs from the source |
-| `CTX-013` | warning | `ARCHITECTURE.md` contradicts the discovered project profile |
+| `CTX-013` | warning | A lower tier contradicts a higher tier: `ARCHITECTURE.md` against the discovered profile, or a same-key front-matter assertion |
 | `CTX-014` | warning | Deprecated decision with no successor |
 | `CTX-015` | warning | Memory entry older than the file it describes, by `updated` date |
 | `CTX-016` | error | Credential-shaped content in `.ai/` (see `SECURITY.md` §6) |

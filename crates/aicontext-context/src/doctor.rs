@@ -30,6 +30,8 @@ use std::path::Path;
 use aicontext_core::{DocumentId, ErrorCode, Severity};
 
 use crate::body::{Entity, inline_entities, is_entity_id};
+use crate::index::ContextIndex;
+use crate::resolve::PriorityResolver;
 use crate::{DOCUMENT_MAX_BYTES, Document, FrontMatter, Value};
 
 /// The entry point document, the one file whose absence makes the project unusable.
@@ -277,6 +279,7 @@ pub fn run(inputs: &Inputs<'_>) -> Report {
     check_references(inputs.root, &documents, &mut findings);
     check_schemas(inputs, &mut findings);
     check_architecture(inputs, &documents, &mut findings);
+    check_conflicts(inputs.root, &mut findings);
     check_decisions(&documents, &mut findings);
     check_secrets(inputs.root, &mut findings);
 
@@ -557,7 +560,10 @@ fn check_schemas(inputs: &Inputs<'_>, findings: &mut Vec<Finding>) {
     }
 }
 
-/// `CTX-013`: a declared stack that contradicts what is actually in the repository.
+/// `CTX-013`, structural half: a declared stack that contradicts what is actually in the repository.
+///
+/// This is one of the two ways a lower tier contradicts a higher tier; the other is a front-matter
+/// assertion, [`check_conflicts`].
 ///
 /// The comparison is between the declared stack and the observed languages, and only when discovery
 /// produced something. A store contradiction of the kind `docs/CLI_SPEC.md` Â§7 illustrates needs store
@@ -603,6 +609,44 @@ fn check_architecture(inputs: &Inputs<'_>, documents: &[Loaded], findings: &mut 
                 inputs.observed_languages.join(", ")
             ),
             "correct the `stack` list, or add the evidence discovery is missing",
+        ));
+    }
+}
+
+/// `CTX-013` for front-matter assertions: a lower-tier document that asserts a different value for a
+/// project-wide key than a higher-tier one (`docs/CONTEXT_SPEC.md` §7.4).
+///
+/// The rule is one rule with two ways of reading it. `check_architecture` reads the declared stack
+/// against discovery; this reads one document's assertion against another's. Both are "a lower tier
+/// contradicts a higher tier", and both report `CTX-013`, so the catalogue's one code stays one code.
+///
+/// The comparison runs over the same [`ContextIndex`] the retrievers use, so "the same key asserted
+/// by two documents" means the same thing here as it does in a packet. Reading the tree a second time
+/// costs one bounded scan of `.ai/`; the alternative is a second document model that could disagree
+/// with the first.
+fn check_conflicts(root: &Path, findings: &mut Vec<Finding>) {
+    let (index, _scan) = ContextIndex::build(root, None);
+    for conflict in PriorityResolver::conflicts(&index) {
+        let winner = &conflict.asserted_by;
+        let loser = &conflict.conflicts_with;
+        findings.push(Finding::new(
+            ErrorCode::CTX_013,
+            Severity::Warning,
+            loser.path.display().to_string(),
+            format!(
+                "`{}` is asserted as `{}` by {} (tier {}), but this document asserts `{}` at tier {}",
+                conflict.key,
+                winner.value,
+                winner.id,
+                winner.tier.number(),
+                loser.value,
+                loser.tier.number(),
+            ),
+            format!(
+                "correct this document to `{}`, or record why the lower tier disagrees; the higher \
+                 tier ({}) wins and is never rewritten",
+                winner.value, winner.id,
+            ),
         ));
     }
 }
@@ -1189,9 +1233,10 @@ pub fn explain(code: &str) -> Explanation {
              re-apply your own changes deliberately.",
         ),
         "CTX-013" => Explanation::Implemented(
-            "ARCHITECTURE.md declares a language discovery did not observe. One of the two is \
-             wrong: either the document describes a stack the repository does not have, or \
-             discovery is missing the evidence. Both are worth fixing, so this is a warning.",
+            "A lower tier has contradicted a higher tier: ARCHITECTURE.md declares a language \
+             discovery did not observe, or a lower-tier document asserts a different value for a \
+             project-wide key than a higher-tier one does. One of the two is wrong, and the higher \
+             tier wins and is never rewritten. Both are worth fixing, so this is a warning.",
         ),
         "CTX-014" => Explanation::Implemented(
             "A deprecated decision has no successor. A reader who finds it learns that a rule no \

@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::index::DocumentKind;
 use crate::register::{Register, TaskEntry};
+use crate::resolve::PriorityResolver;
 use crate::{Document, Value};
 
 /// The agent entry point, always mandatory (`docs/CONTEXT_SPEC.md` §7.1).
@@ -253,33 +254,6 @@ fn fields_of(document: &Document) -> BTreeMap<String, Value> {
         .front_matter()
         .map(|front| front.ordered_entries().into_iter().collect())
         .unwrap_or_default()
-}
-
-/// The default ladder rung for a document kind (`docs/CONTEXT_SPEC.md` §7.4).
-///
-/// This is only a default: `PriorityResolver` (`TASK-035`) assigns the resolved tier and can raise
-/// or lower a candidate by what a plan asked for. The lexical retriever still stamps a tier so its
-/// candidates are complete values on their own.
-fn tier_for_kind(kind: crate::index::DocumentKind) -> Tier {
-    match kind {
-        crate::index::DocumentKind::MemoryRegister => Tier::MEMORY,
-        crate::index::DocumentKind::TaskRegister | crate::index::DocumentKind::Task => Tier::TASK,
-        crate::index::DocumentKind::Decision => Tier::DECISION,
-        crate::index::DocumentKind::Specification | crate::index::DocumentKind::Product => {
-            Tier::SPECIFICATION
-        }
-        crate::index::DocumentKind::Architecture | crate::index::DocumentKind::Design => {
-            Tier::ARCHITECTURE
-        }
-        crate::index::DocumentKind::Rules | crate::index::DocumentKind::Conventions => Tier::POLICY,
-        crate::index::DocumentKind::Bug | crate::index::DocumentKind::Change => Tier::HISTORY,
-        crate::index::DocumentKind::AgentEntryPoint | crate::index::DocumentKind::AgentProfile => {
-            Tier::INSTRUCTION
-        }
-        crate::index::DocumentKind::ContextNote | crate::index::DocumentKind::Workflow => {
-            Tier::SOURCE
-        }
-    }
 }
 
 /// A count as a float. Token counts are far below 2^53, so the conversion is exact; a count that
@@ -664,7 +638,7 @@ impl Retriever for LexicalRetriever {
                 .id
                 .clone()
                 .unwrap_or_else(|| path.display().to_string());
-            let tier = entry.kind.map_or(Tier::SOURCE, tier_for_kind);
+            let tier = PriorityResolver::tier_of(entry);
             let reason = format!(
                 "lexical match on {}",
                 matched
@@ -702,7 +676,7 @@ impl Retriever for LexicalRetriever {
 /// Shared by the exact retrievers: the graph, filter, and glob retrievers all stamp the document's
 /// tier from its kind (like the lexical retriever) and build the same trace shape.
 fn candidate_for(entry: &crate::index::IndexEntry, score: f64, reason: String) -> ScoredDocument {
-    let tier = entry.kind.map_or(Tier::SOURCE, tier_for_kind);
+    let tier = PriorityResolver::tier_of(entry);
     let name = entry
         .id
         .clone()

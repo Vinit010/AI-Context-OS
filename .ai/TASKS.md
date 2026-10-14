@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-11
+updated: 2026-10-14
 ---
 
 # TASKS
 
 **Current phase:** Phase 2 — Context engine
-**Current task:** TASK-035
+**Current task:** TASK-036
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -873,7 +873,7 @@ done:
 ```yaml
 id: TASK-035
 title: Implement the priority ladder and conflict detection
-status: TODO
+status: DONE
 priority: HIGH
 phase: 2
 depends_on: [TASK-033, TASK-034]
@@ -883,6 +883,14 @@ acceptance:
   - Tiers 1-9 are applied exactly as ARCHITECTURE.md section 6 defines
   - A lower-tier contradiction loses, is recorded in the packet, and is reported by doctor
   - The higher-tier document is never rewritten
+done:
+  - 'crates/aicontext-context/src/resolve.rs is new and is the single home for the ladder and its one conflict rule. PriorityResolver::tier_for_kind maps every DocumentKind to its rung exactly as ARCHITECTURE.md section 6 and docs/CONTEXT_SPEC.md 7.4 name it; tier_of reads an IndexEntry and defaults an unclassified document to tier 8 (source). The mapping moved out of retrieval.rs, whose private tier_for_kind is deleted, and both the lexical and the shared exact-retriever candidate builder now call PriorityResolver::tier_of, so there is one ladder and not two (RULES.md section 2).'
+  - 'PriorityResolver::conflicts(&ContextIndex) compares scalar front-matter assertions over ASSERTION_KEYS (store, database), the one place this project-wide-key policy is written. A key asserted once, asserted by documents that agree, carried as a list or map, or written as an explicit null is not a conflict. The winner is the highest-priority rung, which the ladder numbers as the smallest tier; a lower tier (a larger number) that disagrees is reported as Conflict { key, asserted_by, conflicts_with, resolution: higher-tier-wins }. Same-tier disagreement is never reported: a same-tier tie-break on the smallest id only decides which assertion the comparison is made against. The output is a total order (key, winner tier, winner id, loser tier, loser id), so the same index always yields the same list (ADR-004). Assertion carries path with serde skip, so asserted_by and conflicts_with serialize as the 7.6 {tier, id, value} shape while doctor can still point at a file.'
+  - 'doctor reports the conflict as CTX-013, the existing code generalized from "ARCHITECTURE.md contradicts the discovered project profile" to "a lower tier contradicts a higher tier". check_conflicts builds the same ContextIndex the retrievers use, so "the same key asserted twice" means the same thing in the report and in a packet, and emits a warning naming the key, both ids, both values, and both tiers, against the loser''s path, with a remediation saying the higher tier wins and is never rewritten. check_architecture is the structural half of the same code; --explain CTX-013 now describes both halves.'
+  - 'Acceptance 1 (tiers 1-9 exactly as ARCHITECTURE.md section 6): a unit test asserts each DocumentKind maps to its rung, and an integration test builds a tree with one document per kind and asserts PriorityResolver::tier_of returns that rung, plus an unclassified document at tier 8. Acceptance 2 (a lower-tier contradiction loses, is recorded, and is reported): the 7.6 example is reproduced end to end - ARCHITECTURE.md at tier 3 asserting database: mongodb and CHG-004 at tier 9 asserting postgresql - and the conflict is asserted to name the winner and the loser, to serialize into the packet shape, and to be reported by doctor::run as CTX-013 against the loser. Acceptance 3 (the higher-tier document is never rewritten): conflicts is a pure function over the index and writes nothing, and the test reads the winner back and asserts its bytes are unchanged.'
+  - 'Tests: 3 unit tests in resolve.rs (every kind has its rung, only scalars name an assertion, the assertion-key list) and 9 integration tests in the new crates/aicontext-context/tests/resolve.rs (kind to rung through a real index, an unclassified document at source, the 7.6 conflict, agreeing documents, same-tier disagreement, a list-valued key, determinism across two runs, the packet JSON shape without path, and doctor reporting CTX-013). Tests live in tests/ so they reach only the public API.'
+  - 'Docs: docs/CONTEXT_SPEC.md 7.4 now defines an assertion (a scalar under a project-wide key) and names ASSERTION_KEYS, and records that the task-spec-versus-feature category is not yet detected because no document carries a feature key; the 8 CTX-013 row is generalized to "a lower tier contradicts a higher tier". The feature-mismatch check is deferred as underspecified, not dropped.'
+  - 'Gates: cargo fmt --all --check clean; cargo clippy --workspace --all-targets --locked -- -D warnings clean; cargo test --workspace --locked 581 passed, 0 failed (was 569). Scoped to crates/aicontext-context/**; the budget remains TASK-036 and the CLI wiring (aicontext context, --explain) TASK-037.'
 ```
 
 ### TASK-036 — Implement the context budget
