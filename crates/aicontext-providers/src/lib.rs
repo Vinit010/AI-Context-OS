@@ -33,10 +33,11 @@
 //!
 //! - It does not write. No filesystem, no process spawn, no tool execution. A [`ToolCall`] is a
 //!   proposal the gateway validates, never an instruction (`docs/AI_PROVIDER_SPEC.md` §2.2).
-//! - It holds no credential. Resolving and redacting one is `TASK-052`, per
-//!   `decisions/ADR-005-credential-handling.md`.
-//! - It ships no adapter yet: `TASK-051` adds the OpenAI-compatible one, and adding it must change
-//!   no other crate (`docs/AI_PROVIDER_SPEC.md` §12).
+//! - It holds no credential. [`Secret`] redacts a value that was handed in; resolving one from the
+//!   environment or a keychain is a later task, per `decisions/ADR-005-credential-handling.md`.
+//! - It ships exactly one adapter, [`openai`]: one implementation over a configurable `base_url`
+//!   that reaches OpenAI and every server speaking the same shape, and adding it changed no other
+//!   crate (`docs/AI_PROVIDER_SPEC.md` §12).
 //!
 //! # Example
 //!
@@ -63,9 +64,12 @@
 
 #![forbid(unsafe_code)]
 
+mod cancel;
 mod error;
+pub mod openai;
 mod provider;
 mod registry;
+mod secret;
 mod types;
 
 // Re-exported so an adapter implements the trait and reads a stream with only this crate in scope,
@@ -73,9 +77,12 @@ mod types;
 pub use async_trait::async_trait;
 pub use futures_core::Stream;
 
+pub use cancel::CancellationToken;
 pub use error::{ProviderError, TimeoutPhase};
+pub use openai::{Auth, OpenAiCompatible, OpenAiCompatibleConfig, RetryPolicy, Timeouts};
 pub use provider::{AIProvider, BoxStream};
 pub use registry::ProviderRegistry;
+pub use secret::Secret;
 pub use types::{
     Capabilities, CompletionRequest, CompletionResponse, DataBlock, FinishReason, Message,
     ModelOptions, PolicyBlock, PolicyRegion, ProviderId, Role, RoutingRequest, StreamEvent,

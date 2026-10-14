@@ -37,7 +37,7 @@
 //!
 //! # What this adapter does not do
 //!
-//! It never resolves a credential (that is `TASK-052`): [`Auth::Bearer`] carries a value that was
+//! It never resolves a credential (that is a later task): [`Auth::Bearer`] carries a value that was
 //! handed in, and the value is redacted everywhere it could be printed. It never switches provider
 //! or model on a failure (`docs/AI_PROVIDER_SPEC.md` §6): a failure is a failure.
 
@@ -51,8 +51,7 @@ pub use retry::RetryPolicy;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
-use reqwest::StatusCode;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
 use serde_json::Value;
 
 use crate::cancel::CancellationToken;
@@ -60,7 +59,7 @@ use crate::error::{ProviderError, TimeoutPhase};
 use crate::provider::{AIProvider, BoxStream};
 use crate::secret::Secret;
 use crate::types::{
-    Capabilities, CompletionRequest, CompletionResponse, FinishReason, ProviderId, StreamEvent,
+    Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent,
 };
 
 /// How the adapter proves who it is.
@@ -80,8 +79,7 @@ impl Default for Auth {
     }
 }
 
-/// The three timeouts the spec requires, each configurable
-/// (`docs/AI_PROVIDER_SPEC.md` §6).
+/// The three timeouts the spec requires, each configurable (`docs/AI_PROVIDER_SPEC.md` §6).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Timeouts {
     /// The limit on establishing a connection.
@@ -113,17 +111,17 @@ pub struct OpenAiCompatibleConfig {
     pub model: String,
     /// How to authenticate.
     pub auth: Auth,
-    /// The three timeouts.
+    /// How long to wait.
     pub timeouts: Timeouts,
-    /// The retry schedule.
+    /// How failures are repeated.
     pub retry: RetryPolicy,
-    /// The run's cancellation token.
+    /// The token the whole run shares.
     pub cancel: CancellationToken,
 }
 
 impl OpenAiCompatibleConfig {
-    /// A configuration for `base_url` and `model`, with no auth, the default timeouts, the default
-    /// retry schedule, and a token nobody has cancelled.
+    /// A config for one server and one model: no credential, the default timeouts and retry policy,
+    /// and a fresh cancellation token.
     #[must_use]
     pub fn new(id: ProviderId, base_url: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -137,28 +135,28 @@ impl OpenAiCompatibleConfig {
         }
     }
 
-    /// Sets the authentication mode.
+    /// Sets the credential.
     #[must_use]
     pub fn with_auth(mut self, auth: Auth) -> Self {
         self.auth = auth;
         self
     }
 
-    /// Sets the three timeouts.
+    /// Sets the timeouts.
     #[must_use]
     pub fn with_timeouts(mut self, timeouts: Timeouts) -> Self {
         self.timeouts = timeouts;
         self
     }
 
-    /// Sets the retry schedule.
+    /// Sets the retry policy.
     #[must_use]
     pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
         self.retry = retry;
         self
     }
 
-    /// Sets the cancellation token the run shares.
+    /// Sets the cancellation token.
     #[must_use]
     pub fn with_cancel(mut self, cancel: CancellationToken) -> Self {
         self.cancel = cancel;
@@ -178,7 +176,7 @@ impl OpenAiCompatible {
     ///
     /// # Errors
     ///
-    /// [`ProviderError::Transport`] if the client cannot be built at all.
+    /// Returns [`ProviderError::Transport`] when the client cannot be built.
     pub fn new(config: OpenAiCompatibleConfig) -> Result<Self, ProviderError> {
         let client = reqwest::Client::builder()
             .connect_timeout(config.timeouts.connect)
@@ -190,18 +188,122 @@ impl OpenAiCompatible {
         Ok(Self { config, client })
     }
 
-    /// The configuration this adapter was built with.
+    /// The configuration this provider was built with.
     #[must_use]
     pub fn config(&self) -> &OpenAiCompatibleConfig {
         &self.config
     }
 
-    /// The absolute URL of a completion call.
+    /// The absolute URL of the chat-completions endpoint.
     fn endpoint(&self) -> String {
         format!("{}{}", self.config.base_url.trim_end_matches('/'), wire::PATH)
     }
 
-    /// Turns an HTTP failure into the typed error the spec names, reading the provider's message.
+    /// Answers in one shot; the total-timeout wrapper is in `AIProvider::complete`.
+    async fn complete_inner(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
+        let body = wire::request_body(&request, &self.config.model, false);
+        let seed = seed_of(&request.idempotency_key);
+        let idempotent = !request.idempotency_key.is_empty();
+        let response = self.dispatch(&body, idempotent, seed).await?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| self.classify(error))?;
+        wire::parse_completion(&self.config.id, &bytes)
+    }
+
+    /// Sends one attempt, honouring the request timeout and racing cancellation.
+    async fn attempt(&self, body: &Value) -> Result<reqwest::Response, ProviderError> {
+        let provider = self.config.id.clone();
+        let mut request = self
+            .client
+            .post(self.endpoint())
+            .timeout(self.config.timeouts.request)
+            .header(CONTENT_TYPE, "application/json");
+        if let Auth::Bearer(secret) = &self.config.auth {
+            // Constructing the header by hand keeps an invalid credential a typed error rather than
+            // a panic inside reqwest, and none of this prints the value.
+            let header = HeaderValue::from_str(&format!("Bearer {}", secret.expose())).map_err(|_| {
+                ProviderError::InvalidRequest {
+                    provider: provider.clone(),
+                    detail: "the configured credential is not a valid HTTP header value".to_owned(),
+                }
+            })?;
+            request = request.header(AUTHORIZATION, header);
+        }
+        let encoded = serde_json::to_vec(body).map_err(|error| ProviderError::InvalidRequest {
+            provider: provider.clone(),
+            detail: error.to_string(),
+        })?;
+        let cancel = self.config.cancel.clone();
+        tokio::select! {
+            () = cancel.cancelled() => Err(ProviderError::Cancelled { provider }),
+            result = request.body(encoded).send() => result.map_err(|error| self.classify(error)),
+        }
+    }
+
+    /// Sends the body, retrying a retryable failure when `idempotent` allows it.
+    async fn dispatch(
+        &self,
+        body: &Value,
+        idempotent: bool,
+        seed: u64,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let mut attempt = 0u32;
+        loop {
+            let error = match self.attempt(body).await {
+                Ok(response) if response.status().is_success() => return Ok(response),
+                Ok(response) => self.failure(response).await,
+                Err(error) => error,
+            };
+            if !self.may_retry(&error, idempotent, attempt) {
+                return Err(error);
+            }
+            self.pause(attempt, seed, &error).await;
+            attempt += 1;
+        }
+    }
+
+    /// Whether the loop may make another attempt.
+    fn may_retry(&self, error: &ProviderError, idempotent: bool, attempt: u32) -> bool {
+        idempotent && attempt < self.config.retry.max_retries && RetryPolicy::is_retryable(error)
+    }
+
+    /// Waits out the backoff, logging the retry and watching for cancellation.
+    async fn pause(&self, attempt: u32, seed: u64, error: &ProviderError) {
+        let delay = self.delay(attempt, seed, error);
+        tracing::warn!(
+            provider = %self.config.id,
+            code = error.code(),
+            retry = attempt + 1,
+            delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+            "provider call failed; retrying",
+        );
+        let cancel = self.config.cancel.clone();
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => {}
+            () = tokio::time::sleep(delay) => {}
+        }
+    }
+
+    /// The pause before the next attempt: the provider's `Retry-After` when it gave one, the
+    /// policy's backoff otherwise.
+    fn delay(&self, attempt: u32, seed: u64, error: &ProviderError) -> Duration {
+        if let ProviderError::RateLimited {
+            retry_after: Some(after),
+            ..
+        } = error
+        {
+            return (*after).min(self.config.retry.max_delay);
+        }
+        self.config.retry.delay(attempt, seed)
+    }
+
+    /// The typed error for an HTTP failure, read from the provider's own body.
     async fn failure(&self, response: reqwest::Response) -> ProviderError {
         let provider = self.config.id.clone();
         let status = response.status();
@@ -223,7 +325,9 @@ impl OpenAiCompatible {
                 provider,
                 status: code,
             },
-            code if (400..500).contains(&code) => ProviderError::InvalidRequest { provider, detail },
+            code if (400..500).contains(&code) => {
+                ProviderError::InvalidRequest { provider, detail }
+            }
             code => ProviderError::MalformedResponse {
                 provider,
                 detail: format!("unexpected HTTP status {code}"),
@@ -231,104 +335,7 @@ impl OpenAiCompatible {
         }
     }
 
-    /// Sends one attempt, honouring the request timeout and racing cancellation.
-    async fn attempt(&self, body: &Value) -> Result<reqwest::Response, ProviderError> {
-        let provider = self.config.id.clone();
-        let mut request = self
-            .client
-            .post(self.endpoint())
-            .timeout(self.config.timeouts.request)
-            .header(CONTENT_TYPE, "application/json");
-        if let Auth::Bearer(secret) = &self.config.auth {
-            // Constructing the header by hand is what keeps an invalid credential a typed error
-            // rather than a panic inside reqwest, and none of it prints the value.
-            let value = HeaderValue::from_str(&format!("Bearer {}", secret.expose())).map_err(|_| {
-                ProviderError::InvalidRequest {
-                    provider: provider.clone(),
-                    detail: "the configured credential is not a valid HTTP header value".to_owned(),
-                }
-            })?;
-            request = request.header(AUTHORIZATION, value);
-        }
-        let encoded = serde_json::to_vec(body).map_err(|error| ProviderError::InvalidRequest {
-            provider: provider.clone(),
-            detail: error.to_string(),
-        })?;
-        let cancel = self.config.cancel.clone();
-        tokio::select! {
-            () = cancel.cancelled() => Err(ProviderError::Cancelled { provider }),
-            result = request.body(encoded).send() => {
-                result.map_err(|error| self.classify(error))
-            }
-        }
-    }
-
-    /// Sends the body with bounded retries, returning a successful response.
-    async fn dispatch(
-        &self,
-        body: &Value,
-        idempotent: bool,
-        seed: u64,
-    ) -> Result<reqwest::Response, ProviderError> {
-        let mut attempt = 0u32;
-        loop {
-            match self.attempt(body).await {
-                Ok(response) if response.status().is_success() => return Ok(response),
-                Ok(response) => {
-                    let error = self.failure(response).await;
-                    if !self.may_retry(&error, idempotent, attempt) {
-                        return Err(error);
-                    }
-                    self.pause(attempt, seed, &error).await;
-                }
-                Err(error) => {
-                    if !self.may_retry(&error, idempotent, attempt) {
-                        return Err(error);
-                    }
-                    self.pause(attempt, seed, &error).await;
-                }
-            }
-            attempt += 1;
-        }
-    }
-
-    /// Whether the loop may make another attempt.
-    fn may_retry(&self, error: &ProviderError, idempotent: bool, attempt: u32) -> bool {
-        idempotent && attempt < self.config.retry.max_retries && RetryPolicy::is_retryable(error)
-    }
-
-    /// Waits out the backoff, logging the retry and watching for cancellation.
-    async fn pause(&self, attempt: u32, seed: u64, error: &ProviderError) {
-        let delay = self.delay(attempt, seed, error);
-        tracing::warn!(
-            provider = %self.config.id,
-            code = error.code(),
-            attempt = attempt + 1,
-            delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-            "provider call failed; retrying"
-        );
-        let cancel = self.config.cancel.clone();
-        tokio::select! {
-            () = tokio::time::sleep(delay) => {}
-            () = cancel.cancelled() => {}
-        }
-    }
-
-    /// The pause before `attempt`, preferring the provider's own retry-after hint.
-    fn pause_for(&self, error: &ProviderError) -> Option<Duration> {
-        match error {
-            ProviderError::RateLimited {
-                retry_after: Some(hint),
-                ..
-            } => Some((*hint).min(self.config.retry.max_delay)),
-            _ => None,
-        }
-    }
-
-    /// The pause before `attempt`.
-    async fn _unused(&self) {}
-
-    /// The classification of a transport-level failure.
+    /// The typed error for a failure below HTTP.
     fn classify(&self, error: reqwest::Error) -> ProviderError {
         let provider = self.config.id.clone();
         if error.is_timeout() {
@@ -348,20 +355,8 @@ impl OpenAiCompatible {
             source: Box::new(error),
         }
     }
-
-    /// The pause before another attempt, either the policy's or the provider's hint.
-    fn delay_for(&self, attempt: u32, seed: u64, error: &ProviderError) -> Duration {
-        self.pause_for(error)
-            .unwrap_or_else(|| self.config.retry.delay(attempt, seed))
-    }
-
-    /// The prediction used by `pause`.
-    fn retry_ready(&self) -> bool {
-        true
-    }
 }
 
-/// Sends the body and, on failure, either retries or returns the typed error.
 #[async_trait]
 impl AIProvider for OpenAiCompatible {
     fn id(&self) -> &ProviderId {
@@ -405,26 +400,8 @@ impl AIProvider for OpenAiCompatible {
     }
 }
 
-impl OpenAiCompatible {
-    /// Answers in one shot, without the total-timeout wrapper.
-    async fn complete_inner(
-        &self,
-        request: CompletionRequest,
-    ) -> Result<CompletionResponse, ProviderError> {
-        let body = wire::request_body(&request, &self.config.model, false);
-        let seed = seed_of(&request.idempotency_key);
-        let idempotent = !request.idempotency_key.is_empty();
-        let response = self.dispatch(&body, idempotent, seed).await?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| self.classify(error))?;
-        wire::parse_completion(&self.config.id, &bytes)
-    }
-}
-
-/// The `Retry-After` header as whole seconds; a date form is left to a later task.
-fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+/// The `Retry-After` header as whole seconds; the date form is left to a later task.
+fn retry_after(headers: &HeaderMap) -> Option<Duration> {
     headers
         .get(RETRY_AFTER)?
         .to_str()
@@ -435,7 +412,7 @@ fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
         .map(Duration::from_secs)
 }
 
-/// A deterministic seed for the retry jitter.
+/// A deterministic seed for the retry jitter: FNV-1a over the idempotency key.
 fn seed_of(idempotency_key: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in idempotency_key.as_bytes() {

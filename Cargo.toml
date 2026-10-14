@@ -96,7 +96,8 @@ module_name_repetitions = "allow"
 #   tokio      - the async runtime the provider contract in ARCHITECTURE.md 2.2 and 2.2's "Provider
 #                HTTP" row assume; TASK-051 is the first crate to make a network call. Features are
 #                per use: `time` for the three timeouts, `sync` for the cancellation token, `rt` for
-#                the streaming task; dev-only `macros` gives the tests `#[tokio::test]`. TASK-051.
+#                the streaming task, and `macros` for `tokio::select!` (cancellation) and the tests'
+#                `#[tokio::test]`. TASK-051.
 #   reqwest    - the HTTP client for the OpenAI-compatible adapter. default-features is false so
 #                native-tls (and the system OpenSSL the sql/jsonschema comment above avoids) cannot
 #                arrive; `rustls-tls` is the TLS backend ARCHITECTURE 2.2 names, and `stream` is what
@@ -122,7 +123,7 @@ futures-executor = "0.3"
 # for `time` (the three timeouts) and `sync` (the cancellation token); `macros`/`rt` are enabled only
 # by the dev-dependency, for `#[tokio::test]`. `reqwest` turns off its default features so
 # `default-tls` (native-tls) cannot arrive, and turns on `rustls-tls` + `stream` (SSE).
-tokio = { version = "1", features = ["rt", "time", "sync"] }
+tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 tracing = "0.1"
 

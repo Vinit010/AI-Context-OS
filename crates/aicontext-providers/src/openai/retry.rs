@@ -41,7 +41,10 @@ impl RetryPolicy {
             .base_delay
             .saturating_mul(1u32 << attempt.min(16))
             .min(self.max_delay);
-        backoff.saturating_add(jitter(backoff, seed ^ u64::from(attempt)))
+        // The cap holds after the jitter too, so `max_delay` is a real ceiling, not a hint.
+        backoff
+            .saturating_add(jitter(backoff, seed ^ u64::from(attempt)))
+            .min(self.max_delay)
     }
 
     /// Whether the spec says to retry `error` at all: a transport failure or 429/5xx, nothing else.

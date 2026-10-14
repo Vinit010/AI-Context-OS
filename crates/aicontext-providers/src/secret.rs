@@ -86,8 +86,10 @@ mod tests {
 
     #[test]
     fn a_secret_nested_in_a_derived_debug_stays_redacted() {
-        // The real failure mode: not `Secret` itself, but a config that derives Debug.
+        // The real failure mode: not `Secret` itself, but a config that derives Debug. The field is
+        // read only through that derived `Debug`, which is why the dead-code lint is silenced.
         #[derive(Debug)]
+        #[allow(dead_code)]
         struct Holder {
             secret: Secret,
         }
