@@ -11,13 +11,14 @@
 //! droppable candidate a budget has to cut.
 
 use aicontext_context::{
-    ContextAssembler, ContextBudget, ContextIndex, DEFAULT_MAX_TOKENS, DocumentKind, PACKET_VERSION,
-    PlanOptions, RetrievalPlan, Tier, Trust,
+    ContextAssembler, ContextBudget, ContextIndex, DEFAULT_MAX_TOKENS, DocumentKind,
+    PACKET_VERSION, PlanOptions, RetrievalPlan, Tier, Trust,
 };
 use aicontext_testkit::TempProject;
 
 /// The agent entry point, tier 1. No front-matter id, so it is named by its path.
-const AI: &str = "---\ntype: agent-entry-point\ntitle: AI entry point\n---\n\n# AI\n\nStart here.\n";
+const AI: &str =
+    "---\ntype: agent-entry-point\ntitle: AI entry point\n---\n\n# AI\n\nStart here.\n";
 
 /// Project policy, tier 2.
 const RULES: &str = "---\nid: RULES-001\ntype: rules\ntitle: Rules\nstore: postgres\n---\n\n\
@@ -28,8 +29,7 @@ const SPEC: &str = "---\nid: SPEC-context\ntype: spec\ntitle: Context spec\n---\
     # Context\n\nThe retrieval budget degrades from the lowest tier upward, so policy is never cut.\n";
 
 /// Architecture, tier 3. It agrees with the rules about `store`, so it is not a conflict.
-const ARCHITECTURE: &str =
-    "---\nid: ARCH-001\ntype: architecture\ntitle: Architecture\nstore: postgres\n---\n\n\
+const ARCHITECTURE: &str = "---\nid: ARCH-001\ntype: architecture\ntitle: Architecture\nstore: postgres\n---\n\n\
     # Architecture\n\nThe context engine is deterministic and offline.\n";
 
 /// History, tier 9. It disagrees with the rules about `store`, which is the conflict.
@@ -107,8 +107,16 @@ fn a_task_seeds_policy_and_its_linked_documents_as_untrusted_data() {
     assert_eq!(spec.trust, Trust::Untrusted);
     assert_eq!(spec.content_ref.to_string_lossy(), ".ai/specs/context.md");
 
-    assert!(packet.untrusted_content_ids.contains(&"SPEC-context".to_string()));
-    assert!(packet.untrusted_content_ids.contains(&"CHG-001".to_string()));
+    assert!(
+        packet
+            .untrusted_content_ids
+            .contains(&"SPEC-context".to_string())
+    );
+    assert!(
+        packet
+            .untrusted_content_ids
+            .contains(&"CHG-001".to_string())
+    );
     assert!(
         packet
             .provenance
@@ -179,7 +187,10 @@ fn a_capped_droppable_tier_is_cut_and_reported() {
         .expect("assembles");
 
     assert!(
-        packet.retrieved.iter().all(|item| item.tier != Tier::HISTORY),
+        packet
+            .retrieved
+            .iter()
+            .all(|item| item.tier != Tier::HISTORY),
         "a tier capped at zero contributes nothing: {:?}",
         retrieved_ids(&packet)
     );
@@ -310,5 +321,8 @@ fn assembly_is_deterministic() {
         .assemble(&plan, &index)
         .expect("assembles");
 
-    assert_eq!(once, again, "the same plan and index must produce one packet");
+    assert_eq!(
+        once, again,
+        "the same plan and index must produce one packet"
+    );
 }

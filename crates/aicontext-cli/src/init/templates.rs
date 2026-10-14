@@ -209,6 +209,22 @@ const BASE: &[TemplateFile] = &[
     },
 ];
 
+/// The base scaffold's documents, which every initialised project has regardless of template.
+///
+/// `health` counts these as the expected documents for context completeness (`docs/CONTEXT_SPEC.md`
+/// §9). Directories and the permission policy are not documents, so only the `.md` entries count.
+pub(crate) fn base_documents() -> Vec<&'static str> {
+    BASE.iter()
+        .filter(|file| {
+            !file.dir_only
+                && std::path::Path::new(file.path)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        })
+        .map(|file| file.path)
+        .collect()
+}
+
 /// The schema set, embedded from `schemas/` at the repository root.
 ///
 /// These are the same bytes `crates/aicontext-cli/tests/schemas.rs` validates against the Draft

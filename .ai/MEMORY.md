@@ -793,6 +793,78 @@ and `doctor --explain` deliberately returns `Unknown` for it, because the `Expla
 to doctor checks. It is listed in the §8 table anyway, with a note, because that table is the `CTX`
 catalogue a reader will look in.
 
+## MEM-027 - The packet is references only; content enters at render time, under an untrusted envelope
+
+```yaml
+id: MEM-027
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [retrieval, context-engine, cli, trust, packet, TASK-037]
+```
+
+`aicontext context` (`TASK-037`, `docs/CONTEXT_SPEC.md` §7.6) publishes one object: the `ContextPacket`
+is the envelope's `data`, unchanged. The CLI approves a second renderer only for the prompt view, and
+`--format json` is an alias for the global `--json` that loses to it when both are given — the flag is
+the machine contract, so it is the one that wins. The packet holds **references and metadata, never
+bodies**: `--json` and the default human view read nothing from a document, and `--format prompt` — the
+one content-bearing view — reads each body from the index at render time. `ContextPacket::render_prompt`
+lives in the context crate, not the CLI, because wrapping retrieved content in a `BEGIN/END UNTRUSTED
+DATA` envelope is the trust boundary (`RULES.md` §9, `MEM-004`), and the boundary belongs beside the
+type that decides what is untrusted. `--explain` changes only the human and prompt views, adding
+`RetrievalPlan::explain` and every provenance trace; the packet it is rendered from is identical.
+
+The packet splits candidates by the ladder, not by a new rule: tiers 1–2 (the mandatory `AI.md` and
+`RULES.md`, plus any `--include`) are the `policy` region; every other candidate is `retrieved` and
+carries `trust: untrusted`. `Trust` is a **one-variant enum**, so no code path can mark retrieved
+content as instruction — the type makes `MEM-004` unrepresentable rather than merely discouraged.
+`include_kinds` and `exclude_ids` are applied **before** the budget, so a document that is both
+excludable and over budget is reported `excluded`, not `budget`; the reason records the first thing
+that happened to it. `AI.md` and `RULES.md` are exclusion-protected by path, so `--exclude` can never
+remove the always-on entry point even when it names their id — the same invariant the budget keeps by
+refusing to drop tiers 1–5 (`MEM-026`).
+
+The command keeps the same index contract as `doctor`: load `.aicontext/index.json` when present,
+`build` with those entries as fingerprints so a warm run re-reads only what changed, and `save`
+best-effort — a failed write is `CTX-019` at **info** level, not an error, because the cache is
+derivable and a read-only checkout must still assemble. Two consequences of the index scope carry
+forward and are worth restating: the scan covers only `root/.ai`, so a task whose `spec` or `touches`
+point at `crates/**` yields a dropped provenance trace (`missing` or a broken link) rather than a
+retrieved document, and the packet therefore describes what the index holds, not what the repository
+holds. Widening the index was deliberately out of `TASK-037`'s scope.
+
+## MEM-028 - Health reports counts it can source; a metric with no source is absent, not zero
+
+```yaml
+id: MEM-028
+category: constraint
+scope: context-engine
+status: active
+confidence: high
+recorded: 2026-10-14
+supersedes: null
+tags: [health, metrics, cli, observability, TASK-038]
+```
+
+`aicontext health` (`TASK-038`, `docs/CONTEXT_SPEC.md` §9) publishes the §9 metrics as counts, each with
+the command that reproduces it and no composite score. The constraint that decides every disagreement is
+this: a metric is worth showing only if it has a source the command can point at, and a metric with no
+source is left out rather than shown as zero. Stale memory and plugin health are therefore absent, not
+zero — nothing counts them yet. The same rule makes documentation freshness `n/a` with a reason outside
+a Git repository, and makes a document with no `touches` count as neither fresh nor stale: a zero would
+be a claim the tree does not support.
+
+The counts are not a second implementation of the rules. The check-derived metrics call the same
+`aicontext_context::doctor::run` that `doctor` calls, and the command beside each metric is the exact
+`aicontext doctor --only <code>` that reproduces it, so the two commands cannot drift into disagreeing
+about the same tree. `health` is read-only, more strictly than `context`: it builds the index in memory
+and never saves it, so a report never creates `.aicontext/`. Two consequences carry forward: the
+reproducing command is part of the contract rather than a hint, and a future metric should be added only
+once its source exists.
+
 ## Open questions
 
 | # | Question | Blocks | Resolve by |
@@ -802,7 +874,7 @@ catalogue a reader will look in.
 | Q-3 | Should `doctor` fail the build on a deprecation warning, or only on errors? | TASK-014 | Phase 1 |
 | Q-4 | Is the approval prompt a full-screen TUI, or a line-based prompt that composes with pipes? | TASK-072 | Phase 4 |
 | Q-5 | Does an audit record need a stable third-party timestamp authority to resist backdating? | TASK-075 | Phase 4 |
-| Q-6 | Task inline-vs-split threshold is set at 300 entities; confirm against real usage before Phase 4 | TASK-038 | Phase 2 |
+| Q-6 | Task inline-vs-split threshold is set at 300 entities; confirm against real usage before Phase 4 | TASK-038 | **RESOLVED in TASK-038: the register holds 41 inline tasks, well under the 300-entity threshold, and `aicontext health` now reports the register's task count, so crossing it is observable. Keep 300 and revisit if the count approaches it** |
 
 ---
 

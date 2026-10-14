@@ -1,10 +1,11 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
-//! Only the commands that exist — `init`, `status`, `doctor`, `context`, `export`, and `import` — are
-//! declared to `clap`. The rest of the tree is listed in [`PENDING`] with the task that will provide
-//! it, so `--help` shows what exists and what does not, and an unimplemented command exits 2 naming its
-//! task instead of a usage error about an unknown word. Declaring the tree as stub subcommands would
-//! put a second copy of every command name in this file, and the two copies would drift.
+//! Only the commands that exist — `init`, `status`, `doctor`, `health`, `context`, `export`, and
+//! `import` — are declared to `clap`. The rest of the tree is listed in [`PENDING`] with the task
+//! that will provide it, so `--help` shows what exists and what does not, and an unimplemented
+//! command exits 2 naming its task instead of a usage error about an unknown word. Declaring the tree
+//! as stub subcommands would put a second copy of every command name in this file, and the two copies
+//! would drift.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -117,6 +118,8 @@ pub(crate) enum Command {
     Status(StatusArgs),
     /// Report what is wrong with this `.ai/` tree and what to do about it. Writes nothing.
     Doctor(DoctorArgs),
+    /// Report transparent context metrics: counts, each with the command that reproduces it.
+    Health,
     /// Assemble a context packet for a task or a query.
     Context(ContextArgs),
     /// Write a deterministic, verifiable archive of `.ai/`.
@@ -322,15 +325,10 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init`, `status`, `doctor`, `context`, `export`, and `import` are implemented and must not appear
-/// here, or a working command would be refused by the pending check. A command here exits 2 with the
-/// code below and names its task, which §3 requires — it is never a silent no-op.
+/// `init`, `status`, `doctor`, `health`, `context`, `export`, and `import` are implemented and must
+/// not appear here, or a working command would be refused by the pending check. A command here exits
+/// 2 with the code below and names its task, which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
-    PendingCommand {
-        name: "health",
-        task: Some("TASK-038"),
-        summary: "Transparent context metrics",
-    },
     PendingCommand {
         name: "plan",
         task: None,
@@ -438,13 +436,14 @@ Commands:
                                                              available
   doctor                   Report what is wrong with .ai/ and how to fix it
                                                              available
+  health                   Transparent context metrics: counts, no composite score
+                                                             available
   context                  Assemble a context packet for a task or query
                                                              available
   export <archive>         Write a deterministic archive of .ai/        available
   import <archive>         Verify an archive and write it into .ai/     available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
-  health                   Transparent context metrics                            TASK-038
   plan                     Produce an implementation plan for a task
   task | memory | decision | bug | change | workflow
                            Project registers
@@ -582,7 +581,8 @@ mod tests {
 
     #[test]
     fn a_pending_command_is_found_by_name() {
-        assert_eq!(pending("health").map(|c| c.task), Some(Some("TASK-038")));
+        assert_eq!(pending("plan").map(|c| c.task), Some(None));
+        assert_eq!(pending("agent").map(|c| c.task), Some(Some("TASK-055")));
         assert!(pending("init").is_none());
         assert!(
             pending("status").is_none(),
@@ -591,6 +591,10 @@ mod tests {
         assert!(
             pending("doctor").is_none(),
             "doctor is implemented, so it must not also be pending"
+        );
+        assert!(
+            pending("health").is_none(),
+            "health is implemented, so it must not also be pending"
         );
         assert!(
             pending("context").is_none(),
@@ -734,6 +738,17 @@ mod tests {
         assert_eq!(budget, Some(8000));
         assert!(explain);
         assert_eq!(format, OutputFormat::Prompt);
+    }
+
+    #[test]
+    fn health_takes_no_flags_of_its_own() {
+        let Cli {
+            command: Command::Health,
+            ..
+        } = Cli::try_parse_from(["aicontext", "health", "--json"]).expect("health parses")
+        else {
+            panic!("expected the health command");
+        };
     }
 
     #[test]

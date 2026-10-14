@@ -314,7 +314,7 @@ fn data(root: &Path, report: &checks::Report, args: &DoctorArgs) -> DoctorData {
 /// Discovery failing is reported and then treated as "nothing observed" rather than being allowed to
 /// end the run: an advisory check that cannot see a language stays silent about that language, and
 /// says so, rather than inventing findings.
-fn observed_languages(root: &Path, terminal: &mut Terminal) -> Vec<String> {
+pub(crate) fn observed_languages(root: &Path, terminal: &mut Terminal) -> Vec<String> {
     match detect::detect(root) {
         Ok(signals) => signals
             .into_iter()

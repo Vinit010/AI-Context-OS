@@ -168,18 +168,18 @@ The suite is expected to pass on the pinned toolchain and on the MSRV; CI checks
 
 ## Using the tool
 
-`init`, `status`, `doctor`, `export`, and `import` are the commands that run today. The rest are
-listed so the shape is on the record; each one exits with code 2 and names the task that will build
-it, rather than pretending to work. Exit codes and the `--json` envelope are a stable contract, in
-[`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
+`init`, `status`, `doctor`, `health`, `context`, `export`, and `import` are the commands that run
+today. The rest are listed so the shape is on the record; each one exits with code 2 and names the task
+that will build it, rather than pretending to work. Exit codes and the `--json` envelope are a stable
+contract, in [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md).
 
 ```text
 aicontext
 ├─ init                     create the .ai skeleton              available
 ├─ status                   project, branch, phase, current task, changes   available
 ├─ doctor                   validate and diagnose context                  available
-├─ health                   transparent context metrics                     TASK-038
-├─ context                  assemble a context packet                       TASK-037
+├─ health                   transparent context metrics                     available
+├─ context                  assemble a context packet                       available
 │   ├─ show                 render the packet
 │   └─ explain              show the plan, scores, and drops
 ├─ plan                     produce an implementation plan for a task

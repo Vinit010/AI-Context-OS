@@ -502,6 +502,24 @@ Every metric is a count with the command that reproduces it. There is no composi
 | Stale memory | Active memory entries contradicted by a newer document |
 | Plugin health | Manifest validity, granted permissions, last successful call |
 
+`aicontext health` reports the first six. Stale memory and plugin health are not reported yet: the
+first has no memory check to count, the second no plugin runtime, and a metric with nothing to read
+would be an invented number. The source of each implemented metric is fixed, so the metric and the
+command beside it cannot disagree:
+
+- **Context completeness** counts the documents `init` always writes that are present under `.ai/`
+  (`templates/base`); `aicontext doctor` lists the same documents.
+- **Architecture consistency** is the `CTX-013` finding count.
+- **Broken references** is the `CTX-007` and `CTX-008` finding count, broken down by code.
+- **Task consistency** is the `CTX-009`, `CTX-010`, and `CTX-011` finding count, shown beside the
+  register's tasks and their statuses.
+- **Decision coverage** is a count of decision records, not a claim about `ARCHITECTURE.md`: it is the
+  number whose front matter says `status: accepted` over all decision records in `.ai/decisions/`,
+  because no field maps an architectural boundary to an ADR yet.
+- **Documentation freshness** is the number of indexed documents whose `updated` predates the
+  committer date of the newest commit touching the paths in their `touches`. A document with no
+  `touches` is not counted either way, and outside a Git repository the metric is unavailable.
+
 ---
 
 ## 10. Versioning

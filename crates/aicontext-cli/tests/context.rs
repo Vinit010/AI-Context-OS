@@ -17,7 +17,8 @@ use std::time::Instant;
 use tempfile::TempDir;
 
 /// The agent entry point, tier 1.
-const AI: &str = "---\ntype: agent-entry-point\ntitle: AI entry point\n---\n\n# AI\n\nStart here.\n";
+const AI: &str =
+    "---\ntype: agent-entry-point\ntitle: AI entry point\n---\n\n# AI\n\nStart here.\n";
 
 /// Project policy, tier 2.
 const RULES: &str = "---\nid: RULES-001\ntype: rules\ntitle: Rules\nstore: postgres\n---\n\n\
@@ -189,7 +190,10 @@ fn json_output_is_the_context_packet_envelope() {
 fn format_json_is_the_same_envelope_as_the_global_flag() {
     let (_outer, root) = fixture("payments-ledger");
     let global = run_in(&root, &["context", "--task", "TASK-001", "--json"]);
-    let alias = run_in(&root, &["context", "--task", "TASK-001", "--format", "json"]);
+    let alias = run_in(
+        &root,
+        &["context", "--task", "TASK-001", "--format", "json"],
+    );
 
     assert_eq!(alias.code, 0, "stderr was: {}", alias.stderr);
     assert_eq!(
@@ -201,7 +205,10 @@ fn format_json_is_the_same_envelope_as_the_global_flag() {
 #[test]
 fn format_prompt_puts_retrieved_content_in_an_untrusted_envelope() {
     let (_outer, root) = fixture("payments-ledger");
-    let run = run_in(&root, &["context", "--task", "TASK-001", "--format", "prompt"]);
+    let run = run_in(
+        &root,
+        &["context", "--task", "TASK-001", "--format", "prompt"],
+    );
     assert_eq!(run.code, 0, "stderr was: {}", run.stderr);
 
     assert!(
@@ -313,7 +320,9 @@ fn excluding_policy_by_id_leaves_it_in_the_packet() {
     assert_eq!(run.code, 0, "stderr was: {}", run.stderr);
 
     let body = json(&run);
-    let policy = body["data"]["policy"].as_array().expect("policy is an array");
+    let policy = body["data"]["policy"]
+        .as_array()
+        .expect("policy is an array");
     assert!(
         policy.iter().any(|item| item["id"] == "RULES-001"),
         "the always-on policy cannot be excluded: {policy:?}"
@@ -342,6 +351,52 @@ fn excluding_a_retrieved_document_removes_it() {
         retrieved.iter().all(|item| item["id"] != "SPEC-context"),
         "an excluded document is not retrieved: {retrieved:?}"
     );
+}
+
+#[test]
+fn a_query_without_a_task_seeds_lexical_retrieval() {
+    let (_outer, root) = fixture("payments-ledger");
+    let run = run_in(&root, &["context", "--query", "retrieval budget", "--json"]);
+    assert_eq!(run.code, 0, "stderr was: {}", run.stderr);
+
+    let body = json(&run);
+    assert_eq!(body["data"]["request"]["instruction"], "retrieval budget");
+    assert_eq!(body["data"]["request"]["task"], serde_json::Value::Null);
+    let retrieved = body["data"]["retrieved"].as_array().expect("retrieved");
+    assert!(
+        retrieved.iter().any(|item| item["id"] == "SPEC-context"),
+        "the query retrieves the document whose body matches it: {retrieved:?}"
+    );
+}
+
+#[test]
+fn include_force_includes_a_document_no_seed_would_retrieve() {
+    let (_outer, root) = fixture("payments-ledger");
+    let run = run_in(
+        &root,
+        &["context", "--include", ".ai/changes/CHG-001.md", "--json"],
+    );
+    assert_eq!(run.code, 0, "stderr was: {}", run.stderr);
+
+    let body = json(&run);
+    let retrieved = body["data"]["retrieved"].as_array().expect("retrieved");
+    let change = retrieved
+        .iter()
+        .find(|item| item["id"] == "CHG-001")
+        .expect("--include retrieves the change");
+    assert_eq!(change["reason"], "always included");
+    assert_eq!(change["trust"], "untrusted");
+}
+
+#[test]
+fn explain_adds_the_resolved_plan_to_the_human_view() {
+    let (_outer, root) = fixture("payments-ledger");
+    let run = run_in(&root, &["context", "--task", "TASK-001", "--explain"]);
+    assert_eq!(run.code, 0, "stderr was: {}", run.stderr);
+
+    assert!(run.stdout.contains("retrieval plan"), "{}", run.stdout);
+    assert!(run.stdout.contains("mandatory:"), "{}", run.stdout);
+    assert!(run.stdout.contains("globs:"), "{}", run.stdout);
 }
 
 #[test]

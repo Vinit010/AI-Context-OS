@@ -129,8 +129,17 @@ checked, including when the finding comes from a check that reads the document a
 
 ### `aicontext health`
 
-Counts and rates only. Every metric is accompanied by the command that reproduces it. No composite
-score.
+Counts and rates only. Every metric is accompanied by the command that reproduces it, and there is no
+composite score: each number is a count a developer can reproduce by hand. The metrics are the six
+`docs/CONTEXT_SPEC.md` §9 defines that this release can source — context completeness, architecture
+consistency, task consistency, decision coverage, broken references, and documentation freshness. The
+command takes no flags of its own beyond the global ones and writes nothing: it does not even rebuild
+the index cache. It exits 0 for a report and 3 when the tree carries an error-level finding (§5). A
+metric that cannot be computed is printed as `n/a` with its reason rather than as a zero that would
+read as "nothing wrong" — documentation freshness, for example, is unavailable outside a Git
+repository. The two remaining §9 metrics, stale memory and plugin health, are not reported: the first
+has no memory check to count and the second has no plugin runtime, so a number for either would be
+invented.
 
 ### `aicontext context`
 
