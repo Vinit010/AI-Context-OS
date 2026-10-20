@@ -68,11 +68,11 @@ list for Phase 1–2:
 |-------|---------|---------------|
 | `clap` (derive) | CLI parsing, completions | De-facto standard; hand-rolling is a bad use of effort |
 | `serde`, `serde_json` | Wire + file formats | Ubiquitous; schema-first serialisation is required anyway |
-| `yaml_serde` (0.10) | Front matter | Required by the storage contract, and it is the only maintained crate that is published by a steward rather than an individual. Pinned in `ADR-007`; reached only through the internal `YamlCodec` trait, so a swap is contained |
-| `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2**. In `TASK-015` it is a **dev-dependency only**, with `default-features = false`, used by the CI meta-schema check; the runtime dependency decision is deferred to `TASK-014` |
+| `yaml_serde` (0.10) | Front matter | Required by the storage contract, and it is the only maintained crate that is published by a steward rather than an individual. Pinned in `ADR-007`; reached through the internal `YamlCodec` trait, so a swap is contained. `TASK-053` adds the one other direct reader: `.ai/ai.yaml` is a fixed-path *config* file the context engine does not parse (`CONTEXT_SPEC.md` §1), so it cannot go through `YamlCodec`, and reaching through another crate's internal trait would break rule 6 in §3.2 |
+| `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2**. In `TASK-015` it is a **dev-dependency only**, with `default-features = false`, used by the CI meta-schema check and, from `TASK-053`, by `crates/aicontext-cli/tests/connect.rs` to validate the `.ai/ai.yaml` `connect` wrote against the schema; the runtime dependency decision is deferred to `TASK-014` |
 | `thiserror` | Error types | Removes boilerplate; errors must be typed (RULES §5) |
 | `anyhow` | CLI boundary only | Contextual error chaining at the top, nowhere else |
-| `tokio` | Async runtime | Provider HTTP and plugin process supervision are I/O-bound. Added by `TASK-051`, the first crate to make a network call; features are per use (`rt`, `time`, `sync`, `macros`) |
+| `tokio` | Async runtime | Provider HTTP and plugin process supervision are I/O-bound. Added by `TASK-051`, the first crate to make a network call; features are per use (`rt`, `time`, `sync`, `macros`). `TASK-053` adds `net` to `aicontext-cli` only: `connect` builds a current-thread runtime of its own and `enable_all()` needs the TCP driver, and the providers crate has no business asking for a driver it does not own |
 | `reqwest` + `rustls` | HTTP | Provider calls and plugin transports. `rustls` avoids a system OpenSSL dependency. Added by `TASK-051` with `default-features = false` so `native-tls` cannot arrive, and only the `rustls-tls` and `stream` features. The `rustls-tls` feature resolves to `rustls` with the `ring` provider, which compiles C through `cc` at **build time** — the one recorded deviation from `RULES.md` §6, scoped in `ADR-009`: `ring` needs a C toolchain to build but adds no system library and no runtime-or-network prerequisite |
 | `keyring` (3.6) | OS keychain | Credential storage without writing secrets to disk in our own format. Added by `TASK-052`; each backend is the OS credential store alone — Windows Credential Manager, macOS Keychain, Linux kernel keyring — so no C compiler and no third-party system library, and `RULES.md` §6 holds without a deviation. Pinned below 4.x, which raises the MSRV above our 1.85 floor |
 | `sha2` | Content hashing | Index invalidation, audit chain, argument digests. Widely audited |
@@ -203,7 +203,11 @@ Hard rules, checked in CI:
 6. No crate may `use` another crate's private module. Public surfaces are `pub` and documented.
 7. `aicontext-context` owns the front-matter value type and keeps the YAML library to itself. `Value`
    is `#[non_exhaustive]`, so only a parsed document can produce one, and a test scans `src/` and
-   fails if `yaml_serde` appears in any module but `codec.rs`. See `ADR-007` and `MEM-012`.
+   fails if `yaml_serde` appears in any module but `codec.rs`. See `ADR-007` and `MEM-012`. The rule
+   is about *front matter* — the context crate's own concern — not about YAML everywhere: a
+   fixed-path config file (`CONTEXT_SPEC.md` §1) is not a document, has no front matter, and belongs
+   to whichever command reads it. `TASK-053` gives `.ai/ai.yaml` exactly one such reader,
+   `aicontext-cli/src/connect/config.rs`, whose job is stated in its module docs.
 
 ---
 

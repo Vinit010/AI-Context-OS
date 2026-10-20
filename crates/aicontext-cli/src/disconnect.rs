@@ -116,6 +116,8 @@ fn delete_credential(keychain: &dyn Keychain, entry: &ProviderEntry) -> Result<b
 struct Outcome {
     provider: String,
     config_path: String,
+    /// Whether `.ai/ai.yaml` was removed, which happens only when it listed no providers left.
+    config_deleted: bool,
     keychain_entry: Option<String>,
     keychain_deleted: bool,
     remaining: usize,
@@ -126,11 +128,13 @@ struct Outcome {
 struct DisconnectData {
     provider: String,
     config_path: String,
+    /// Whether the profile file itself was removed because no providers remained.
+    config_deleted: bool,
     /// The keychain entry the profile named, when it named one.
     keychain_entry: Option<String>,
     /// Whether an entry was actually removed from the OS keychain.
     keychain_deleted: bool,
-    /// How many providers the file still lists.
+    /// How many providers the file still lists (or would, if it still existed).
     remaining_providers: usize,
 }
 
@@ -139,6 +143,7 @@ fn report_json(outcome: &Outcome, terminal: &mut Terminal) -> Exit {
     let data = DisconnectData {
         provider: outcome.provider.clone(),
         config_path: outcome.config_path.clone(),
+        config_deleted: outcome.config_deleted,
         keychain_entry: outcome.keychain_entry.clone(),
         keychain_deleted: outcome.keychain_deleted,
         remaining_providers: outcome.remaining,
@@ -168,20 +173,28 @@ fn print_human(outcome: &Outcome, name: &str, root: &Path, terminal: &mut Termin
 
     terminal.identity("aicontext", name, project::vcs_label(root));
     terminal.row(&ok, "removed", &format!("provider `{}`", outcome.provider));
+    if outcome.config_deleted {
+        terminal.row(
+            &ok,
+            "config",
+            &format!("{} (no providers remain)", outcome.config_path),
+        );
+    } else {
+        terminal.row(&info, "config", &outcome.config_path);
+    }
     match (&outcome.keychain_entry, outcome.keychain_deleted) {
         (Some(entry), true) => terminal.row(&ok, "keychain", &format!("entry `{entry}` cleared")),
-        (Some(entry), false) => terminal.row(
-            &info,
-            "keychain",
-            &format!("no entry `{entry}` to clear"),
-        ),
+        (Some(entry), false) => {
+            terminal.row(&info, "keychain", &format!("no entry `{entry}` to clear"));
+        }
         (None, _) => terminal.row(&info, "keychain", "no credential was recorded"),
     }
-    terminal.summary(
-        &format!("{} provider(s) remain", outcome.remaining),
-        Exit::Ok,
-        "`aicontext connect --provider <id>`",
-    );
+    let counts = if outcome.remaining == 0 {
+        "no providers remain".to_string()
+    } else {
+        format!("{} provider(s) remain", outcome.remaining)
+    };
+    terminal.summary(&counts, Exit::Ok, "`aicontext connect --provider <id>`");
 }
 
 #[cfg(test)]
@@ -216,13 +229,19 @@ mod tests {
                 .entries
                 .lock()
                 .expect("lock")
-                .get(&(reference.service().to_string(), reference.account().to_string()))
+                .get(&(
+                    reference.service().to_string(),
+                    reference.account().to_string(),
+                ))
                 .map(|value| Secret::new(value.clone())))
         }
 
         fn set(&self, reference: &KeychainReference, secret: &Secret) -> Result<(), KeychainError> {
             self.entries.lock().expect("lock").insert(
-                (reference.service().to_string(), reference.account().to_string()),
+                (
+                    reference.service().to_string(),
+                    reference.account().to_string(),
+                ),
                 secret.expose().to_string(),
             );
             Ok(())
@@ -308,17 +327,38 @@ mod tests {
     }
 
     #[test]
-    fn removing_the_last_provider_empties_the_list_without_error() {
+    fn removing_the_last_provider_removes_the_file_instead_of_writing_an_empty_list() {
+        // `schemas/ai-config.schema.json` sets `providers: minItems 1`, so an emptied list would be a
+        // document that fails the schema other tools read it by. `init` never creates this file, so
+        // "no providers" is the state a project was in before the first `connect` — and that state is
+        // the file being absent.
         let temp = tempfile::tempdir().expect("tempdir");
         write_ai(
             temp.path(),
-            "providers:\n  - id: local\n    adapter: openai-compatible\n    auth:\n      type: none\n",
+            "version: 1\nproviders:\n  - id: local\n    adapter: openai-compatible\n    auth:\n      type: none\n",
         );
         let outcome = execute(&args("local"), temp.path(), &FakeKeychain::default()).expect("ok");
         assert_eq!(outcome.remaining, 0);
+        assert!(outcome.config_deleted, "{outcome:?}");
 
-        let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
-        assert!(!text.contains("id: local"), "{text}");
+        assert!(
+            !temp.path().join(".ai/ai.yaml").exists(),
+            "an empty provider list is a document the schema rejects, so the document goes"
+        );
+        assert!(
+            temp.path().join(".ai").is_dir(),
+            "only the file is removed; the `.ai/` tree is `init`'s to manage"
+        );
+    }
+
+    #[test]
+    fn a_file_with_providers_left_is_kept() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_ai(temp.path(), &file());
+        let outcome = execute(&args("local"), temp.path(), &FakeKeychain::default()).expect("ok");
+        assert!(!outcome.config_deleted, "{outcome:?}");
+        assert_eq!(outcome.remaining, 1);
+        assert!(temp.path().join(".ai/ai.yaml").exists());
     }
 
     #[test]
@@ -327,7 +367,10 @@ mod tests {
         write_ai(temp.path(), &file());
         let error = execute(&args("typo"), temp.path(), &FakeKeychain::default())
             .expect_err("no such provider");
-        assert!(matches!(error, ConnectError::UnknownProvider { .. }), "{error:?}");
+        assert!(
+            matches!(error, ConnectError::UnknownProvider { .. }),
+            "{error:?}"
+        );
         assert_eq!(error.code(), "CONNECT-009");
         assert_eq!(error.exit(), crate::exit::Exit::Usage);
         assert!(error.to_string().contains("hosted, local"), "{error}");
@@ -339,7 +382,10 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".ai")).expect("create .ai");
         let error = execute(&args("local"), temp.path(), &FakeKeychain::default())
             .expect_err("nothing to remove");
-        assert!(error.to_string().contains("known providers: none"), "{error}");
+        assert!(
+            error.to_string().contains("known providers: none"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -357,7 +403,11 @@ mod tests {
             fn get(&self, _reference: &KeychainReference) -> Result<Option<Secret>, KeychainError> {
                 Ok(None)
             }
-            fn set(&self, _reference: &KeychainReference, _secret: &Secret) -> Result<(), KeychainError> {
+            fn set(
+                &self,
+                _reference: &KeychainReference,
+                _secret: &Secret,
+            ) -> Result<(), KeychainError> {
                 Ok(())
             }
             fn delete(&self, _reference: &KeychainReference) -> Result<bool, KeychainError> {
@@ -372,6 +422,9 @@ mod tests {
         assert_eq!(error.exit(), crate::exit::Exit::General);
 
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
-        assert!(!text.contains("id: hosted"), "the file was still updated: {text}");
+        assert!(
+            !text.contains("id: hosted"),
+            "the file was still updated: {text}"
+        );
     }
 }

@@ -75,14 +75,22 @@ trait Verifier {
     ///
     /// Returns whatever the adapter returns: [`ProviderError::Transport`] when the server cannot be
     /// reached, [`ProviderError::Unauthorized`] when the credential is rejected, and so on.
-    fn verify(&self, entry: &ProviderEntry, credential: Option<&Secret>) -> Result<(), ProviderError>;
+    fn verify(
+        &self,
+        entry: &ProviderEntry,
+        credential: Option<&Secret>,
+    ) -> Result<(), ProviderError>;
 }
 
 /// The real verifier: one `complete` call through the OpenAI-compatible adapter.
 struct HttpVerifier;
 
 impl Verifier for HttpVerifier {
-    fn verify(&self, entry: &ProviderEntry, credential: Option<&Secret>) -> Result<(), ProviderError> {
+    fn verify(
+        &self,
+        entry: &ProviderEntry,
+        credential: Option<&Secret>,
+    ) -> Result<(), ProviderError> {
         let id = ProviderId::new(&entry.id)?;
         let mut config = OpenAiCompatibleConfig::new(
             id.clone(),
@@ -103,7 +111,9 @@ impl Verifier for HttpVerifier {
                 provider: id,
                 source: Box::new(source),
             })?;
-        runtime.block_on(provider.complete(ping_request())).map(|_| ())
+        runtime
+            .block_on(provider.complete(ping_request()))
+            .map(|_| ())
     }
 }
 
@@ -235,11 +245,11 @@ fn resolve_credential(
         return Ok(Some(Secret::new(token.clone())));
     }
     if let Some(variable) = &args.env {
-        let secret = environment
-            .variable(variable)
-            .ok_or_else(|| aicontext_providers::CredentialError::EnvironmentMissing {
+        let secret = environment.variable(variable).ok_or_else(|| {
+            aicontext_providers::CredentialError::EnvironmentMissing {
                 variable: variable.clone(),
-            })?;
+            }
+        })?;
         return Ok(Some(secret));
     }
     Ok(None)
@@ -461,13 +471,19 @@ mod tests {
                 .entries
                 .lock()
                 .expect("lock")
-                .get(&(reference.service().to_string(), reference.account().to_string()))
+                .get(&(
+                    reference.service().to_string(),
+                    reference.account().to_string(),
+                ))
                 .map(|value| Secret::new(value.clone())))
         }
 
         fn set(&self, reference: &KeychainReference, secret: &Secret) -> Result<(), KeychainError> {
             self.entries.lock().expect("lock").insert(
-                (reference.service().to_string(), reference.account().to_string()),
+                (
+                    reference.service().to_string(),
+                    reference.account().to_string(),
+                ),
                 secret.expose().to_string(),
             );
             Ok(())
@@ -528,7 +544,10 @@ mod tests {
             "the value the profile was proved with is the value that was stored"
         );
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
-        assert!(!text.contains("s3cr3t-value"), "the value never reaches .ai/: {text}");
+        assert!(
+            !text.contains("s3cr3t-value"),
+            "the value never reaches .ai/: {text}"
+        );
         assert!(text.contains("type: keychain"), "{text}");
         assert!(text.contains("keychain_entry: hosted"), "{text}");
         assert!(matches!(outcome.auth, "keychain"));
@@ -616,7 +635,10 @@ mod tests {
         assert!(matches!(error, ConnectError::Provider(_)), "{error:?}");
         assert_eq!(error.code(), "PROVIDER_UNAUTHORIZED");
         assert_eq!(error.exit(), crate::exit::Exit::Provider);
-        assert!(keychain.is_empty(), "no credential for a profile that was not stored");
+        assert!(
+            keychain.is_empty(),
+            "no credential for a profile that was not stored"
+        );
         assert!(
             !temp.path().join(".ai/ai.yaml").exists(),
             "a failed call must leave no profile behind"
@@ -651,7 +673,10 @@ mod tests {
             ..args()
         };
         let error = execute(&args, false, temp.path(), &ports).expect_err("refused");
-        assert!(matches!(error, ConnectError::KeychainEntryWithoutCredential));
+        assert!(matches!(
+            error,
+            ConnectError::KeychainEntryWithoutCredential
+        ));
     }
 
     #[test]
@@ -668,7 +693,10 @@ mod tests {
             ..args()
         };
         let error = execute(&args, false, temp.path(), &ports).expect_err("refused");
-        assert!(matches!(error, ConnectError::BlankValue { flag: "--token" }));
+        assert!(matches!(
+            error,
+            ConnectError::BlankValue { flag: "--token" }
+        ));
         assert!(!error.to_string().contains("s3cr3t"));
     }
 
@@ -685,7 +713,8 @@ mod tests {
             env: Some("AICON_AI_HOSTED_KEY".to_string()),
             ..args()
         };
-        let error = execute(&args, false, temp.path(), &ports).expect_err("no variable, no credential");
+        let error =
+            execute(&args, false, temp.path(), &ports).expect_err("no variable, no credential");
         assert_eq!(error.code(), "CREDENTIAL_ENVIRONMENT_MISSING");
         assert_eq!(error.exit(), crate::exit::Exit::Usage);
     }
@@ -724,7 +753,10 @@ mod tests {
         };
         let error = execute(&args(), false, temp.path(), &ports).expect_err("no .ai/");
         assert_eq!(error.code(), "PROJ-001");
-        assert!(verifier.seen().is_empty(), "no call is made for a root we cannot write");
+        assert!(
+            verifier.seen().is_empty(),
+            "no call is made for a root we cannot write"
+        );
     }
 
     #[test]
@@ -761,7 +793,10 @@ mod tests {
         execute(&args(), false, temp.path(), &ports).expect("connect");
 
         let config = AiConfig::load(temp.path()).expect("re-reads");
-        assert_eq!(config.provider_ids().expect("ids"), vec!["hosted".to_string()]);
+        assert_eq!(
+            config.provider_ids().expect("ids"),
+            vec!["hosted".to_string()]
+        );
         let mut round = config;
         let removed = round.remove("hosted").expect("remove").expect("present");
         assert_eq!(removed.auth.kind, AuthKind::None);

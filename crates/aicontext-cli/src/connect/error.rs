@@ -173,7 +173,9 @@ impl ConnectError {
                 "add `--token <value>` or `--env <VAR>` so there is a credential to name, or drop \
                  `--keychain-entry`"
             }
-            Self::Offline => "drop `--offline`: `connect` proves the provider answers before storing it",
+            Self::Offline => {
+                "drop `--offline`: `connect` proves the provider answers before storing it"
+            }
             Self::UnknownProvider { .. } => {
                 "check the id, or run `aicontext connect` to add the provider first"
             }
@@ -188,18 +190,19 @@ impl ConnectError {
     pub(crate) fn exit(&self) -> Exit {
         match self {
             Self::Root(error) => error.exit(),
-            Self::Provider(error) if matches!(error, ProviderError::InvalidId { .. }) => Exit::Usage,
-            Self::Provider(_) => Exit::Provider,
             Self::Credential(error) => credential_exit(error),
-            Self::UnsupportedAdapter { .. }
+            Self::Provider(ProviderError::InvalidId { .. })
+            | Self::UnsupportedAdapter { .. }
             | Self::BlankValue { .. }
             | Self::KeychainEntryWithoutCredential
             | Self::Offline
             | Self::UnknownProvider { .. } => Exit::Usage,
+            Self::Provider(_) => Exit::Provider,
             Self::Malformed { .. } | Self::Shape { .. } => Exit::Validation,
-            Self::Read { .. } | Self::Write { .. } | Self::Discard { .. } | Self::Keychain { .. } => {
-                Exit::General
-            }
+            Self::Read { .. }
+            | Self::Write { .. }
+            | Self::Discard { .. }
+            | Self::Keychain { .. } => Exit::General,
         }
     }
 

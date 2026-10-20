@@ -99,7 +99,11 @@ impl ProviderEntry {
     /// the documentation shows, so a hand-edited file and a generated one agree.
     fn to_value(&self) -> Value {
         let mut auth = Mapping::new();
-        put(&mut auth, "type", Value::String(self.auth.kind.as_str().to_string()));
+        put(
+            &mut auth,
+            "type",
+            Value::String(self.auth.kind.as_str().to_string()),
+        );
         if let Some(variable) = &self.auth.env {
             put(&mut auth, "env", Value::String(variable.clone()));
         }
@@ -109,7 +113,11 @@ impl ProviderEntry {
 
         let mut provider = Mapping::new();
         put(&mut provider, "id", Value::String(self.id.clone()));
-        put(&mut provider, "adapter", Value::String(self.adapter.clone()));
+        put(
+            &mut provider,
+            "adapter",
+            Value::String(self.adapter.clone()),
+        );
         if let Some(base_url) = &self.base_url {
             put(&mut provider, "base_url", Value::String(base_url.clone()));
         }
@@ -363,7 +371,10 @@ fn parse(path: &Path, text: &str) -> Result<Value, ConnectError> {
 /// The document a project with no `.ai/ai.yaml` starts from.
 fn empty() -> Value {
     let mut mapping = Mapping::new();
-    mapping.insert(Value::String("version".to_string()), Value::Number(1_i64.into()));
+    mapping.insert(
+        Value::String("version".to_string()),
+        Value::Number(1_i64.into()),
+    );
     mapping.insert(
         Value::String("providers".to_string()),
         Value::Sequence(Vec::new()),
@@ -399,7 +410,7 @@ fn describe(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiConfig, AuthEntry, AuthKind, ProviderEntry, KEYCHAIN_SERVICE};
+    use super::{AiConfig, AuthEntry, AuthKind, KEYCHAIN_SERVICE, ProviderEntry};
     use crate::connect::ConnectError;
 
     fn entry(id: &str) -> ProviderEntry {
@@ -453,7 +464,10 @@ mod tests {
         write(temp.path(), "");
         let mut config = AiConfig::load(temp.path()).expect("an empty file loads");
         config.upsert(&entry("local")).expect("upsert");
-        assert_eq!(config.provider_ids().expect("ids"), vec!["local".to_string()]);
+        assert_eq!(
+            config.provider_ids().expect("ids"),
+            vec!["local".to_string()]
+        );
     }
 
     #[test]
@@ -488,7 +502,10 @@ mod tests {
                 ..entry("local")
             })
             .expect("second");
-        assert_eq!(config.provider_ids().expect("ids"), vec!["local".to_string()]);
+        assert_eq!(
+            config.provider_ids().expect("ids"),
+            vec!["local".to_string()]
+        );
         config.save().expect("save");
 
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
@@ -505,7 +522,10 @@ mod tests {
 
         let removed = config.remove("local").expect("remove").expect("was there");
         assert_eq!(removed.id, "local");
-        assert_eq!(config.provider_ids().expect("ids"), vec!["hosted".to_string()]);
+        assert_eq!(
+            config.provider_ids().expect("ids"),
+            vec!["hosted".to_string()]
+        );
         assert!(config.remove("local").expect("remove again").is_none());
     }
 
@@ -561,7 +581,9 @@ mod tests {
         let temp = tree();
         write(temp.path(), "providers:\n  - adapter: openai-compatible\n");
         let config = AiConfig::load(temp.path()).expect("the file itself parses");
-        let error = config.provider_ids().expect_err("no id to look anything up by");
+        let error = config
+            .provider_ids()
+            .expect_err("no id to look anything up by");
         assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
         assert_eq!(error.code(), "CONNECT-003");
     }

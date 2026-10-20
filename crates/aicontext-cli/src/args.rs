@@ -718,7 +718,10 @@ mod tests {
             panic!("expected the connect command");
         };
         assert_eq!(connect.provider, "hosted");
-        assert_eq!(connect.adapter, "openai-compatible", "the only adapter built");
+        assert_eq!(
+            connect.adapter, "openai-compatible",
+            "the only adapter built"
+        );
         assert_eq!(connect.base_url, "https://api.openai.com/v1");
         assert_eq!(connect.model, "gpt-test");
         assert_eq!(connect.env, None);

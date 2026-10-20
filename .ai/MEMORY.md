@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-14
+updated: 2026-10-20
 ---
 
 # MEMORY
@@ -1023,6 +1023,44 @@ Windows Credential Manager, the macOS Keychain, the Linux kernel keyring — so 
 no C compiler and no third-party system library, and, unlike TASK-051's `rustls`/`ring`, no `ADR`
 deviation is needed. `3.6.3` was chosen over `4.2.0` by MSRV-aware resolution: `4.2.0` requires Rust
 1.88, above the workspace floor of 1.85.
+
+## MEM-033 — A committed schema constrains the writer: `disconnect` removes the file rather than emptying the list
+
+```yaml
+id: MEM-033
+category: lesson
+scope: cli
+status: active
+confidence: high
+recorded: 2026-10-20
+supersedes: null
+tags: [schema, ai-yaml, connect, disconnect, ai-config, task-053]
+```
+
+`schemas/ai-config.schema.json` declares `providers: minItems 1`. A schema is usually read as a
+constraint on whoever *reads* a document; it is equally a constraint on whoever *writes* one, and
+`connect` and `disconnect` are the only writers `.ai/ai.yaml` has. TASK-053 reached the case that
+made the difference: `disconnect --provider <the-last-one>` cannot write `providers: []`, because an
+emptied list would be a document that fails the schema other tools trust (`CONTEXT_SPEC.md` §1).
+
+The resolution was to take the schema's own word for what "no providers" means. `init` never creates
+this file, so a fresh project has none — the state a project with no providers is *in* is "no
+`.ai/ai.yaml`", and removing the file is how `disconnect` returns to it. That is a stronger reading of
+*leaves no residue* than an empty list would have been, and it required no schema edit. Relaxing
+`minItems` to 0 was the other candidate and was rejected: it would have widened a committed contract
+outside the task's `touches` scope in order to accommodate one command's output.
+
+The general shape: before inventing a new state for a document you write, ask whether the schema
+already defines the transition. Three states — absent, one provider, many — are all the schema
+describes, and a command that only moves between them can never produce a file a reader rejects.
+
+Related, and learned in the same task: the split between a *reference* and a *value* is what makes a
+committed config file safe to write at all. `.ai/ai.yaml` holds `keychain_entry: hosted`, an `env`
+variable's *name*, or nothing; the credential itself goes to the OS keychain. `auth.type` is one of
+`keychain`, `env_or_keychain`, `none` — three words that say where a value lives, never what it is.
+`--token` is the one flag with no `clap` value parser for the same reason: the parser's own error
+quotes the value it rejected, and an empty secret is caught in the command, which names the flag
+without naming what it held.
 
 ## Bugs encountered
 

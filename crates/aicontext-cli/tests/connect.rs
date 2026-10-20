@@ -25,8 +25,7 @@ use tempfile::TempDir;
 const OK: &str = r#"{"id":"cmpl-fake","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#;
 
 /// The error body a provider answers an unauthenticated call with.
-const REFUSED: &str =
-    r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
+const REFUSED: &str = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
 
 /// One invocation's observable result.
 struct Run {
@@ -390,27 +389,59 @@ fn connect_without_the_flags_it_needs_is_a_usage_error() {
 }
 
 #[test]
-fn disconnect_removes_the_profile_and_the_default_it_added() {
+fn disconnect_removes_the_last_provider_and_the_file_it_lived_in() {
     let (_outer, root) = project();
     let server = Server::start(200, OK);
     let connected = run_in(&root, &connect_args(&server.url));
     assert_eq!(connected.code, 0, "stderr: {}", connected.stderr);
 
-    let run = run_in(&root, &["disconnect", "--provider", "local"]);
+    let run = run_in(&root, &["disconnect", "--provider", "local", "--json"]);
 
     assert_eq!(run.code, 0, "stderr: {}", run.stderr);
-    let text = profile(&root);
-    assert!(!text.contains("id: local"), "{text}");
     assert!(
-        !text.contains("default_provider"),
-        "a default left pointing at a removed provider is residue: {text}"
+        !root.join(".ai/ai.yaml").exists(),
+        "`providers: minItems 1` makes an emptied list unschemaable, so the file goes instead"
     );
+    assert!(root.join(".ai").is_dir(), "the tree is `init`'s to manage");
     assert_eq!(
         server.seen().len(),
         1,
         "disconnect reads and writes a file; it makes no call"
     );
+
+    let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(body["command"], "disconnect");
+    assert_eq!(body["exit_code"], 0);
+    assert_eq!(body["data"]["provider"], "local");
+    assert_eq!(body["data"]["config_deleted"], serde_json::json!(true));
+    assert!(!flag(&body["data"]["keychain_deleted"]), "{}", body);
+    assert_eq!(body["data"]["remaining_providers"], 0);
+}
+
+#[test]
+fn disconnect_keeps_the_providers_that_remain_and_a_schema_valid_file() {
+    let (_outer, root) = project();
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        "version: 1\ndefault_provider: hosted\nproviders:\n  - id: hosted\n    adapter: openai-compatible\n    auth:\n      type: none\n  - id: local\n    adapter: openai-compatible\n    auth:\n      type: none\n",
+    )
+    .expect("write the fixture");
+
+    let run = run_in(&root, &["disconnect", "--provider", "local", "--json"]);
+
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    let text = profile(&root);
+    assert!(!text.contains("id: local"), "{text}");
+    assert!(text.contains("id: hosted"), "{text}");
+    assert!(
+        text.contains("default_provider: hosted"),
+        "a default naming a provider that is still there must survive: {text}"
+    );
     assert_matches_schema(&text);
+
+    let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(body["data"]["config_deleted"], serde_json::json!(false));
+    assert_eq!(body["data"]["remaining_providers"], 1);
 }
 
 #[test]
@@ -431,22 +462,4 @@ fn disconnect_of_an_unknown_provider_exits_two_and_names_the_ones_that_are_there
         profile(&root).contains("id: local"),
         "a mistyped id must not change anything"
     );
-}
-
-#[test]
-fn disconnect_json_reports_what_was_removed() {
-    let (_outer, root) = project();
-    let server = Server::start(200, OK);
-    let connected = run_in(&root, &connect_args(&server.url));
-    assert_eq!(connected.code, 0, "stderr: {}", connected.stderr);
-
-    let run = run_in(&root, &["disconnect", "--provider", "local", "--json"]);
-
-    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
-    let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
-    assert_eq!(body["command"], "disconnect");
-    assert_eq!(body["exit_code"], 0);
-    assert_eq!(body["data"]["provider"], "local");
-    assert!(!flag(&body["data"]["keychain_deleted"]), "{}", body);
-    assert_eq!(body["data"]["remaining_providers"], 0);
 }

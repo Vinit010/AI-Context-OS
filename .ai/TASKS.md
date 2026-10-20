@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-14
+updated: 2026-10-20
 ---
 
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-053
+**Current task:** TASK-054
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1205,7 +1205,7 @@ done:
 ```yaml
 id: TASK-053
 title: Implement aicontext connect
-status: TODO
+status: DONE
 priority: HIGH
 phase: 3
 depends_on: [TASK-052]
@@ -1215,6 +1215,80 @@ acceptance:
   - Stores a provider profile and a keychain reference, never a secret
   - Verifies connectivity with an explicit, minimal test call
   - disconnect removes the reference and leaves no residue
+scope_notes:
+  - 'Root Cargo.toml and Cargo.lock are touched beside the declared crates/aicontext-cli/**. The
+    workspace tokio justification gains one clause: net is added per-crate by whoever builds a
+    runtime of its own, so TASK-051''s row is not silently widened. .ai/ARCHITECTURE.md 2.2, the
+    3.2 rule 7 clarification, .ai/MEMORY.md, .ai/TASKS.md, and docs/CLI_SPEC.md sections 3, 4, and 9
+    are the bookkeeping. No crate outside aicontext-cli changed'
+  - 'crates/aicontext-cli/Cargo.toml gains three already-justified workspace dependencies -
+    aicontext-providers, tokio with the net feature, and yaml_serde - plus yaml_serde again as a
+    dev-dependency, because an integration test is its own crate. aicontext-providers is an internal
+    edge the matrix in crates/aicontext-testkit/tests/crate_boundaries.rs already permits and the
+    3.2 diagram already draws; 2.2 records why yaml_serde is reached directly rather than through
+    aicontext-context''s YamlCodec'
+  - 'The credential lives in the OS keychain and only its reference reaches .ai, per SECURITY 6 and
+    AI_PROVIDER_SPEC 4: --token writes the value under service aicontext and an entry named by
+    --keychain-entry (defaulting to the provider id), and .ai/ai.yaml records only that name. --env
+    records a variable''s name and never its value; --token wins over --env; --keychain-entry with no
+    credential to put in it is a usage error'
+  - 'An empty --token is refused in the command, never by a clap value_parser: clap''s own error
+    quotes the value it rejected, and echoing the secret is the one thing this flag must never do.
+    --token is therefore the only flag with no parser. The ones that carry no secret (provider,
+    adapter, base-url, model, env, keychain-entry) reject a blank value at the parser, where a usage
+    error belongs'
+  - 'The document is a live yaml_serde::Value rather than a struct, so an upsert rewrites one
+    provider entry and carries every key it does not understand through untouched. The CLI reads
+    .ai/ai.yaml in its own module (connect/config.rs) rather than through aicontext-context''s
+    private YamlCodec: it is a fixed-path config file, not front matter (CONTEXT_SPEC 1), and
+    reaching through another crate''s internal trait would break ARCHITECTURE.md 3.2 rule 6'
+  - 'Removing the last provider removes the file, decided with the user in review. providers is
+    minItems 1 in schemas/ai-config.schema.json, so an emptied list is a document no reader can
+    trust, and init never creates this file - a project with no providers has no .ai/ai.yaml. The
+    two alternatives were refused: writing providers: [] would ship a file that fails its own schema,
+    and relaxing minItems would edit a committed schema outside this task''s scope'
+done:
+  - 'crates/aicontext-cli/src/args.rs declares Connect and Disconnect with ConnectArgs and
+    DisconnectArgs, and drops both words from PENDING, so --help moves them from the planned tree to
+    the available one with their own connect/disconnect flags block. cli.rs''s four pending-command
+    tests now use audit (TASK-075), since connect is no longer an example of a command that is not
+    built, and help_lists_what_works_and_what_does_not asks for TASK-075 instead of TASK-053'
+  - 'crates/aicontext-cli/src/exit.rs gains Exit::Provider (6, PROVIDER_ERROR) - already published in
+    CLI_SPEC 5 and now produced by a real failure - and both of its tests carry the new variant'
+  - 'crates/aicontext-cli/src/connect is new, in three modules. config.rs reads and writes .ai/ai.yaml
+    as a live Value: load, upsert, remove, ensure_default, clear_default, discard, provider_ids,
+    save, with one root() helper for the shape every mutation needs. error.rs is the typed
+    ConnectError catalogue, CONNECT-001 to CONNECT-012, each variant carrying its code, its exit
+    code, and a remediation (RULES 4.3). mod.rs holds the command, the three-port seam, and
+    HttpVerifier'
+  - 'Failures keep the vocabulary they already had rather than gaining a second opinion about them:
+    PROVIDER_* from the provider crate, CREDENTIAL_* from the credential resolver, PROJ-* from the
+    project root. The CLI only maps them onto exit codes - a rejected provider id is Usage, the
+    verification call is the new Exit::Provider 6, a missing variable or keychain entry is Usage, a
+    read or write failure is General, a parse or shape failure is Validation'
+  - 'Order of operations in connect: root, id, adapter, and .ai checks, credential resolution, one
+    minimal complete() call, in-memory upsert, ensure_default only when the file names no default,
+    keychain, save. Nothing is written before the call answers, and if the save fails after the
+    keychain entry was written the command deletes that entry again rather than stranding a secret
+    nothing points at. The call is the smallest the contract allows: one message, max_tokens 8, no
+    stream, no idempotency key, no retry (AI_PROVIDER_SPEC 11)'
+  - 'crates/aicontext-cli/src/disconnect.rs removes the entry, clears a default_provider naming it,
+    then saves or discards the file, then deletes the keychain entry - the file first, so a failure
+    between the two is the recoverable direction: the reference still exists and connecting again
+    restores a working profile. An id the file does not list exits 2 (CONNECT-009) naming the ids it
+    does, and changes nothing (RULES 4.10)'
+  - 'Seams: connect/mod.rs owns Ports and the Verifier trait, so every unit test injects a fake
+    environment, keychain, and verifier and none reads the developer''s real one (RULES 8). The
+    integration test needs no seam of ours - tests/connect.rs binds an ephemeral 127.0.0.1 port with
+    std only and answers one request, exactly as AI_PROVIDER_SPEC 11 asks of the provider crate''s
+    contract tests'
+  - 'Tests: 12 new in connect/mod.rs, 10 in connect/config.rs, 4 in connect/error.rs, 8 in
+    disconnect.rs, 2 in args.rs, both of exit.rs''s extended, and 9 end-to-end in
+    crates/aicontext-cli/tests/connect.rs. The integration tests exercise only the auth: none path,
+    which stores no credential, so no test can reach the developer''s OS keychain; the paths that
+    would store one are covered behind the keychain port, the only place a keychain can be faked.
+    Every success path validates the written .ai/ai.yaml against schemas/ai-config.schema.json
+    rather than merely looking for substrings'
 ```
 
 ### TASK-054 — Implement the Anthropic and Gemini adapters

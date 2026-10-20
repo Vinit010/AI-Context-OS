@@ -63,8 +63,8 @@ aicontext
 │   ├── list | test | route
 ├── plugin                   Plugin management
 │   ├── list | info | install | remove | enable | disable | permissions
-├── connect                  Configure a provider or integration
-├── disconnect               Remove a stored reference
+├── connect                  Prove a provider answers, then store it
+├── disconnect               Remove a stored provider reference
 ├── export                   Export .ai as a portable archive
 ├── import                   Import and verify an archive
 └── audit                    Audit log
@@ -222,6 +222,66 @@ error (exit 2); an existing output without `--force`, or `--force` without a ter
 tree or an archive that fails validation exits 3; a filesystem failure exits 1. Exactly one code per
 run (§5).
 
+### `aicontext connect` / `aicontext disconnect`
+
+`connect` describes one provider, **proves it answers one real call**, and only then commits
+(`AI_PROVIDER_SPEC.md` §4): the profile goes to `.ai/ai.yaml`, and a credential — if one was given —
+goes to the OS keychain. `disconnect` takes all of it back out.
+
+| Flag | Effect |
+|------|--------|
+| `--provider <ID>` | Required on both. The id the provider is registered under, or removed by |
+| `--base-url <URL>` | Required on `connect`. The server root, e.g. `http://localhost:11434/v1` |
+| `--model <NAME>` | Required on `connect`. The model the verification call asks for |
+| `--adapter <NAME>` | `openai-compatible` (the default, and the only one this release ships) |
+| `--env <VAR>` | Record that the credential comes from this variable. Names the variable; never its value |
+| `--token <VALUE>` | The credential. Written to the OS keychain; never to `.ai/` |
+| `--keychain-entry <NAME>` | The keychain entry to write. Defaults to `--provider`; requires `--token` or `--env` |
+
+Guarantees:
+
+- **Nothing is stored until it answers.** The whole flow is: checks, credential, one minimal
+  `complete()` call, then the file. A rejected or unreachable provider exits 6 and writes nothing —
+  not the profile, not the keychain entry.
+- **The call is the smallest one the contract allows:** one message, `max_tokens` 8, no stream, no
+  idempotency key, no retry (`AI_PROVIDER_SPEC.md` §11).
+- **`.ai/ai.yaml` records sources, never values.** `auth.type` is `keychain` (a `--token`),
+  `env_or_keychain` (an `--env`), or `none`, and only the *names* `env` / `keychain_entry` are
+  written. `schemas/ai-config.schema.json` has no `token` property at all, so a value cannot be
+  smuggled in even by hand-editing.
+- **The credential's value is never echoed.** `--token` is the one flag with no parser: `clap`'s own
+  error quotes the value it rejected, and an empty one is refused by the command instead, by name.
+  `--token` wins over `--env`.
+- **Blank values are refused at the edge.** `--provider ""` and `--base-url ""` are usage errors
+  (exit 2), not a profile nothing can look up or a transport error that looks like the server's fault.
+- **Unknown keys survive.** An upsert rewrites the one entry it matches; keys in the file the command
+  does not understand are carried through untouched.
+- **A default is only set when there is none.** `default_provider` defaults to the first provider
+  connected and is never overwritten by a later one.
+- **`--offline` refuses `connect`** with `CONNECT-008`. There is deliberately no `--no-verify`: the
+  call *is* the command's meaning.
+- **`disconnect` removes all three copies** — the entry, a `default_provider` left dangling on it,
+  and the keychain entry it named — and does the file first, so a failure in between is the
+  recoverable direction: the reference still exists and reconnecting restores it. An id the file does
+  not list exits 2 naming the ids it does, and changes nothing.
+- **Removing the last provider removes the file.** `providers` is `minItems: 1` in the schema, so an
+  emptied list would be a document no reader can trust, and `init` never creates this file — a project
+  with no providers has no `.ai/ai.yaml`. Only the file goes; the `.ai/` tree is `init`'s to manage.
+
+| Outcome | Exit |
+|---------|------|
+| Stored / removed | 0 |
+| Filesystem (`CONNECT-001`, `CONNECT-004`, `CONNECT-012`), keychain (`CONNECT-010`), unwritable JSON report (`CONNECT-011`) | 1 |
+| Blank flag, unsupported adapter, `--offline`, `--keychain-entry` with no credential, an unknown `--provider`, a rejected provider id, a missing `.ai/` (`PROJ-001`) | 2 |
+| Unparseable or wrong-shaped `.ai/ai.yaml` (`CONNECT-002`, `CONNECT-003`) | 3 |
+| The verification call failed (`PROVIDER_*`) | 6 |
+
+`disconnect`'s `--json` payload reports `provider`, `config_path`, `config_deleted`,
+`keychain_entry`, `keychain_deleted`, and `remaining_providers`; `connect`'s reports `provider`,
+`adapter`, `base_url`, `model`, `auth`, `env`, `keychain_entry`, `keychain_stored`, `verified`, and
+`config_path`. `keychain_stored` and `keychain_deleted` say whether an entry was actually touched, so
+a script can tell "there was nothing there" from "it worked".
+
 ---
 
 ## 5. Exit codes
@@ -336,3 +396,7 @@ interface cannot silently drift.
 | `NO_COLOR` | Standard colour opt-out, honoured |
 
 Credentials are **not** configured by `AICON_TEXT_*` variables. They resolve per `ADR-005`.
+
+`aicontext connect --env <VAR>` names a developer-chosen variable — `OPENAI_API_KEY`, say — and writes
+that name into `.ai/ai.yaml`. The value is read once, at connect time, to prove the credential works;
+only the name is kept, and `--env` may name any variable, not only an `AICON_TEXT_*` one.
