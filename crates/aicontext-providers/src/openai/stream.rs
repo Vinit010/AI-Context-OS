@@ -119,10 +119,8 @@ mod tests {
 
     #[test]
     fn usage_and_finish_are_reported() {
-        let events = one(
-            r#"{"choices":[{"delta":{},"finish_reason":"stop"}],
-                 "usage":{"prompt_tokens":1,"completion_tokens":2}}"#,
-        );
+        let events = one(r#"{"choices":[{"delta":{},"finish_reason":"stop"}],
+                 "usage":{"prompt_tokens":1,"completion_tokens":2}}"#);
         assert_eq!(
             events,
             vec![

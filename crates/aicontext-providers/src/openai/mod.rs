@@ -1,6 +1,6 @@
 //! The `OpenAI`-compatible adapter: the chat-completions wire format (`docs/AI_PROVIDER_SPEC.md` §3).
 //!
-//! Every provider that speaks `POST {base}/chat/completions` — a hosted OpenAI endpoint, Ollama,
+//! Every provider that speaks `POST {base}/chat/completions` — a hosted `OpenAI` endpoint, Ollama,
 //! vLLM, llama.cpp, LM Studio, a corporate proxy in front of any of them — is one config away, so
 //! the spec makes this adapter the first one and the CLI's default.
 //!
@@ -172,7 +172,13 @@ impl OpenAiCompatible {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(), &self.auth_header(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(),
+                &self.auth_header(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         let bytes = response
             .bytes()
@@ -192,7 +198,9 @@ impl AIProvider for OpenAiCompatible {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
-        self.transport.within_total(self.complete_inner(request)).await
+        self.transport
+            .within_total(self.complete_inner(request))
+            .await
     }
 
     async fn stream(
@@ -204,7 +212,13 @@ impl AIProvider for OpenAiCompatible {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(), &self.auth_header(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(),
+                &self.auth_header(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         Ok(stream::open(response, self.config.cancel.clone()))
     }
@@ -236,10 +250,7 @@ mod tests {
     #[test]
     fn the_auth_header_is_bearer_for_either_credential_variant() {
         let secret = Secret::new("sk-live-do-not-print");
-        for auth in [
-            Auth::Bearer(secret.clone()),
-            Auth::ApiKey(secret.clone()),
-        ] {
+        for auth in [Auth::Bearer(secret.clone()), Auth::ApiKey(secret.clone())] {
             let provider =
                 OpenAiCompatible::new(config().with_auth(auth)).expect("the adapter builds");
             assert_eq!(
@@ -256,9 +267,9 @@ mod tests {
 
     #[test]
     fn the_debug_rendering_redacts_the_credential() {
-        let provider = OpenAiCompatible::new(config().with_auth(Auth::Bearer(Secret::new(
-            "sk-live-do-not-print",
-        ))))
+        let provider = OpenAiCompatible::new(
+            config().with_auth(Auth::Bearer(Secret::new("sk-live-do-not-print"))),
+        )
         .expect("the adapter builds");
         let rendered = format!("{provider:?}");
         assert!(!rendered.contains("sk-live-do-not-print"), "{rendered}");

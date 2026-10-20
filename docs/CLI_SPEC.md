@@ -233,7 +233,7 @@ goes to the OS keychain. `disconnect` takes all of it back out.
 | `--provider <ID>` | Required on both. The id the provider is registered under, or removed by |
 | `--base-url <URL>` | Required on `connect`. The server root, e.g. `http://localhost:11434/v1` |
 | `--model <NAME>` | Required on `connect`. The model the verification call asks for |
-| `--adapter <NAME>` | `openai-compatible` (the default, and the only one this release ships) |
+| `--adapter <NAME>` | `openai-compatible`, `anthropic`, or `gemini`. Defaults to `openai-compatible`; an unknown name is a usage error that prints the list |
 | `--env <VAR>` | Record that the credential comes from this variable. Names the variable; never its value |
 | `--token <VALUE>` | The credential. Written to the OS keychain; never to `.ai/` |
 | `--keychain-entry <NAME>` | The keychain entry to write. Defaults to `--provider`; requires `--token` or `--env` |

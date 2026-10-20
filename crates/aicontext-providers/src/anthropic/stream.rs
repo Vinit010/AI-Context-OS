@@ -86,11 +86,7 @@ fn translate(payload: &str, blocks: &mut Blocks) -> Option<Vec<StreamEvent>> {
                     }
                 }
                 Some("input_json_delta") => {
-                    let (id, tool) = blocks
-                        .tools
-                        .get(&index)
-                        .cloned()
-                        .unwrap_or_default();
+                    let (id, tool) = blocks.tools.get(&index).cloned().unwrap_or_default();
                     let arguments = delta
                         .get("partial_json")
                         .and_then(Value::as_str)
@@ -132,7 +128,7 @@ fn translate(payload: &str, blocks: &mut Blocks) -> Option<Vec<StreamEvent>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{translate, Blocks};
+    use super::{Blocks, translate};
     use crate::types::{FinishReason, StreamEvent, Usage};
 
     fn one(payload: &str) -> Vec<StreamEvent> {
@@ -152,12 +148,14 @@ mod tests {
     #[test]
     fn usage_is_reported_once_with_both_halves() {
         let mut blocks = Blocks::new();
-        assert!(translate(
-            r#"{"type":"message_start","message":{"usage":{"input_tokens":3}}}"#,
-            &mut blocks
-        )
-        .expect("message_start")
-        .is_empty());
+        assert!(
+            translate(
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":3}}}"#,
+                &mut blocks
+            )
+            .expect("message_start")
+            .is_empty()
+        );
         let events = translate(
             r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},
                  "usage":{"output_tokens":5}}"#,
@@ -181,13 +179,15 @@ mod tests {
     #[test]
     fn a_tool_call_is_named_when_its_block_starts_and_repeated_on_each_fragment() {
         let mut blocks = Blocks::new();
-        assert!(translate(
-            r#"{"type":"content_block_start","index":0,
+        assert!(
+            translate(
+                r#"{"type":"content_block_start","index":0,
                  "content_block":{"type":"tool_use","id":"toolu_1","name":"aws.ec2.stop"}}"#,
-            &mut blocks
-        )
-        .expect("block start")
-        .is_empty());
+                &mut blocks
+            )
+            .expect("block start")
+            .is_empty()
+        );
         let first = translate(
             r#"{"type":"content_block_delta","index":0,
                  "delta":{"type":"input_json_delta","partial_json":"{\"instance"}}"#,
@@ -222,9 +222,11 @@ mod tests {
     #[test]
     fn an_unknown_event_contributes_nothing_and_ends_nothing() {
         assert!(one(r#"{"type":"ping"}"#).is_empty());
-        assert!(one(r#"{"type":"content_block_delta","index":0,
+        assert!(
+            one(r#"{"type":"content_block_delta","index":0,
             "delta":{"type":"thinking_delta","thinking":"hmm"}}"#)
-        .is_empty());
+            .is_empty()
+        );
     }
 
     #[test]

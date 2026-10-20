@@ -40,7 +40,7 @@
 //! # The adapters
 //!
 //! Three adapters ship, one per wire format in `docs/AI_PROVIDER_SPEC.md` §3: [`openai`] for the
-//! chat-completions shape that reaches OpenAI, Ollama, vLLM, and every compatible server;
+//! chat-completions shape that reaches `OpenAI`, Ollama, vLLM, and every compatible server;
 //! [`anthropic`] for the Messages API; and [`gemini`] for `generateContent`. Each is one module that
 //! maps its wire format onto the provider-neutral types, and adding one changed no other crate
 //! (`docs/AI_PROVIDER_SPEC.md` §12).
@@ -79,10 +79,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod anthropic;
 mod cancel;
 mod credential;
 mod error;
-pub mod anthropic;
 pub mod gemini;
 pub mod openai;
 mod provider;

@@ -98,7 +98,9 @@ fn system_text(request: &CompletionRequest) -> Option<String> {
 /// One conversation message, in the shape its role allows.
 fn message_json(message: &Message) -> Value {
     match message.role {
-        Role::Assistant => serde_json::json!({ "role": "model", "parts": [{ "text": message.content }] }),
+        Role::Assistant => {
+            serde_json::json!({ "role": "model", "parts": [{ "text": message.content }] })
+        }
         Role::User => serde_json::json!({ "role": "user", "parts": [{ "text": message.content }] }),
         Role::Tool => {
             // A tool result answers a specific call. Gemini wants the function's *name* in a
@@ -290,7 +292,10 @@ mod tests {
             Some("do the task\n\nnever guess"),
             "the instruction leads, the policy blocks follow, and untrusted data never reaches it"
         );
-        let contents = body.get("contents").and_then(Value::as_array).expect("contents");
+        let contents = body
+            .get("contents")
+            .and_then(Value::as_array)
+            .expect("contents");
         let last = contents.last().expect("the data entry");
         assert_eq!(last.get("role").and_then(Value::as_str), Some("user"));
         let text = last
@@ -321,7 +326,10 @@ mod tests {
             body.pointer("/generationConfig/temperature"),
             Some(&serde_json::json!(0.25))
         );
-        assert_eq!(body.pointer("/generationConfig/seed"), Some(&serde_json::json!(7)));
+        assert_eq!(
+            body.pointer("/generationConfig/seed"),
+            Some(&serde_json::json!(7))
+        );
         assert_eq!(
             body.pointer("/generationConfig/stopSequences/0"),
             Some(&serde_json::json!("END"))
@@ -340,7 +348,10 @@ mod tests {
         let declaration = body
             .pointer("/tools/0/functionDeclarations/0")
             .expect("the declaration");
-        assert_eq!(declaration.get("name"), Some(&serde_json::json!("aws.ec2.stop")));
+        assert_eq!(
+            declaration.get("name"),
+            Some(&serde_json::json!("aws.ec2.stop"))
+        );
         assert_eq!(
             declaration.get("parameters"),
             Some(&serde_json::json!({"type": "object"}))
@@ -350,9 +361,14 @@ mod tests {
     #[test]
     fn a_model_message_uses_the_model_role() {
         let mut request = request();
-        request.messages.push(Message::new(Role::Assistant, "hi".to_owned()));
+        request
+            .messages
+            .push(Message::new(Role::Assistant, "hi".to_owned()));
         let body = request_body(&request);
-        let contents = body.get("contents").and_then(Value::as_array).expect("contents");
+        let contents = body
+            .get("contents")
+            .and_then(Value::as_array)
+            .expect("contents");
         assert_eq!(
             contents.last().expect("the assistant entry").get("role"),
             Some(&serde_json::json!("model"))
@@ -365,7 +381,10 @@ mod tests {
         assert_eq!(finish_reason("MAX_TOKENS", false), FinishReason::Length);
         assert_eq!(finish_reason("SAFETY", false), FinishReason::Refusal);
         assert_eq!(finish_reason("RECITATION", false), FinishReason::Refusal);
-        assert_eq!(finish_reason("MALFORMED_FUNCTION_CALL", false), FinishReason::Error);
+        assert_eq!(
+            finish_reason("MALFORMED_FUNCTION_CALL", false),
+            FinishReason::Error
+        );
         assert_eq!(
             finish_reason("solar_flare", false),
             FinishReason::Unknown("solar_flare".to_owned())
@@ -409,8 +428,8 @@ mod tests {
 
     #[test]
     fn a_body_with_no_candidates_is_malformed() {
-        let error = parse_completion(&provider(), br#"{"promptFeedback":{}}"#)
-            .expect_err("no candidates");
+        let error =
+            parse_completion(&provider(), br#"{"promptFeedback":{}}"#).expect_err("no candidates");
         assert_eq!(error.code(), "PROVIDER_MALFORMED_RESPONSE");
     }
 

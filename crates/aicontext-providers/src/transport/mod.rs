@@ -18,7 +18,7 @@ pub(crate) mod stream;
 
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, RETRY_AFTER};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, RETRY_AFTER};
 use serde_json::Value;
 
 use crate::cancel::CancellationToken;
@@ -204,13 +204,11 @@ impl Transport {
         for (name, value) in headers {
             // Constructing the headers by hand keeps an invalid credential a typed error rather
             // than a panic inside reqwest, and none of this prints the value.
-            let header = HeaderValue::from_str(value).map_err(|_| {
-                ProviderError::InvalidRequest {
+            let header =
+                HeaderValue::from_str(value).map_err(|_| ProviderError::InvalidRequest {
                     provider: provider.clone(),
-                    detail: "the configured credential is not a valid HTTP header value"
-                        .to_owned(),
-                }
-            })?;
+                    detail: "the configured credential is not a valid HTTP header value".to_owned(),
+                })?;
             request = request.header(name, header);
         }
         let encoded = serde_json::to_vec(body).map_err(|error| ProviderError::InvalidRequest {
@@ -369,7 +367,7 @@ fn truncate(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{error_detail, seed_of, Auth, Timeouts};
+    use super::{Auth, Timeouts, error_detail, seed_of};
     use crate::secret::Secret;
 
     const SECRET: &str = "sk-live-abcdefghijklmnop";
@@ -379,10 +377,7 @@ mod tests {
         let bearer = Auth::Bearer(Secret::new(SECRET));
         assert_eq!(
             bearer.header("x-api-key"),
-            Some((
-                "authorization".to_owned(),
-                format!("Bearer {SECRET}")
-            ))
+            Some(("authorization".to_owned(), format!("Bearer {SECRET}")))
         );
         let key = Auth::ApiKey(Secret::new(SECRET));
         assert_eq!(

@@ -30,9 +30,9 @@ pub(crate) use error::ConnectError;
 use std::path::Path;
 
 use aicontext_providers::{
-    AIProvider, Auth, CompletionRequest, Environment, Keychain, KeychainReference, KeyringKeychain,
-    Message, ModelOptions, OpenAiCompatible, OpenAiCompatibleConfig, PolicyRegion,
-    ProcessEnvironment, ProviderError, ProviderId, Role, Secret, TokenBudget,
+    Adapter, CompletionRequest, Environment, Keychain, KeychainReference, KeyringKeychain, Message,
+    ModelOptions, PolicyRegion, ProcessEnvironment, ProviderError, ProviderId, Role, Secret,
+    TokenBudget,
 };
 use serde::Serialize;
 
@@ -40,12 +40,6 @@ use crate::args::{ConnectArgs, GlobalArgs};
 use crate::exit::Exit;
 use crate::output::{Terminal, envelope};
 use crate::project::{self, ProjectError};
-
-/// The one adapter this release can build. `TASK-054` adds the others.
-const OPENAI_COMPATIBLE: &str = "openai-compatible";
-
-/// Adapters named in the spec but not built yet, and the task that will build them.
-const SCHEDULED_ADAPTERS: &[(&str, &str)] = &[("anthropic", "TASK-054"), ("gemini", "TASK-054")];
 
 /// The one-shot prompt the verification call sends. Small, unambiguous, and free of project content:
 /// `connect` proves the transport and the credential, nothing else.
@@ -78,29 +72,28 @@ trait Verifier {
     fn verify(
         &self,
         entry: &ProviderEntry,
+        adapter: Adapter,
         credential: Option<&Secret>,
     ) -> Result<(), ProviderError>;
 }
 
-/// The real verifier: one `complete` call through the OpenAI-compatible adapter.
+/// The real verifier: one `complete` call through whichever adapter the profile names.
 struct HttpVerifier;
 
 impl Verifier for HttpVerifier {
     fn verify(
         &self,
         entry: &ProviderEntry,
+        adapter: Adapter,
         credential: Option<&Secret>,
     ) -> Result<(), ProviderError> {
         let id = ProviderId::new(&entry.id)?;
-        let mut config = OpenAiCompatibleConfig::new(
+        let provider = adapter.build(
             id.clone(),
-            entry.base_url.clone().unwrap_or_default(),
-            entry.model.clone().unwrap_or_default(),
-        );
-        if let Some(secret) = credential {
-            config = config.with_auth(Auth::Bearer(secret.clone()));
-        }
-        let provider = OpenAiCompatible::new(config)?;
+            &entry.base_url.clone().unwrap_or_default(),
+            &entry.model.clone().unwrap_or_default(),
+            credential.cloned(),
+        )?;
 
         // The provider is asynchronous; the CLI is not. One current-thread runtime drives the one
         // call and is dropped immediately.
@@ -159,7 +152,7 @@ fn execute(
 ) -> Result<Outcome, ConnectError> {
     // Fail every check that does not need a call before making one.
     let id = ProviderId::new(&args.provider)?;
-    validate_adapter(&args.adapter)?;
+    let adapter = validate_adapter(&args.adapter)?;
     require_ai_tree(root)?;
     if offline {
         return Err(ConnectError::Offline);
@@ -172,7 +165,9 @@ fn execute(
     let config_path = config.display();
 
     // Nothing below this line is reached unless the provider answered.
-    ports.verifier.verify(&entry, credential.as_ref())?;
+    ports
+        .verifier
+        .verify(&entry, adapter, credential.as_ref())?;
 
     config.upsert(&entry)?;
     config.ensure_default(&entry.id)?;
@@ -200,18 +195,14 @@ fn execute(
     })
 }
 
-/// Refuses an adapter this release cannot build, naming the task that will provide it.
-fn validate_adapter(adapter: &str) -> Result<(), ConnectError> {
-    if adapter == OPENAI_COMPATIBLE {
-        return Ok(());
-    }
-    let task = SCHEDULED_ADAPTERS
-        .iter()
-        .find(|(name, _)| *name == adapter)
-        .map_or("not scheduled yet", |(_, task)| *task);
-    Err(ConnectError::UnsupportedAdapter {
+/// Resolves the named adapter, or refuses it naming every adapter this build does implement.
+///
+/// The list is not duplicated here: it comes from the provider crate, so a new adapter is accepted
+/// by `connect` the moment it exists and no CLI constant can drift out of step with the crate.
+fn validate_adapter(adapter: &str) -> Result<Adapter, ConnectError> {
+    Adapter::from_name(adapter).ok_or_else(|| ConnectError::UnsupportedAdapter {
         adapter: adapter.to_string(),
-        task,
+        known: Adapter::ALL.map(Adapter::name).join(", "),
     })
 }
 
@@ -424,7 +415,8 @@ mod tests {
     use std::sync::Mutex;
 
     use aicontext_providers::{
-        Environment, Keychain, KeychainError, KeychainReference, ProviderError, ProviderId, Secret,
+        Adapter, Environment, Keychain, KeychainError, KeychainReference, ProviderError,
+        ProviderId, Secret,
     };
 
     use super::{Ports, Verifier, execute};
@@ -720,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unbuilt_adapter_names_the_task_that_builds_it() {
+    fn an_unknown_adapter_is_refused_naming_the_ones_that_exist() {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(temp.path().join(".ai")).expect("create .ai");
         let ports = Ports {
@@ -729,17 +721,39 @@ mod tests {
             verifier: &RecordingVerifier::default(),
         };
         let args = ConnectArgs {
-            adapter: "anthropic".to_string(),
+            adapter: "openai-one".to_string(),
             ..args()
         };
         let error = execute(&args, false, temp.path(), &ports).expect_err("refused");
-        assert!(matches!(
-            error,
-            ConnectError::UnsupportedAdapter {
-                task: "TASK-054",
-                ..
-            }
-        ));
+        assert!(matches!(error, ConnectError::UnsupportedAdapter { .. }));
+        assert_eq!(error.code(), "CONNECT-005");
+        assert_eq!(error.exit(), crate::exit::Exit::Usage);
+        // The message must answer the question it raises: which names would have worked.
+        let message = error.to_string();
+        for name in ["openai-compatible", "anthropic", "gemini"] {
+            assert!(message.contains(name), "{message}");
+        }
+    }
+
+    #[test]
+    fn every_adapter_the_spec_names_reaches_the_verifier() {
+        for name in ["openai-compatible", "anthropic", "gemini"] {
+            let temp = tempfile::tempdir().expect("tempdir");
+            std::fs::create_dir_all(temp.path().join(".ai")).expect("create .ai");
+            let verifier = RecordingVerifier::default();
+            let ports = Ports {
+                environment: &FakeEnvironment::default(),
+                keychain: &FakeKeychain::default(),
+                verifier: &verifier,
+            };
+            let args = ConnectArgs {
+                adapter: name.to_string(),
+                ..args()
+            };
+            execute(&args, false, temp.path(), &ports).expect("connects");
+
+            assert_eq!(verifier.adapters(), vec![name], "`{name}` is built");
+        }
     }
 
     #[test]
@@ -802,15 +816,20 @@ mod tests {
         assert_eq!(removed.auth.kind, AuthKind::None);
     }
 
-    /// A verifier that records the credential it was handed.
+    /// A verifier that records which adapter it was handed and the credential it was given.
     #[derive(Default)]
     struct RecordingVerifier {
         seen: Mutex<Vec<Option<String>>>,
+        adapters: Mutex<Vec<&'static str>>,
     }
 
     impl RecordingVerifier {
         fn seen(&self) -> Vec<Option<String>> {
             self.seen.lock().expect("lock").clone()
+        }
+
+        fn adapters(&self) -> Vec<&'static str> {
+            self.adapters.lock().expect("lock").clone()
         }
     }
 
@@ -818,12 +837,14 @@ mod tests {
         fn verify(
             &self,
             _entry: &ProviderEntry,
+            adapter: Adapter,
             credential: Option<&Secret>,
         ) -> Result<(), ProviderError> {
             self.seen
                 .lock()
                 .expect("lock")
                 .push(credential.map(|secret| secret.expose().to_string()));
+            self.adapters.lock().expect("lock").push(adapter.name());
             Ok(())
         }
     }
@@ -835,6 +856,7 @@ mod tests {
         fn verify(
             &self,
             _entry: &ProviderEntry,
+            _adapter: Adapter,
             _credential: Option<&Secret>,
         ) -> Result<(), ProviderError> {
             Err(ProviderError::Unauthorized {

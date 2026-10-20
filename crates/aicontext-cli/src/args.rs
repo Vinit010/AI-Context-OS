@@ -343,7 +343,7 @@ pub(crate) struct ConnectArgs {
     #[arg(long, value_name = "ID", value_parser = required_value)]
     pub(crate) provider: String,
 
-    /// Which adapter speaks its wire format. Only `openai-compatible` is built today.
+    /// Which adapter speaks its wire format: `openai-compatible`, `anthropic`, or `gemini`.
     #[arg(
         long,
         value_name = "NAME",
@@ -562,7 +562,7 @@ export / import flags:
 
 connect / disconnect flags:
       --provider <ID>       Provider id to add (connect) or remove (disconnect)
-      --adapter <NAME>      Adapter; only openai-compatible is built today
+      --adapter <NAME>      Adapter: openai-compatible, anthropic, or gemini
       --base-url <URL>      Server root, e.g. http://localhost:11434/v1
       --model <NAME>        Model the verification call asks for
       --env <VAR>           Variable holding the credential; records its NAME only
@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(connect.provider, "hosted");
         assert_eq!(
             connect.adapter, "openai-compatible",
-            "the only adapter built"
+            "the default a long-standing script may rely on"
         );
         assert_eq!(connect.base_url, "https://api.openai.com/v1");
         assert_eq!(connect.model, "gpt-test");

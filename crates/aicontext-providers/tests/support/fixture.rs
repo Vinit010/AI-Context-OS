@@ -148,7 +148,7 @@ pub(crate) fn once() -> CompletionRequest {
     }
 }
 
-/// The chat-completions fixture: OpenAI, Ollama, vLLM, and every compatible server.
+/// The chat-completions fixture: `OpenAI`, Ollama, vLLM, and every compatible server.
 pub(crate) struct OpenAi;
 
 /// The Anthropic Messages API fixture.

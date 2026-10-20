@@ -23,7 +23,7 @@ use crate::types::ProviderId;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Adapter {
-    /// The chat-completions shape: OpenAI, Ollama, vLLM, and compatible servers.
+    /// The chat-completions shape: `OpenAI`, Ollama, vLLM, and compatible servers.
     OpenAiCompatible,
     /// The Anthropic Messages API.
     Anthropic,

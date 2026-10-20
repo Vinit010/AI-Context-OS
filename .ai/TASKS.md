@@ -11,7 +11,7 @@ updated: 2026-10-20
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-054
+**Current task:** TASK-055
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1296,7 +1296,7 @@ done:
 ```yaml
 id: TASK-054
 title: Implement the Anthropic and Gemini adapters
-status: BACKLOG
+status: DONE
 priority: MEDIUM
 phase: 3
 depends_on: [TASK-051]
@@ -1305,6 +1305,82 @@ touches: ["crates/aicontext-providers/**"]
 acceptance:
   - Each maps its tool-call and usage shapes onto the provider-neutral types
   - Both pass the shared contract test suite
+scope_notes:
+  - 'Scope extended by approval during review, in two directions. First, crates/aicontext-cli is
+    touched outside the declared crates/aicontext-providers/**: connect builds whichever adapter
+    --adapter names and verifies against it, so args.rs'' help, tests/connect.rs, and docs/CLI_SPEC.md
+    4 move with it. Second, full streaming is in scope for both new adapters - stream() is implemented
+    and capabilities().streaming is true for all three, not a documented future. Everything else is
+    the declared crate plus the usual .ai/ bookkeeping'
+  - 'No dependency is added. reqwest, tokio, serde_json, and tracing were already in
+    aicontext-providers for the openai adapter, and the HTTP/TLS stack stays exactly what ADR-009
+    recorded - this task builds adapters on the stack the workspace already commits to'
+  - 'The shared transport is one extraction rather than three copies (RULES 2: shared code needs
+    three concrete use cases, and Auth, timeouts, retries, SSE parsing, the stream pump, and error
+    detail now have exactly three each). src/transport/{mod,retry,sse,stream,envelope}.rs lifts what
+    the openai adapter already had out of it - RetryPolicy and SseParser moved verbatim - and the old
+    tests/openai_contract.rs passed unchanged against the refactored openai adapter before that file
+    was replaced, which is what makes "no behavior changed" a claim rather than a hope. What the
+    adapters still own is what genuinely differs: URLs, headers, and the wire shape of a message, a
+    tool call, a finish reason, and usage'
+  - 'The credential is mapped once: Adapter::build turns the resolved secret into Auth::ApiKey, and
+    each adapter''s auth_headers decides whether that becomes Authorization, x-api-key, or
+    x-goog-api-key. The secret itself is only ever held by transport::Auth, whose Debug and Display
+    redact it, so no adapter and no error message can render it (SPEC 11 T10)'
+  - 'Two wire facts have no provider-neutral equivalent and are documented at the point of decision
+    rather than papered over. Gemini assigns no id to a function call, so ToolCall.id is the empty
+    string rather than an invented one, and a tool result arrives as a user text part wrapped in
+    <tool-result call="..."> because a neutral Message carries a call id but not the tool name that
+    functionResponse requires. Anthropic has no seed, so options.seed is dropped there. Gemini''s
+    STOP with a functionCall in it maps to ToolUse - its own upgrade rule, since the wire spells a
+    turn that proposed a function STOP'
+done:
+  - 'src/transport is new: Auth (None/Bearer/ApiKey over a Secret, with a header() and a redactor()),
+    Timeouts, RetryPolicy and SseParser moved verbatim from the openai adapter, a stream pump that
+    translates raw SSE lines through a closure the adapter supplies, error_detail() reading /error/
+    message or /message from any provider''s body, and a dispatch() retry loop keyed on an idempotency
+    seed. src/openai now sits on that transport and its own retry.rs and sse.rs are deleted'
+  - 'src/anthropic is new: POST {base}/messages with x-api-key and anthropic-version always sent, the
+    instruction and policy as a top-level system string, max_tokens always present, tool_use blocks
+    mapped whole (their input is already an object) and tool_result correlated back to its tool_use_id
+    in a user message, input/output/cache_read tokens onto Usage, and the stop_reason map
+    end_turn|stop_sequence -> Stop, tool_use -> ToolUse, max_tokens -> Length, refusal -> Refusal,
+    anything else -> Unknown(raw)'
+  - 'src/gemini is new: the model in the path - {base}/models/{model}:generateContent, stream as
+    :streamGenerateContent?alt=sse - with contents, systemInstruction, tools.functionDeclarations,
+    and generationConfig carrying maxOutputTokens, temperature, stopSequences, and seed. functionCall
+    parts map onto one ToolCallDelta with the arguments already serialized; finishReason maps
+    STOP -> Stop (upgraded to ToolUse when a call is present), MAX_TOKENS -> Length, the safety family
+    -> Refusal, MALFORMED_FUNCTION_CALL -> Error, anything else -> Unknown(raw); usageMetadata''s
+    prompt/candidates/cached counts onto Usage; a response with no candidates or no function name is
+    MalformedResponse rather than a guess'
+  - 'src/adapter.rs is the factory the CLI needs: Adapter::{OpenAiCompatible, Anthropic, Gemini} with
+    ALL, name(), from_name() and build(id, base_url, model, credential), so "which adapters exist" is
+    one list in the provider crate that no other crate re-states. Both new adapters implement
+    capabilities() with streaming true and stream() over their own wire''s event translation'
+  - 'The contract suite became provider-neutral: tests/openai_contract.rs is deleted and
+    tests/contract.rs runs every T1-T12 test plus both streaming tests in a loop over
+    tests/support/fixture.rs''s three fixtures. Each fixture owns what differs - endpoint path, reply
+    and tool-call and usage shapes, the finish-reason table, the header a credential lands in, where
+    the policy and the data sit in the body, the ceiling, the stream''s canned bytes and their
+    expected events - and the test file holds only the assertion, which is what the contract says is
+    the same everywhere. Every assertion message names the adapter it came from, so one red test
+    still says which wire format broke. 22 tests, each covering three adapters'
+  - 'connect accepts all three: validate_adapter is Adapter::from_name, an unknown name is
+    CONNECT-005 and exit 2 printing the list of names that do exist (the list comes from Adapter::ALL,
+    so it cannot drift), Verifier::verify takes the parsed Adapter, and HttpVerifier hands it to
+    Adapter::build. SCHEDULED_ADAPTERS and OPENAI_COMPATIBLE are gone - "not built yet" is no longer
+    a state the CLI needs to know about'
+  - 'Tests: 114 unit tests in the provider crate (including per-adapter tests for the system
+    instruction, the tool shapes, the finish-reason maps, malformed responses, auth headers, endpoint
+    building, config-Debug redaction, and every stream translation), 22 shared contract tests running
+    against all three adapters, and 2 new end-to-end tests in aicontext-cli/tests/connect.rs - one
+    proving --adapter anthropic reaches POST /messages and reads an Anthropic-shaped reply back, one
+    proving an unknown name exits 2, names the three that exist, makes no call, and writes nothing.
+    No test reads a real credential or reaches the network beyond 127.0.0.1'
+  - 'Gates: cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings,
+    cargo test --workspace (all suites green), and aicontext doctor (exit 0, only the pre-existing
+    CTX-012 finding about .ai/schemas copies)'
 ```
 
 ### TASK-055 — Implement aicontext agent (plan mode only)

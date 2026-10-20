@@ -153,10 +153,7 @@ impl Anthropic {
     /// token is still `Authorization`, because that is what the scheme means and Anthropic accepts
     /// it for OAuth-issued tokens.
     fn auth_headers(&self) -> Vec<(String, String)> {
-        let mut headers = vec![(
-            VERSION_HEADER.to_owned(),
-            VERSION.to_owned(),
-        )];
+        let mut headers = vec![(VERSION_HEADER.to_owned(), VERSION.to_owned())];
         if let Some(header) = self.config.auth.header(API_KEY_HEADER) {
             headers.push(header);
         }
@@ -173,7 +170,13 @@ impl Anthropic {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(), &self.auth_headers(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(),
+                &self.auth_headers(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         let bytes = response
             .bytes()
@@ -193,7 +196,9 @@ impl AIProvider for Anthropic {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
-        self.transport.within_total(self.complete_inner(request)).await
+        self.transport
+            .within_total(self.complete_inner(request))
+            .await
     }
 
     async fn stream(
@@ -205,7 +210,13 @@ impl AIProvider for Anthropic {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(), &self.auth_headers(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(),
+                &self.auth_headers(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         Ok(stream::open(response, self.config.cancel.clone()))
     }
@@ -222,7 +233,7 @@ impl AIProvider for Anthropic {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anthropic, AnthropicConfig, API_KEY_HEADER, VERSION, VERSION_HEADER};
+    use super::{API_KEY_HEADER, Anthropic, AnthropicConfig, VERSION, VERSION_HEADER};
     use crate::transport::Auth;
     use crate::{ProviderId, Secret};
 
@@ -250,10 +261,7 @@ mod tests {
         let provider = Anthropic::new(config().with_auth(Auth::Bearer(Secret::new(SECRET))))
             .expect("the adapter builds");
         let headers = provider.auth_headers();
-        assert!(headers.contains(&(
-            "authorization".to_owned(),
-            format!("Bearer {SECRET}")
-        )));
+        assert!(headers.contains(&("authorization".to_owned(), format!("Bearer {SECRET}"))));
         assert!(!headers.iter().any(|(name, _)| name == API_KEY_HEADER));
     }
 

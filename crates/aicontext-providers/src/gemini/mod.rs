@@ -157,9 +157,10 @@ impl Gemini {
             "generateContent"
         };
         format!(
-            "{}{}",
+            "{}/models/{}:{}",
             self.config.base_url.trim_end_matches('/'),
-            format!("/models/{}:{}", self.model(), method)
+            self.model(),
+            method
         )
     }
 
@@ -182,7 +183,13 @@ impl Gemini {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(false), &self.auth_headers(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(false),
+                &self.auth_headers(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         let bytes = response
             .bytes()
@@ -202,7 +209,9 @@ impl AIProvider for Gemini {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
-        self.transport.within_total(self.complete_inner(request)).await
+        self.transport
+            .within_total(self.complete_inner(request))
+            .await
     }
 
     async fn stream(
@@ -214,7 +223,13 @@ impl AIProvider for Gemini {
         let idempotent = !request.idempotency_key.is_empty();
         let response = self
             .transport
-            .dispatch(&self.endpoint(true), &self.auth_headers(), &body, idempotent, seed)
+            .dispatch(
+                &self.endpoint(true),
+                &self.auth_headers(),
+                &body,
+                idempotent,
+                seed,
+            )
             .await?;
         Ok(stream::open(response, self.config.cancel.clone()))
     }
@@ -231,7 +246,7 @@ impl AIProvider for Gemini {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gemini, GeminiConfig, API_KEY_HEADER};
+    use super::{API_KEY_HEADER, Gemini, GeminiConfig};
     use crate::transport::Auth;
     use crate::{ProviderId, Secret};
 

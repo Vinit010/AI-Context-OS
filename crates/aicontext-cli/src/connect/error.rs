@@ -69,13 +69,13 @@ pub(crate) enum ConnectError {
         reason: String,
     },
 
-    /// The named adapter has no implementation yet.
-    #[error("the `{adapter}` adapter is not implemented yet ({task})")]
+    /// The named adapter is not one this build implements.
+    #[error("unknown adapter `{adapter}` (known adapters: {known})")]
     UnsupportedAdapter {
         /// The adapter name that was asked for.
         adapter: String,
-        /// The task that will provide it, or a note that none is scheduled.
-        task: &'static str,
+        /// Every adapter name this build accepts, as a comma-separated list.
+        known: String,
     },
 
     /// A flag that requires a value was given an empty one.
@@ -166,7 +166,8 @@ impl ConnectError {
                 "check that `.ai/ai.yaml` is writable, remove it by hand, then run `aicontext doctor`"
             }
             Self::UnsupportedAdapter { .. } => {
-                "use `--adapter openai-compatible`, the only adapter this release ships"
+                "check the spelling against the list printed above — `docs/AI_PROVIDER_SPEC.md` §3 \
+                 describes each adapter's wire format"
             }
             Self::BlankValue { .. } => "give the flag a non-empty value, or drop it",
             Self::KeychainEntryWithoutCredential => {
@@ -275,8 +276,8 @@ mod tests {
         );
         assert_eq!(
             ConnectError::UnsupportedAdapter {
-                adapter: "anthropic".to_string(),
-                task: "TASK-054",
+                adapter: "openai-one".to_string(),
+                known: "openai-compatible, anthropic, gemini".to_string(),
             }
             .exit(),
             crate::exit::Exit::Usage

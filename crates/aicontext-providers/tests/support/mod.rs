@@ -3,8 +3,13 @@
 //! `docs/AI_PROVIDER_SPEC.md` §11 requires the contract tests to pass against a local fake server
 //! with no network, so this binds an ephemeral `127.0.0.1` port and serves canned responses over
 //! plain HTTP. It is `std`-only on purpose: the tests need a server, not a web framework.
+//!
+//! [`fixture`] holds the one-per-adapter half of the suite: everything that differs between the
+//! three wire formats lives there, so the tests in `tests/contract.rs` stay provider-neutral.
 
 #![allow(dead_code)]
+
+pub(crate) mod fixture;
 
 use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};

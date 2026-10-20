@@ -1062,6 +1062,48 @@ variable's *name*, or nothing; the credential itself goes to the OS keychain. `a
 quotes the value it rejected, and an empty secret is caught in the command, which names the flag
 without naming what it held.
 
+## MEM-034 — A contract test records one implementation until a second one can fail it
+
+```yaml
+id: MEM-034
+category: lesson
+scope: providers
+status: active
+confidence: high
+recorded: 2026-10-20
+supersedes: null
+tags: [providers, adapters, contract-tests, shared-transport, task-054]
+```
+
+TASK-051 wrote the provider contract (`AI_PROVIDER_SPEC.md` §11, T1–T12) and built one adapter to
+satisfy it. With a single implementation, "the contract is provider-neutral" was a claim about the
+future: nothing in the test suite could falsify it, because every wire fact the assertions rested on
+was a fact about the OpenAI-compatible shape. TASK-054 added the two adapters that could. They
+falsified plenty — Gemini puts the model in the path, spells a turn that proposed a function `STOP`,
+and assigns no id to a call at all; Anthropic splits usage across the first and last stream events,
+sends the instruction as a top-level `system` string, and has no seed to send. None of that is the
+same as anything else, and none of it is the contract.
+
+The resolution has two halves, and they answer different questions. *What is shared* was extracted
+once — `src/transport` now holds auth, timeouts, retries, SSE parsing, the stream pump, and error
+detail, each with exactly the three users `RULES.md` §2 asks for before code is shared. That the
+extraction changed nothing was established by running the old OpenAI suite against the refactored
+adapter *before* replacing it, so "no behaviour changed" was a result rather than an intention. *What
+differs* became a fixture: `tests/contract.rs` loops three fixtures through every test, and each
+fixture owns the endpoint path, the wire spelling of a reply, a tool call, usage and a finish reason,
+the header a credential lands in, where the policy and the data sit in the body, and the bytes of a
+stream.
+
+The test file that results is the point. Everything in it is an assertion the spec says is the same
+wherever the call goes; every branch lives in a fixture, where a wire fact belongs. Adding an adapter
+therefore means adding a fixture and editing no assertion — which is what makes "all three pass the
+shared suite" a checkable statement instead of a description of intent. The general lesson: a
+contract test earns its name only when a second implementation can fail it, and the measure of one is
+not that it passes but what you must touch to make a new implementation pass. Two smaller habits came
+with it — assertion messages name the adapter they came from, so one red test still says which wire
+format broke, and the list of what exists lives in one place (`Adapter::ALL`) that callers read
+rather than re-state.
+
 ## Bugs encountered
 
 None shipped. Seven defects were found before a consumer saw them. Two were found by running the

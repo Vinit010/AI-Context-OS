@@ -44,7 +44,10 @@ fn translate(payload: &str, state: &mut State) -> Option<Vec<StreamEvent>> {
         .and_then(Value::as_array)
         .and_then(|candidates| candidates.first());
     if let Some(candidate) = candidate {
-        if let Some(parts) = candidate.pointer("/content/parts").and_then(Value::as_array) {
+        if let Some(parts) = candidate
+            .pointer("/content/parts")
+            .and_then(Value::as_array)
+        {
             for part in parts {
                 if let Some(text) = part.get("text").and_then(Value::as_str) {
                     if !text.is_empty() {
@@ -109,7 +112,7 @@ fn parse_usage(usage: &Value) -> Usage {
 
 #[cfg(test)]
 mod tests {
-    use super::{translate, State};
+    use super::{State, translate};
     use crate::types::{FinishReason, StreamEvent, Usage};
 
     fn one(payload: &str) -> Vec<StreamEvent> {
@@ -147,11 +150,9 @@ mod tests {
 
     #[test]
     fn a_function_call_is_one_delta_carrying_whole_arguments() {
-        let events = one(
-            r#"{"candidates":[{"content":{"parts":[
+        let events = one(r#"{"candidates":[{"content":{"parts":[
                  {"functionCall":{"name":"aws.ec2.stop","args":{"instance_id":"i-9"}}}],
-                 "role":"model"}}]}"#,
-        );
+                 "role":"model"}}]}"#);
         assert_eq!(
             events,
             vec![StreamEvent::ToolCallDelta {

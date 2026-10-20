@@ -24,6 +24,13 @@ use tempfile::TempDir;
 /// What a provider answers when the verification call is legitimate.
 const OK: &str = r#"{"id":"cmpl-fake","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#;
 
+/// What an Anthropic Messages API server answers when the verification call is legitimate.
+///
+/// A different *shape*, not just a different word: the adapter a `connect` run built is the one that
+/// can read this back, so the test that gets a 0 out of a run against it has proved the right
+/// adapter was built and parsed the answer.
+const OK_ANTHROPIC: &str = r#"{"id":"msg-fake","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}"#;
+
 /// The error body a provider answers an unauthenticated call with.
 const REFUSED: &str = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
 
@@ -76,6 +83,7 @@ fn connect_args(base_url: &str) -> Vec<&str> {
 struct Server {
     url: String,
     seen: Arc<Mutex<Vec<String>>>,
+    lines: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -89,6 +97,7 @@ impl Server {
             .expect("a bound listener has an address");
         listener.set_nonblocking(true).expect("non-blocking");
         let seen = Arc::new(Mutex::new(Vec::new()));
+        let lines = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let response = format!(
             "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
@@ -98,11 +107,12 @@ impl Server {
 
         let handle = {
             let seen = Arc::clone(&seen);
+            let lines = Arc::clone(&lines);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
                     match listener.accept() {
-                        Ok((stream, _)) => serve(stream, &seen, &response),
+                        Ok((stream, _)) => serve(stream, &seen, &lines, &response),
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(5));
                         }
@@ -114,6 +124,7 @@ impl Server {
         Self {
             url: format!("http://{address}"),
             seen,
+            lines,
             stop,
             handle: Some(handle),
         }
@@ -122,6 +133,17 @@ impl Server {
     /// The request bodies received so far.
     fn seen(&self) -> Vec<String> {
         self.seen
+            .lock()
+            .expect("the request log is not poisoned")
+            .clone()
+    }
+
+    /// The request line of each request received, for example `POST /messages HTTP/1.1`.
+    ///
+    /// Which *path* the call landed on is the part a body cannot show, and it is what an adapter
+    /// mostly decides.
+    fn lines(&self) -> Vec<String> {
+        self.lines
             .lock()
             .expect("the request log is not poisoned")
             .clone()
@@ -137,8 +159,13 @@ impl Drop for Server {
     }
 }
 
-/// Reads one HTTP/1.1 request off `stream`, records its body, and answers it.
-fn serve(mut stream: std::net::TcpStream, seen: &Arc<Mutex<Vec<String>>>, response: &str) {
+/// Reads one HTTP/1.1 request off `stream`, records its request line and body, and answers it.
+fn serve(
+    mut stream: std::net::TcpStream,
+    seen: &Arc<Mutex<Vec<String>>>,
+    lines: &Arc<Mutex<Vec<String>>>,
+    response: &str,
+) {
     // A socket accepted by a non-blocking listener can inherit that mode on Windows, which would
     // make the first read return `WouldBlock` and close the connection.
     let _ = stream.set_nonblocking(false);
@@ -177,6 +204,11 @@ fn serve(mut stream: std::net::TcpStream, seen: &Arc<Mutex<Vec<String>>>, respon
     seen.lock()
         .expect("the request log is not poisoned")
         .push(body);
+    let request_line = head.split("\r\n").next().unwrap_or_default().to_string();
+    lines
+        .lock()
+        .expect("the request log is not poisoned")
+        .push(request_line);
 
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
@@ -260,6 +292,86 @@ fn connect_proves_the_provider_then_writes_a_schema_valid_profile() {
         "no credential was given, so no reference is recorded: {text}"
     );
     assert_matches_schema(&text);
+}
+
+#[test]
+fn connect_verifies_through_the_anthropic_adapter_and_its_own_endpoint() {
+    let (_outer, root) = project();
+    let server = Server::start(200, OK_ANTHROPIC);
+
+    let run = run_in(
+        &root,
+        &[
+            "connect",
+            "--provider",
+            "local",
+            "--adapter",
+            "anthropic",
+            "--base-url",
+            &server.url,
+            "--model",
+            "test-model",
+        ],
+    );
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+
+    let lines = server.lines();
+    assert_eq!(lines.len(), 1, "one minimal call, exactly once");
+    assert!(
+        lines[0].starts_with("POST /messages "),
+        "the Messages API, not `/chat/completions`: {}",
+        lines[0]
+    );
+
+    let requests = server.seen();
+    let request = &requests[0];
+    assert!(
+        request.contains("\"max_tokens\":8"),
+        "the ceiling is part of asking for little: {request}"
+    );
+    assert!(
+        !request.contains("\"stream\":true"),
+        "a verification call must not open a stream: {request}"
+    );
+
+    let text = profile(&root);
+    assert!(text.contains("adapter: anthropic"), "{text}");
+    assert_matches_schema(&text);
+}
+
+#[test]
+fn an_unknown_adapter_is_a_usage_error_that_prints_the_ones_that_exist() {
+    let (_outer, root) = project();
+    let server = Server::start(200, OK);
+
+    let run = run_in(
+        &root,
+        &[
+            "connect",
+            "--provider",
+            "local",
+            "--adapter",
+            "openai-one",
+            "--base-url",
+            &server.url,
+            "--model",
+            "test-model",
+        ],
+    );
+
+    assert_eq!(run.code, 2, "{}", run.stderr);
+    for name in ["openai-compatible", "anthropic", "gemini"] {
+        assert!(run.stderr.contains(name), "{}", run.stderr);
+    }
+    assert_eq!(
+        server.seen().len(),
+        0,
+        "the name is checked before any call is made"
+    );
+    assert!(
+        !root.join(".ai/ai.yaml").exists(),
+        "a usage error writes nothing"
+    );
 }
 
 #[test]
