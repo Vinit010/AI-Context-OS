@@ -814,8 +814,15 @@ mod tests {
         let Cli {
             command: Command::Agent(agent),
             ..
-        } = Cli::try_parse_from(["aicontext", "agent", "run", "--task", "TASK-001", "--dry-run"])
-            .expect("agent run --dry-run parses")
+        } = Cli::try_parse_from([
+            "aicontext",
+            "agent",
+            "run",
+            "--task",
+            "TASK-001",
+            "--dry-run",
+        ])
+        .expect("agent run --dry-run parses")
         else {
             panic!("expected the agent command");
         };

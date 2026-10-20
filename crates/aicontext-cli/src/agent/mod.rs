@@ -189,12 +189,11 @@ fn execute(
             path: config_path,
             known,
         })?;
-    let adapter = Adapter::from_name(&entry.adapter).ok_or_else(|| {
-        AgentError::UnsupportedAdapter {
+    let adapter =
+        Adapter::from_name(&entry.adapter).ok_or_else(|| AgentError::UnsupportedAdapter {
             adapter: entry.adapter.clone(),
             known: Adapter::ALL.map(Adapter::name).join(", "),
-        }
-    })?;
+        })?;
 
     // The same cache-warm scan `context` uses: the only file it may write is the rebuildable,
     // git-ignored index under `.aicontext/`.
@@ -217,17 +216,38 @@ fn execute(
     }
 
     let source = entry.auth.source(&entry.id);
-    let credential = CredentialResolver::new(ports.environment, ports.keychain)
-        .resolve(&source, None)?;
+    let credential =
+        CredentialResolver::new(ports.environment, ports.keychain).resolve(&source, None)?;
 
     let request = build_request(task, &packet, &index);
     let response = ports
         .planner
         .plan(&entry, adapter, credential.as_ref(), request)?;
 
-    // The finish reason is read before the text: a refusal is reported with the model's words and
-    // never turned into a file (`docs/AI_PROVIDER_SPEC.md` §6), and a tool call cannot be honoured
-    // by a run that offered no tools.
+    finish(
+        args, root, task, &entry, context, &packet, &response, findings,
+    )
+}
+
+/// Turns the provider's answer into a written plan, or into the failure that stops one.
+///
+/// The finish reason is read before the text: a refusal is reported with the model's words and never
+/// turned into a file (`docs/AI_PROVIDER_SPEC.md` §6), and a tool call cannot be honoured by a run
+/// that offered no tools.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one call site, and each argument is a distinct piece of the run this step consumes"
+)]
+fn finish(
+    args: &AgentRunArgs,
+    root: &Path,
+    task: &aicontext_context::register::TaskEntry,
+    entry: &ProviderEntry,
+    context: ContextCounts,
+    packet: &aicontext_context::ContextPacket,
+    response: &aicontext_providers::CompletionResponse,
+    findings: &mut Vec<Finding>,
+) -> Result<Outcome, AgentError> {
     match &response.finish_reason {
         FinishReason::Refusal => {
             return Err(AgentError::Declined {
@@ -253,7 +273,10 @@ fn execute(
             "warning",
             PLANS_PATH,
             "the model hit the output-token ceiling; the plan may be incomplete",
-            format!("ask again with a smaller task, or raise the ceiling above {PLAN_MAX_OUTPUT_TOKENS} tokens"),
+            format!(
+                "ask again with a smaller task, or raise the ceiling above \
+                 {PLAN_MAX_OUTPUT_TOKENS} tokens"
+            ),
         ));
     }
 
@@ -271,8 +294,8 @@ fn execute(
             task_id: &args.task,
             task_title: task.title.as_deref(),
             task_status: task.status.as_deref(),
-            provider: &provider_line(&entry),
-            sources: &sources(&packet),
+            provider: &provider_line(entry),
+            sources: &sources(packet),
             usage: &usage_text(&usage),
             truncated,
         },
@@ -283,7 +306,7 @@ fn execute(
     Ok(Outcome::planned(
         &args.task,
         task.title.as_deref(),
-        &entry,
+        entry,
         context,
         project::display(&relative),
         structured,
@@ -380,7 +403,11 @@ fn sources(packet: &ContextPacket) -> Vec<String> {
 /// The instruction is the host's own words (Z3): it states the mode, the output contract, and the
 /// plan contract. The documents never enter it — `AI_PROVIDER_SPEC.md` §2.1 puts them in
 /// [`DataBlock`]s, and T9 is what proves each adapter keeps them there.
-fn build_request(task: &TaskEntry, packet: &ContextPacket, index: &ContextIndex) -> CompletionRequest {
+fn build_request(
+    task: &TaskEntry,
+    packet: &ContextPacket,
+    index: &ContextIndex,
+) -> CompletionRequest {
     CompletionRequest {
         policy: PolicyRegion {
             instruction: Some(instruction(task)),
@@ -745,7 +772,7 @@ fn print_human(
         let next = outcome
             .plan_path
             .as_deref()
-            .map_or_else(|| String::new(), |path| format!("review {path}"));
+            .map_or_else(String::new, |path| format!("review {path}"));
         terminal.summary("plan written", Exit::Ok, &next);
     }
 }
@@ -835,11 +862,22 @@ mod tests {
         }
     }
 
+    /// What a call carried for its credential, or that no call reached the planner at all.
+    #[derive(Debug)]
+    enum Carried {
+        /// No call was made.
+        NoCall,
+        /// A call was made with no credential.
+        None,
+        /// A call was made with this credential.
+        Secret(aicontext_providers::Secret),
+    }
+
     /// The call a test makes, kept so a test can assert on the request it built.
     #[derive(Debug)]
     struct FakePlanner {
         answer: RefCell<Option<Result<aicontext_providers::CompletionResponse, ProviderError>>>,
-        credential: RefCell<Option<Option<aicontext_providers::Secret>>>,
+        credential: RefCell<Carried>,
         requests: RefCell<Vec<CompletionRequest>>,
     }
 
@@ -850,7 +888,7 @@ mod tests {
         ) -> Self {
             Self {
                 answer: RefCell::new(Some(answer)),
-                credential: RefCell::new(None),
+                credential: RefCell::new(Carried::NoCall),
                 requests: RefCell::new(Vec::new()),
             }
         }
@@ -864,9 +902,10 @@ mod tests {
             credential: Option<&aicontext_providers::Secret>,
             request: CompletionRequest,
         ) -> Result<aicontext_providers::CompletionResponse, ProviderError> {
-            self.credential
-                .borrow_mut()
-                .replace(credential.cloned());
+            *self.credential.borrow_mut() = match credential {
+                Some(secret) => Carried::Secret(secret.clone()),
+                None => Carried::None,
+            };
             self.requests.borrow_mut().push(request);
             self.answer
                 .borrow_mut()
@@ -909,9 +948,20 @@ mod tests {
         let outcome = execute(&args("TASK-001"), false, &root, &ports, &mut findings)
             .expect("the run succeeds");
 
-        assert_eq!(outcome.plan_path.as_deref(), Some(".aicontext/plans/TASK-001.md"));
+        assert_eq!(
+            outcome.plan_path.as_deref(),
+            Some(".aicontext/plans/TASK-001.md")
+        );
         assert_eq!(outcome.structured, Some(true));
-        assert_eq!(outcome.usage, Some(UsageSummary { input: Some(1200), output: Some(180), cached: None, estimated: false }));
+        assert_eq!(
+            outcome.usage,
+            Some(UsageSummary {
+                input: Some(1200),
+                output: Some(180),
+                cached: None,
+                estimated: false
+            })
+        );
         assert!(findings.is_empty());
 
         let document = std::fs::read_to_string(root.join(".aicontext/plans/TASK-001.md"))
@@ -924,14 +974,27 @@ mod tests {
         // The request it built: instruction in the policy region, RULES.md as trusted policy, and
         // a hard output ceiling.
         let request = &planner.requests.borrow()[0];
-        let instruction = request.policy.instruction.as_deref().expect("an instruction");
+        let instruction = request
+            .policy
+            .instruction
+            .as_deref()
+            .expect("an instruction");
         assert!(instruction.contains("plan mode"));
         assert!(instruction.contains("TASK-001"));
         assert!(
-            request.policy.policy.iter().any(|block| block.content.contains("Be correct.")),
+            request
+                .policy
+                .policy
+                .iter()
+                .any(|block| block.content.contains("Be correct.")),
             "RULES.md is mandatory policy and must reach the policy region"
         );
-        assert!(request.data.iter().all(|block| block.trust == Trust::Untrusted));
+        assert!(
+            request
+                .data
+                .iter()
+                .all(|block| block.trust == Trust::Untrusted)
+        );
         assert_eq!(request.budget.max_output_tokens, 4000);
         assert!(request.idempotency_key.is_empty(), "one attempt, by design");
     }
@@ -951,11 +1014,7 @@ mod tests {
             .expect("a free provider needs no credential");
         assert!(outcome.plan_path.is_some());
         assert!(
-            planner
-                .credential
-                .borrow()
-                .as_ref()
-                .is_some_and(Option::is_none),
+            matches!(*planner.credential.borrow(), Carried::None),
             "auth: none resolves to no credential — no keychain, no variable, no key"
         );
     }
@@ -1160,12 +1219,9 @@ mod tests {
         let outcome = execute(&args("TASK-001"), false, &root, &ports, &mut Vec::new())
             .expect("the named variable resolves");
         assert!(outcome.plan_path.is_some());
-        let credential = planner.credential.borrow();
-        let secret = credential
-            .as_ref()
-            .expect("the call carried a credential")
-            .as_ref()
-            .expect("and it was there");
+        let Carried::Secret(secret) = &*planner.credential.borrow() else {
+            panic!("the call must carry the resolved credential");
+        };
         assert_eq!(secret.expose(), "sk-test");
         let after =
             std::fs::read_to_string(root.join(".ai/ai.yaml")).expect("the profile is readable");
@@ -1195,7 +1251,10 @@ mod tests {
             "env_or_keychain falls through to the keychain when the variable is unset, and the \
              entry is not there either"
         );
-        assert!(planner.requests.borrow().is_empty(), "the call was never made");
+        assert!(
+            planner.requests.borrow().is_empty(),
+            "the call was never made"
+        );
     }
 
     #[test]

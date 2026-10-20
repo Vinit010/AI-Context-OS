@@ -115,18 +115,12 @@ fn render_proposal(out: &mut String, proposal: &Proposal) {
     let plans: Vec<_> = proposal
         .actions
         .iter()
-        .filter_map(|action| match action {
-            Action::Plan { .. } => Some(action),
-            Action::ToolCall { .. } => None,
-        })
+        .filter(|action| matches!(action, Action::Plan { .. }))
         .collect();
     let tool_calls: Vec<_> = proposal
         .actions
         .iter()
-        .filter_map(|action| match action {
-            Action::ToolCall { .. } => Some(action),
-            Action::Plan { .. } => None,
-        })
+        .filter(|action| matches!(action, Action::ToolCall { .. }))
         .collect();
 
     let _ = writeln!(out, "## Summary");
@@ -271,9 +265,15 @@ mod tests {
             "## Usage",
             "in 10, out 20 — provider-reported",
         ] {
-            assert!(rendered.contains(expected), "missing `{expected}` in:\n{rendered}");
+            assert!(
+                rendered.contains(expected),
+                "missing `{expected}` in:\n{rendered}"
+            );
         }
-        assert!(!rendered.contains("modifies nothing"), "the header says what ran");
+        assert!(
+            !rendered.contains("modifies nothing"),
+            "the header says what ran"
+        );
     }
 
     #[test]
@@ -285,7 +285,10 @@ mod tests {
         );
         assert!(rendered.contains("## Plan"));
         assert!(rendered.contains("Do the thing.\nThen stop."));
-        assert!(!rendered.contains("## Files to modify"), "prose has no file lists");
+        assert!(
+            !rendered.contains("## Files to modify"),
+            "prose has no file lists"
+        );
     }
 
     #[test]

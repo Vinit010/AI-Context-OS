@@ -168,14 +168,18 @@ impact; and security impact. Writes to `.aicontext/plans/`. **Modifies nothing.*
 
 ### `aicontext agent run`
 
+Plan mode only for now (`ADR-006` #1): the run assembles the task's context, asks the configured
+provider for a plan, and writes it to `.aicontext/plans/<task>.md`. It modifies nothing outside
+`.aicontext/`, and never commits, pushes, branches, or rewrites history.
+
 | Flag | Effect |
 |------|--------|
-| `--task <ID>` | The task in scope |
-| `--execute` | Allow writes, confined to the task's `touches` globs (per `ADR-006`) |
-| `--allow <path>` | Extend the write scope explicitly |
-| `--dry-run` | Show actions without calling any tool |
+| `--task <ID>` | The task in scope. Required: it names the whole scope of the run |
+| `--dry-run` | Assemble the context and report what would be sent; no call, nothing written |
 
-Never commits, pushes, branches, or rewrites history.
+`--execute` and `--allow` are not accepted yet: an execution mode must not exist until plan mode
+has proved itself (`ADR-006` #7), so passing either is a usage error rather than a flag that
+quietly does nothing.
 
 ### `aicontext plugin install <ref>`
 

@@ -110,7 +110,10 @@ fn as_json(text: &str) -> Option<Value> {
 /// The body of a fenced code block, when the text is one.
 fn fenced(text: &str) -> Option<&str> {
     let rest = text.strip_prefix("```")?;
-    let rest = rest.strip_prefix("json").unwrap_or(rest).trim_start_matches('\n');
+    let rest = rest
+        .strip_prefix("json")
+        .unwrap_or(rest)
+        .trim_start_matches('\n');
     let end = rest.rfind("```")?;
     Some(rest[..end].trim())
 }
@@ -130,7 +133,7 @@ fn validate(value: &Value) -> Result<Vec<Action>, Vec<String>> {
             "`version` must be {VERSION}, found {}",
             value
                 .get("version")
-                .map_or("(missing)".to_string(), |other| other.to_string())
+                .map_or_else(|| "(missing)".to_string(), ToString::to_string)
         ));
     }
     let Some(actions) = value.get("actions").and_then(Value::as_array) else {
@@ -144,7 +147,10 @@ fn validate(value: &Value) -> Result<Vec<Action>, Vec<String>> {
     for (index, action) in actions.iter().enumerate() {
         match parse_action(action) {
             Ok(action) => parsed.push(action),
-            Err(why) => problems.extend(why.into_iter().map(|problem| format!("actions[{index}]: {problem}"))),
+            Err(why) => problems.extend(
+                why.into_iter()
+                    .map(|problem| format!("actions[{index}]: {problem}")),
+            ),
         }
     }
     if problems.is_empty() {
@@ -324,13 +330,17 @@ mod tests {
             panic!("this proposal has three defects and must be rejected");
         };
         assert!(problems.iter().any(|p| p.contains("`version` must be 1")));
-        assert!(problems
-            .iter()
-            .any(|p| p.contains("`summary` must be a non-empty string")));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("`summary` must be a non-empty string"))
+        );
         assert!(problems.iter().any(|p| p.contains("lists `a` twice")));
-        assert!(problems
-            .iter()
-            .any(|p| p.contains("`arguments` must be an object")));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("`arguments` must be an object"))
+        );
     }
 
     #[test]
@@ -381,7 +391,9 @@ mod tests {
             ),
         ];
         for (text, schema_says_valid) in cases {
-            let schema_result = validator.validate(&serde_json::from_str::<serde_json::Value>(text).unwrap()).is_ok();
+            let schema_result = validator
+                .validate(&serde_json::from_str::<serde_json::Value>(text).unwrap())
+                .is_ok();
             assert_eq!(
                 schema_result, schema_says_valid,
                 "the schema itself disagrees with the expected validity of {text}"

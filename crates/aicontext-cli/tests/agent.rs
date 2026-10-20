@@ -89,11 +89,7 @@ fn files_under(root: &Path) -> Vec<String> {
                 walk(base, &path, found);
             } else {
                 let relative = path.strip_prefix(base).expect("under the base");
-                found.push(
-                    relative
-                        .to_string_lossy()
-                        .replace('\\', "/"),
-                );
+                found.push(relative.to_string_lossy().replace('\\', "/"));
             }
         }
     }
@@ -251,10 +247,7 @@ fn connect_then_agent_run_plans_the_task_and_touches_nothing_else() {
     let profile_before = fs::read_to_string(root.join(".ai/ai.yaml")).expect("the profile");
     let tree_before = files_under(&root);
 
-    let run = run_in(
-        &root,
-        &["agent", "run", "--task", "TASK-001", "--json"],
-    );
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001", "--json"]);
 
     assert_eq!(run.code, 0, "stderr: {}", run.stderr);
     let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
@@ -355,7 +348,23 @@ fn a_dry_run_makes_no_call_and_writes_nothing() {
         server.seen().is_empty(),
         "a dry run assembles and reports; it makes no call"
     );
-    assert_eq!(files_under(&root), tree_before, "nothing was written");
+    // The scan may warm the index cache, which lives under the git-ignored `.aicontext/` like the
+    // plan would; the working tree itself must be untouched.
+    let tree_after = files_under(&root);
+    let written: Vec<&String> = tree_after
+        .iter()
+        .filter(|file| !tree_before.contains(file))
+        .collect();
+    for file in written {
+        assert!(
+            file.starts_with(".aicontext/"),
+            "a dry run wrote outside `.aicontext/`: {file}"
+        );
+    }
+    assert!(
+        !root.join(".aicontext/plans").exists(),
+        "a dry run writes no plan"
+    );
     let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
     assert_eq!(body["data"]["dry_run"], true);
     assert_eq!(body["data"]["plan"], serde_json::Value::Null);
@@ -372,7 +381,11 @@ fn an_unknown_task_exits_two_before_any_call() {
 
     assert_eq!(run.code, 2, "{}", run.stderr);
     assert!(run.stderr.contains("AGENT-002"), "{}", run.stderr);
-    assert!(run.stderr.contains("TASK-001"), "the register is named: {}", run.stderr);
+    assert!(
+        run.stderr.contains("TASK-001"),
+        "the register is named: {}",
+        run.stderr
+    );
     assert!(
         server.seen().is_empty(),
         "the task is checked before anything is assembled or called"
@@ -410,7 +423,11 @@ fn a_malformed_proposal_exits_three_and_writes_no_plan() {
 
     assert_eq!(run.code, 3, "{}", run.stderr);
     assert!(run.stderr.contains("AGENT-005"), "{}", run.stderr);
-    assert!(run.stderr.contains("version"), "the problem is named: {}", run.stderr);
+    assert!(
+        run.stderr.contains("version"),
+        "the problem is named: {}",
+        run.stderr
+    );
     assert!(
         !root.join(".aicontext/plans/TASK-001.md").exists(),
         "a proposal that fails validation is reported, not written"
@@ -427,6 +444,10 @@ fn a_bare_agent_and_an_unknown_subcommand_are_usage_errors() {
         vec!["agent", "plan", "--task", "TASK-001"],
     ] {
         let run = run_in(&root, &args);
-        assert_eq!(run.code, 2, "{args:?} must be a usage error: {}", run.stderr);
+        assert_eq!(
+            run.code, 2,
+            "{args:?} must be a usage error: {}",
+            run.stderr
+        );
     }
 }

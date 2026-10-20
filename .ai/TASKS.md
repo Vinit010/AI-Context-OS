@@ -11,7 +11,7 @@ updated: 2026-10-20
 # TASKS
 
 **Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-055
+**Current task:** TASK-056
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1388,12 +1388,24 @@ done:
 ```yaml
 id: TASK-055
 title: Implement aicontext agent run in plan mode
-status: TODO
+status: DONE
 priority: HIGH
 phase: 3
 depends_on: [TASK-051, TASK-053]
 spec: docs/AI_PROVIDER_SPEC.md
 touches: ["crates/aicontext-cli/**"]
+scope_notes: >
+  Shipped `agent run` only, in plan mode (`ADR-006` #1). `--task <ID>` is required and names the
+  whole scope of a run; `--dry-run` assembles the context and reports it without calling anything or
+  writing a plan. `--execute` and `--allow` are deliberately not in the parser, so passing either is
+  clap's unknown-flag usage error (exit 2); an execution mode must not exist until plan mode has
+  proved itself (`ADR-006` #7). `agent list` is likewise not built and exits 2. Cost in dollars is
+  deferred to TASK-056: the ceiling is the constant `PLAN_MAX_OUTPUT_TOKENS` (4000), because the
+  ai-config schema has no budget section to read one from, and the tokens a provider reports are the
+  usage this task requires. The plan artifact is a structured rendering when the answer is a
+  schema-valid `action_proposal`, and the verbatim prose otherwise. Besides the declared touches,
+  `docs/CLI_SPEC.md` §4 was updated to describe plan mode and drop the not-yet-accepted
+  `--execute`/`--allow` rows.
 acceptance:
   - Assembles context, calls the provider, and writes a plan to .aicontext/plans
   - Modifies nothing in the working tree

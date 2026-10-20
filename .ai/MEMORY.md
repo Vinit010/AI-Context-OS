@@ -1104,6 +1104,45 @@ with it — assertion messages name the adapter they came from, so one red test 
 format broke, and the list of what exists lives in one place (`Adapter::ALL`) that callers read
 rather than re-state.
 
+## MEM-035 — A plan is a rendering of a validated proposal, or the answer verbatim, and never the model's own word that it is one
+
+```yaml
+id: MEM-035
+category: lesson
+scope: cli
+status: active
+confidence: high
+recorded: 2026-10-20
+supersedes: null
+tags: [cli, agents, plan-mode, validation, schema, task-055]
+```
+
+`agent run` has to write something to `.aicontext/plans/` from a model's answer, and the tempting
+shortcut is to trust the answer: if it looks like JSON, parse it; if it parses, act on it. The
+provider contract (`AI_PROVIDER_SPEC.md` §9) refuses that. A *structured* plan is one the model
+claims is an `action_proposal` **and** that validates against `schemas/action-proposal.schema.json`
+— kind, version, at least one action, and every action a `plan` with a summary or a `tool_call` with
+a tool and an object of arguments. A claim that fails any of that is not partially honoured and not
+silently downgraded: it exits 3 (`AGENT-005`) naming every problem, and nothing is written.
+Everything that is not a claim of being a proposal is a plan too, kept verbatim as prose, because a
+model that answered in sentences has still planned.
+
+The validation is hand-rolled to mirror the schema, which is a second definition of one contract and
+therefore a drift risk. It is held together by a test that loads the committed schema and asserts
+the two agree on every fixture, so the schema may stay a dev-only dependency: nothing in the runtime
+path parses JSON Schema, and the package a user installs does not grow to check its own answer.
+
+Two smaller decisions carry the same instinct — the parser decides, not the file. The plan path is
+`.aicontext/plans/<task>.md` with the task id sanitised to `[A-Za-z0-9._-]`, so an id can never walk
+out of the directory, and the file is overwritten deterministically rather than versioned, because a
+plan is a snapshot of one attempt and the register is the history. And a credential the profile
+*names* but the machine cannot produce is a failure (`CREDENTIAL_KEYCHAIN_MISSING`, exit 1), not a
+call made without one: `auth: none` is the only way to say "no credential", so that every free and
+local provider runs with none resolved and no keychain read, while a misconfigured hosted one stops
+loudly. The general lesson: when a machine's answer is about to become an artifact, the artifact is a
+rendering of what *validated*, and the validation is a contract with a test holding it to its schema
+(`MEM-034`).
+
 ## Bugs encountered
 
 None shipped. Seven defects were found before a consumer saw them. Two were found by running the

@@ -186,20 +186,23 @@ impl AgentError {
         match self {
             Self::Root(error) => error.exit(),
             Self::Config(error) => error.exit(),
-            Self::Credential(_) => Exit::General,
-            Self::Provider(_) => Exit::Provider,
+            // A credential the profile names but the machine cannot produce is a local setup
+            // failure, like a plan file that cannot be written — not the provider's fault.
+            Self::Credential(_) | Self::PlanWrite { .. } => Exit::General,
+            // An answer the provider layer could not read is the provider's failure, exactly as a
+            // transport error is.
+            Self::Provider(_) | Self::UnexpectedResponse { .. } => Exit::Provider,
+            // The packet or the model's answer did not hold up: a validation failure.
             Self::NoDefaultProvider { .. }
             | Self::DefaultNotListed { .. }
             | Self::UnsupportedAdapter { .. }
             | Self::MalformedProposal { .. }
-            | Self::Declined { .. } => Exit::Validation,
-            Self::UnknownTask { .. } | Self::Offline => Exit::Usage,
-            Self::UnexpectedResponse { .. } => Exit::Provider,
-            Self::PlanWrite { .. } => Exit::General,
+            | Self::Declined { .. }
             // Assembly runs on an already-built index, so its failures are the packet's shape —
             // today always `CTX-030`, a budget that cannot hold the never-dropped tiers — and the
             // `context` command maps the same failure to the same exit code for the same reason.
-            Self::Budget(_) => Exit::Validation,
+            | Self::Budget(_) => Exit::Validation,
+            Self::UnknownTask { .. } | Self::Offline => Exit::Usage,
         }
     }
 
@@ -277,7 +280,11 @@ mod tests {
         };
         let wrapped = AgentError::from(budget);
         assert_eq!(wrapped.code(), "CTX-030");
-        assert_eq!(wrapped.exit(), Exit::Validation, "the context command's code too");
+        assert_eq!(
+            wrapped.exit(),
+            Exit::Validation,
+            "the context command's code too"
+        );
         let own = aicontext_context::BudgetError::TooSmall {
             needed: 900,
             max_tokens: 100,
@@ -295,7 +302,10 @@ mod tests {
         let long = AgentError::Declined {
             text: "x".repeat(500),
         };
-        assert!(long.to_string().chars().count() < 300, "the report line is bounded");
+        assert!(
+            long.to_string().chars().count() < 300,
+            "the report line is bounded"
+        );
     }
 
     #[test]
