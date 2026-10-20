@@ -99,24 +99,24 @@ impl ProviderEntry {
     /// the documentation shows, so a hand-edited file and a generated one agree.
     fn to_value(&self) -> Value {
         let mut auth = Mapping::new();
-        insert(&mut auth, "type", self.auth.kind.as_str());
+        put(&mut auth, "type", Value::String(self.auth.kind.as_str().to_string()));
         if let Some(variable) = &self.auth.env {
-            insert(&mut auth, "env", variable);
+            put(&mut auth, "env", Value::String(variable.clone()));
         }
         if let Some(entry) = &self.auth.keychain_entry {
-            insert(&mut auth, "keychain_entry", entry);
+            put(&mut auth, "keychain_entry", Value::String(entry.clone()));
         }
 
         let mut provider = Mapping::new();
-        insert(&mut provider, "id", &self.id);
-        insert(&mut provider, "adapter", &self.adapter);
+        put(&mut provider, "id", Value::String(self.id.clone()));
+        put(&mut provider, "adapter", Value::String(self.adapter.clone()));
         if let Some(base_url) = &self.base_url {
-            insert(&mut provider, "base_url", base_url);
+            put(&mut provider, "base_url", Value::String(base_url.clone()));
         }
         if let Some(model) = &self.model {
-            insert(&mut provider, "model", model);
+            put(&mut provider, "model", Value::String(model.clone()));
         }
-        insert(&mut provider, "auth", Value::Mapping(auth));
+        put(&mut provider, "auth", Value::Mapping(auth));
         Value::Mapping(provider)
     }
 
@@ -137,7 +137,10 @@ impl ProviderEntry {
             model: string_field(value, "model"),
             auth: match auth {
                 Some(auth) => AuthEntry {
-                    kind: text(auth, "type").and_then(AuthKind::parse).unwrap_or(AuthKind::None),
+                    kind: string_field(auth, "type")
+                        .as_deref()
+                        .and_then(AuthKind::parse)
+                        .unwrap_or(AuthKind::None),
                     env: string_field(auth, "env"),
                     keychain_entry: string_field(auth, "keychain_entry"),
                 },
@@ -221,11 +224,7 @@ impl AiConfig {
     /// Only when it is absent: a default the developer chose is never overwritten by connecting a
     /// second provider.
     pub(crate) fn ensure_default(&mut self, id: &str) -> Result<(), ConnectError> {
-        let path = self.display();
-        let mapping = self.document.as_mapping_mut().ok_or_else(|| ConnectError::Shape {
-            path,
-            detail: "the top level is not a mapping of keys to values".to_string(),
-        })?;
+        let mapping = self.root()?;
         if mapping.get("default_provider").is_none() {
             mapping.insert(
                 Value::String("default_provider".to_string()),
@@ -233,6 +232,30 @@ impl AiConfig {
             );
         }
         Ok(())
+    }
+
+    /// Clears `default_provider` when it names `id`.
+    ///
+    /// Only when it names the provider being removed. A default pointing at a provider the file no
+    /// longer lists is a dangling reference, and `schemas/ai-config.schema.json` calls it a finding,
+    /// so taking a provider away has to take its default with it.
+    pub(crate) fn clear_default(&mut self, id: &str) -> Result<(), ConnectError> {
+        let mapping = self.root()?;
+        if mapping.get("default_provider").and_then(Value::as_str) == Some(id) {
+            mapping.remove("default_provider");
+        }
+        Ok(())
+    }
+
+    /// The top-level mapping every mutation walks, with the path spelled for an error.
+    fn root(&mut self) -> Result<&mut Mapping, ConnectError> {
+        let path = self.display();
+        self.document
+            .as_mapping_mut()
+            .ok_or_else(|| ConnectError::Shape {
+                path,
+                detail: "the top level is not a mapping of keys to values".to_string(),
+            })
     }
 
     /// Every provider id the file lists, in written order.
@@ -265,13 +288,24 @@ impl AiConfig {
         })
     }
 
+    /// Removes the file, for the one state the schema refuses to describe.
+    ///
+    /// `schemas/ai-config.schema.json` requires `providers` to hold at least one item, and `init`
+    /// never creates this file, so a project with no providers has no `.ai/ai.yaml`. Writing an empty
+    /// list would leave a document that fails its own schema, and a document other tools trust
+    /// (`CONTEXT_SPEC.md` §1). Returning the tree to the state it was in before the first `connect`
+    /// is the only version of "the last provider is gone" that stays true to both.
+    pub(crate) fn discard(&self) -> Result<(), ConnectError> {
+        std::fs::remove_file(&self.path).map_err(|error| ConnectError::Discard {
+            path: self.display(),
+            reason: error.to_string(),
+        })
+    }
+
     /// The `providers` list, inserting an empty one when the key is absent.
     fn providers_mut(&mut self) -> Result<&mut Vec<Value>, ConnectError> {
         let path = self.display();
-        let mapping = self.document.as_mapping_mut().ok_or_else(|| ConnectError::Shape {
-            path: path.clone(),
-            detail: "the top level is not a mapping of keys to values".to_string(),
-        })?;
+        let mapping = self.root()?;
         if mapping.get("providers").is_none() {
             mapping.insert(
                 Value::String("providers".to_string()),
@@ -342,6 +376,14 @@ fn string_field(value: &Value, name: &str) -> Option<String> {
     value.get(name).and_then(Value::as_str).map(str::to_string)
 }
 
+/// Writes one field under its schema name.
+///
+/// A function rather than an inline `insert` so the string key is spelled once per document build:
+/// the schema's field names are the contract, and a typo in one is a file nothing else can read.
+fn put(mapping: &mut Mapping, name: &str, value: Value) {
+    mapping.insert(Value::String(name.to_string()), value);
+}
+
 /// One word for what a value is, for an error message.
 fn describe(value: &Value) -> String {
     match value {
@@ -379,9 +421,19 @@ mod tests {
         std::fs::write(root.join(".ai/ai.yaml"), text).expect("write ai.yaml");
     }
 
+    /// A project root with an `.ai/` tree.
+    ///
+    /// `save` deliberately does not create it: only `init` writes the skeleton
+    /// (`ARCHITECTURE.md` §3.1), so every test of a file *inside* `.ai/` starts from one that exists.
+    fn tree() -> tempfile::TempDir {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join(".ai")).expect("create .ai");
+        temp
+    }
+
     #[test]
     fn a_missing_file_starts_an_empty_document_that_round_trips() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = tree();
         let mut config = AiConfig::load(temp.path()).expect("loads empty");
         config.upsert(&entry("local")).expect("upsert");
         config.ensure_default("local").expect("default");
@@ -427,7 +479,7 @@ mod tests {
 
     #[test]
     fn upserting_the_same_id_replaces_rather_than_duplicates() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = tree();
         let mut config = AiConfig::load(temp.path()).expect("loads");
         config.upsert(&entry("local")).expect("first");
         config
@@ -437,6 +489,7 @@ mod tests {
             })
             .expect("second");
         assert_eq!(config.provider_ids().expect("ids"), vec!["local".to_string()]);
+        config.save().expect("save");
 
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
         assert_eq!(text.matches("id: local").count(), 1, "{text}");
@@ -458,14 +511,21 @@ mod tests {
 
     #[test]
     fn a_default_already_set_is_not_overwritten() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        write(temp.path(), "providers:\n  - id: hosted\n    auth:\n      type: none\n");
+        let temp = tree();
+        write(
+            temp.path(),
+            "default_provider: hosted\nproviders:\n  - id: hosted\n    auth:\n      type: none\n",
+        );
         let mut config = AiConfig::load(temp.path()).expect("loads");
         config.ensure_default("local").expect("default");
         config.save().expect("save");
 
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
-        assert!(!text.contains("default_provider"), "{text}");
+        assert!(
+            text.contains("default_provider: hosted"),
+            "a default the developer chose is theirs: {text}"
+        );
+        assert!(!text.contains("default_provider: local"), "{text}");
     }
 
     #[test]
@@ -488,9 +548,21 @@ mod tests {
 
     #[test]
     fn providers_that_is_not_a_list_is_a_shape_error() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = tree();
         write(temp.path(), "providers: a-string\n");
-        let error = AiConfig::load(temp.path()).expect_err("not a list");
+        let config = AiConfig::load(temp.path()).expect("the file itself parses");
+        let error = config.provider_ids().expect_err("not a list");
         assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
+        assert_eq!(error.code(), "CONNECT-003");
+    }
+
+    #[test]
+    fn a_provider_with_no_id_is_a_shape_error_rather_than_an_unfindable_entry() {
+        let temp = tree();
+        write(temp.path(), "providers:\n  - adapter: openai-compatible\n");
+        let config = AiConfig::load(temp.path()).expect("the file itself parses");
+        let error = config.provider_ids().expect_err("no id to look anything up by");
+        assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
+        assert_eq!(error.code(), "CONNECT-003");
     }
 }

@@ -97,7 +97,9 @@ module_name_repetitions = "allow"
 #                HTTP" row assume; TASK-051 is the first crate to make a network call. Features are
 #                per use: `time` for the three timeouts, `sync` for the cancellation token, `rt` for
 #                the streaming task, and `macros` for `tokio::select!` (cancellation) and the tests'
-#                `#[tokio::test]`. TASK-051.
+#                `#[tokio::test]`. TASK-051. `net` is added per-crate rather than here, by whoever
+#                builds a runtime of its own: TASK-053's `connect` calls `enable_all()`, and the TCP
+#                driver that needs is not the providers crate's to ask for.
 #   reqwest    - the HTTP client for the OpenAI-compatible adapter. default-features is false so
 #                native-tls (and the system OpenSSL the sql/jsonschema comment above avoids) cannot
 #                arrive; `rustls-tls` is the TLS backend ARCHITECTURE 2.2 names, and `stream` is what

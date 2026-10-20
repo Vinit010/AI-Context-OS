@@ -60,6 +60,15 @@ pub(crate) enum ConnectError {
         reason: String,
     },
 
+    /// `.ai/ai.yaml` could not be removed after the last provider was taken out of it.
+    #[error("cannot remove {path}: {reason}")]
+    Discard {
+        /// The path as a report spells it.
+        path: String,
+        /// The filesystem's own reason.
+        reason: String,
+    },
+
     /// The named adapter has no implementation yet.
     #[error("the `{adapter}` adapter is not implemented yet ({task})")]
     UnsupportedAdapter {
@@ -123,6 +132,7 @@ impl ConnectError {
             Self::Malformed { .. } => "CONNECT-002",
             Self::Shape { .. } => "CONNECT-003",
             Self::Write { .. } => "CONNECT-004",
+            Self::Discard { .. } => "CONNECT-012",
             Self::UnsupportedAdapter { .. } => "CONNECT-005",
             Self::BlankValue { .. } => "CONNECT-006",
             Self::KeychainEntryWithoutCredential => "CONNECT-007",
@@ -151,6 +161,9 @@ impl ConnectError {
             Self::Write { .. } => {
                 "check that `.ai/` exists and is writable; run `aicontext init` if the project has no \
                  `.ai/` tree yet"
+            }
+            Self::Discard { .. } => {
+                "check that `.ai/ai.yaml` is writable, remove it by hand, then run `aicontext doctor`"
             }
             Self::UnsupportedAdapter { .. } => {
                 "use `--adapter openai-compatible`, the only adapter this release ships"
@@ -184,7 +197,9 @@ impl ConnectError {
             | Self::Offline
             | Self::UnknownProvider { .. } => Exit::Usage,
             Self::Malformed { .. } | Self::Shape { .. } => Exit::Validation,
-            Self::Read { .. } | Self::Write { .. } | Self::Keychain { .. } => Exit::General,
+            Self::Read { .. } | Self::Write { .. } | Self::Discard { .. } | Self::Keychain { .. } => {
+                Exit::General
+            }
         }
     }
 

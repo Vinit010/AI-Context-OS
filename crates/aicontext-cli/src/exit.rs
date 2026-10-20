@@ -17,6 +17,11 @@ pub(crate) enum Exit {
     Validation,
     /// Approval was required and not granted, including every non-interactive case.
     ApprovalRequired,
+    /// The AI provider failed, timed out, or was unreachable (`docs/CLI_SPEC.md` §5).
+    ///
+    /// Produced by `connect` when the verification call does not succeed: a profile that has not
+    /// answered is not stored, so the failure is the provider's rather than the configuration's.
+    Provider,
     /// A bug. Reserved, and carries a bug reference when one exists.
     ///
     /// Part of the published table in `docs/CLI_SPEC.md` §5, so it is defined even though no command
@@ -35,6 +40,7 @@ impl Exit {
             Self::Usage => 2,
             Self::Validation => 3,
             Self::ApprovalRequired => 5,
+            Self::Provider => 6,
             Self::Internal => 70,
         }
     }
@@ -47,6 +53,7 @@ impl Exit {
             Self::Usage => "USAGE",
             Self::Validation => "VALIDATION",
             Self::ApprovalRequired => "APPROVAL_REQUIRED",
+            Self::Provider => "PROVIDER_ERROR",
             Self::Internal => "INTERNAL",
         }
     }
@@ -64,6 +71,7 @@ mod tests {
             (Exit::Usage, 2, "USAGE"),
             (Exit::Validation, 3, "VALIDATION"),
             (Exit::ApprovalRequired, 5, "APPROVAL_REQUIRED"),
+            (Exit::Provider, 6, "PROVIDER_ERROR"),
             (Exit::Internal, 70, "INTERNAL"),
         ];
         for (exit, code, name) in table {
@@ -82,6 +90,7 @@ mod tests {
             Exit::Usage,
             Exit::Validation,
             Exit::ApprovalRequired,
+            Exit::Provider,
             Exit::Internal,
         ];
         for (index, exit) in all.iter().enumerate() {

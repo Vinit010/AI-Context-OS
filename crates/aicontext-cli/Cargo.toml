@@ -19,17 +19,34 @@ path = "src/main.rs"
 aicontext-context = { path = "../aicontext-context" }
 aicontext-core = { path = "../aicontext-core" }
 aicontext-git = { path = "../aicontext-git" }
+# `connect` builds an adapter and makes one verification call, so the CLI is the first binary to need
+# the provider layer rather than only the trait's neighbours. The edge is allowed by the dependency
+# matrix in `aicontext-testkit/tests/crate_boundaries.rs` and justified in ARCHITECTURE.md 2.2.
+# TASK-053.
+aicontext-providers = { path = "../aicontext-providers" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+# Drives the single asynchronous verification call `connect` makes: one current-thread runtime, built
+# and dropped inside that call. `net` is the TCP driver `enable_all()` needs for reqwest to connect;
+# `rt`/`time`/`sync`/`macros` already arrive through `aicontext-providers`. TASK-053.
+tokio = { workspace = true, features = ["net"] }
+# Reads and writes `.ai/ai.yaml`, the committed provider list `schemas/ai-config.schema.json`
+# describes. Pinned workspace-wide in ADR-007. `aicontext-context` keeps its own use private to its
+# `YamlCodec` (ARCHITECTURE.md 3.2 rule 7, a front-matter concern), so a second reader cannot reach
+# through that seam and has to say what it needs here. TASK-053.
+yaml_serde = { workspace = true }
 
 [dev-dependencies]
 aicontext-testkit = { path = "../aicontext-testkit" }
 # Integration tests are their own crate, so a dependency they use must be a dev-dependency even when
 # the binary already uses it. Asserting on the JSON envelope needs a parser.
 serde_json = { workspace = true }
+# `tests/connect.rs` reads back the file `connect` wrote and checks it against
+# `schemas/ai-config.schema.json`, which means parsing it. TASK-053.
+yaml_serde = { workspace = true }
 tempfile = { workspace = true }
 # The schemas/ meta-schema check. Dev-only: nothing shipped in the binary links this.
 jsonschema = { workspace = true }

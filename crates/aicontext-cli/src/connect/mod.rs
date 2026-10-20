@@ -310,6 +310,7 @@ fn ping_request() -> CompletionRequest {
 }
 
 /// What a successful `connect` produced, in the terms the report and the JSON payload both use.
+#[derive(Debug)]
 struct Outcome {
     provider: String,
     adapter: String,
@@ -339,7 +340,7 @@ struct ConnectData {
     keychain_stored: bool,
     /// Always true: the command makes no progress past the verification call otherwise.
     verified: bool,
-    /// Where the profile was written, relative to the project root.
+    /// Where the profile was written, spelled as a report spells it.
     config_path: String,
 }
 
@@ -390,6 +391,7 @@ fn print_human(outcome: &Outcome, name: &str, root: &Path, terminal: &mut Termin
     terminal.row(&info, "base_url", &outcome.base_url);
     terminal.row(&info, "model", &outcome.model);
     terminal.row(&info, "auth", &auth_line(outcome));
+    terminal.row(&info, "config", &outcome.config_path);
     terminal.row(&ok, "verified", "one minimal call answered");
     terminal.summary("stored", Exit::Ok, "`aicontext disconnect --provider <id>`");
 }
@@ -502,7 +504,7 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".ai")).expect("create .ai");
         let environment = FakeEnvironment::default();
         let keychain = FakeKeychain::default();
-        let verifier = FakeVerifier::default();
+        let verifier = RecordingVerifier::default();
         let ports = Ports {
             environment: &environment,
             keychain: &keychain,
@@ -519,6 +521,11 @@ mod tests {
             keychain.stored("aicontext", "hosted").as_deref(),
             Some("s3cr3t-value"),
             "the value goes to the keychain"
+        );
+        assert_eq!(
+            verifier.seen(),
+            vec![Some("s3cr3t-value".to_string())],
+            "the value the profile was proved with is the value that was stored"
         );
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
         assert!(!text.contains("s3cr3t-value"), "the value never reaches .ai/: {text}");

@@ -7,10 +7,10 @@
 //! # What exists today
 //!
 //! `init` (`TASK-012`), `status` (`TASK-013`), `doctor` (`TASK-014`), `health` (`TASK-038`),
-//! `context` (`TASK-037`), `export` and `import` (`TASK-020`), and the global flags. Every other
-//! command in the §3 tree is listed in [`args::PENDING`] and exits 2 naming the task that will build
-//! it, which is what §3 requires of a command that is not implemented yet — a named refusal rather
-//! than an unknown-word usage error.
+//! `context` (`TASK-037`), `export` and `import` (`TASK-020`), and `connect` and `disconnect`
+//! (`TASK-053`), plus the global flags. Every other command in the §3 tree is listed in
+//! [`args::PENDING`] and exits 2 naming the task that will build it, which is what §3 requires of a
+//! command that is not implemented yet — a named refusal rather than an unknown-word usage error.
 //!
 //! The command word is read from the raw arguments *before* clap validates them, so
 //! `aicontext plan --json` reports "not implemented" rather than complaining about the flag: the
@@ -20,7 +20,9 @@
 
 mod archive;
 mod args;
+mod connect;
 mod context;
+mod disconnect;
 mod doctor;
 mod exit;
 mod export;
@@ -64,6 +66,10 @@ fn main() -> ExitCode {
         Command::Context(context_args) => context::run(context_args, &cli.global, &mut terminal),
         Command::Export(export_args) => export::run(export_args, &cli.global, &mut terminal),
         Command::Import(import_args) => import::run(import_args, &cli.global, &mut terminal),
+        Command::Connect(connect_args) => connect::run(connect_args, &cli.global, &mut terminal),
+        Command::Disconnect(disconnect_args) => {
+            disconnect::run(disconnect_args, &cli.global, &mut terminal)
+        }
     };
 
     terminal.flush();

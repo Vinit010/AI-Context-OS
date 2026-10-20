@@ -1,7 +1,8 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
-//! Only the commands that exist — `init`, `status`, `doctor`, `health`, `context`, `export`, and
-//! `import` — are declared to `clap`. The rest of the tree is listed in [`PENDING`] with the task
+//! Only the commands that exist — `init`, `status`, `doctor`, `health`, `context`, `export`,
+//! `import`, `connect`, and `disconnect` — are declared to `clap`. The rest of the tree is listed in
+//! [`PENDING`] with the task
 //! that will provide it, so `--help` shows what exists and what does not, and an unimplemented
 //! command exits 2 naming its task instead of a usage error about an unknown word. Declaring the tree
 //! as stub subcommands would put a second copy of every command name in this file, and the two copies
@@ -126,6 +127,10 @@ pub(crate) enum Command {
     Export(ExportArgs),
     /// Read an archive, verify it, and write it into `.ai/`.
     Import(ImportArgs),
+    /// Prove a provider answers, then store its profile and a credential reference.
+    Connect(ConnectArgs),
+    /// Remove a stored provider profile and the credential reference it named.
+    Disconnect(DisconnectArgs),
 }
 
 /// `aicontext status`.
@@ -312,6 +317,78 @@ pub(crate) struct ImportArgs {
     pub(crate) force: bool,
 }
 
+/// Rejects a blank value for a flag that has to say something, at the parser where a usage error
+/// belongs.
+///
+/// `--provider ""` would otherwise be written into `.ai/ai.yaml` as an id nothing can look up, and
+/// `--base-url ""` would fail later as a transport error that looks like the server's fault. Refusing
+/// the empty value at the edge keeps the message about the question that was asked.
+fn required_value(text: &str) -> Result<String, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("give a non-empty value".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+/// `aicontext connect`.
+///
+/// Describes one provider, proves it answers, and only then commits. The profile written to
+/// `.ai/ai.yaml` records a credential *source* — an environment variable's *name* or a keychain
+/// entry's *name* — and the value itself goes to the OS keychain, never into the committed file
+/// (`docs/AI_PROVIDER_SPEC.md` §4, `docs/SECURITY.md` §6).
+#[derive(Debug, Args)]
+pub(crate) struct ConnectArgs {
+    /// The id to register the provider under, for example `local` or `hosted`.
+    #[arg(long, value_name = "ID", value_parser = required_value)]
+    pub(crate) provider: String,
+
+    /// Which adapter speaks its wire format. Only `openai-compatible` is built today.
+    #[arg(
+        long,
+        value_name = "NAME",
+        value_parser = required_value,
+        default_value = "openai-compatible"
+    )]
+    pub(crate) adapter: String,
+
+    /// The server root, for example `http://localhost:11434/v1`.
+    #[arg(long, value_name = "URL", value_parser = required_value)]
+    pub(crate) base_url: String,
+
+    /// The model the verification call asks for.
+    #[arg(long, value_name = "NAME", value_parser = required_value)]
+    pub(crate) model: String,
+
+    /// The variable that holds the credential. Records `env_or_keychain`; the name, not the value.
+    #[arg(long, value_name = "VAR", value_parser = required_value)]
+    pub(crate) env: Option<String>,
+
+    /// The credential itself. Written to the OS keychain, never to `.ai/`.
+    ///
+    /// Deliberately *not* given a `value_parser`: clap's own error echoes the value it rejected, and
+    /// that is the one thing this flag must never do. An empty value is caught in the command, which
+    /// names the flag without naming what it held.
+    #[arg(long, value_name = "VALUE")]
+    pub(crate) token: Option<String>,
+
+    /// The keychain entry to store it under. Defaults to the provider id.
+    #[arg(long, value_name = "NAME", value_parser = required_value)]
+    pub(crate) keychain_entry: Option<String>,
+}
+
+/// `aicontext disconnect`.
+///
+/// Removes the provider from `.ai/ai.yaml`, clears a `default_provider` left pointing at it, and
+/// deletes the keychain entry it named, so no reference survives anywhere (`docs/AI_PROVIDER_SPEC.md`
+/// §4).
+#[derive(Debug, Args)]
+pub(crate) struct DisconnectArgs {
+    /// The id of the provider to remove.
+    #[arg(long, value_name = "ID", value_parser = required_value)]
+    pub(crate) provider: String,
+}
+
 /// A command in the §3 tree that is specified but not built yet.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PendingCommand {
@@ -325,9 +402,10 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init`, `status`, `doctor`, `health`, `context`, `export`, and `import` are implemented and must
-/// not appear here, or a working command would be refused by the pending check. A command here exits
-/// 2 with the code below and names its task, which §3 requires — it is never a silent no-op.
+/// `init`, `status`, `doctor`, `health`, `context`, `export`, `import`, `connect`, and `disconnect`
+/// are implemented and must not appear here, or a working command would be refused by the pending
+/// check. A command here exits 2 with the code below and names its task, which §3 requires — it is
+/// never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
     PendingCommand {
         name: "plan",
@@ -378,16 +456,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         name: "plugin",
         task: Some("TASK-077"),
         summary: "Plugin management",
-    },
-    PendingCommand {
-        name: "connect",
-        task: Some("TASK-053"),
-        summary: "Configure a provider or integration",
-    },
-    PendingCommand {
-        name: "disconnect",
-        task: None,
-        summary: "Remove a stored reference",
     },
     PendingCommand {
         name: "audit",
@@ -442,6 +510,8 @@ Commands:
                                                              available
   export <archive>         Write a deterministic archive of .ai/        available
   import <archive>         Verify an archive and write it into .ai/     available
+  connect                  Prove a provider answers, then store it      available
+  disconnect               Remove a stored provider reference           available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   plan                     Produce an implementation plan for a task
@@ -450,7 +520,6 @@ Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   agent                    Agent profiles and runs (plan mode only)               TASK-055
   ai                       Provider configuration
   plugin                   Plugin management                                      TASK-077
-  connect | disconnect     Configure or remove an integration                     TASK-053
   audit                    Audit log (show, verify, tail)                         TASK-075
 
 Flags:
@@ -490,6 +559,16 @@ context flags:
 export / import flags:
       --dry-run            Print the plan; write nothing
       --force              Replace existing files. Needs an interactive terminal
+
+connect / disconnect flags:
+      --provider <ID>       Provider id to add (connect) or remove (disconnect)
+      --adapter <NAME>      Adapter; only openai-compatible is built today
+      --base-url <URL>      Server root, e.g. http://localhost:11434/v1
+      --model <NAME>        Model the verification call asks for
+      --env <VAR>           Variable holding the credential; records its NAME only
+      --token <VALUE>       Credential; stored in the OS keychain, never in .ai/
+      --keychain-entry <NAME>
+                           Keychain entry; defaults to the provider id
 
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
@@ -608,7 +687,69 @@ mod tests {
             pending("import").is_none(),
             "import is implemented, so it must not also be pending"
         );
+        assert!(
+            pending("connect").is_none(),
+            "connect is implemented, so it must not also be pending"
+        );
+        assert!(
+            pending("disconnect").is_none(),
+            "disconnect is implemented, so it must not also be pending"
+        );
         assert!(pending("nonsense").is_none());
+    }
+
+    #[test]
+    fn connect_parses_with_only_the_three_flags_it_needs() {
+        let Cli {
+            command: Command::Connect(connect),
+            ..
+        } = Cli::try_parse_from([
+            "aicontext",
+            "connect",
+            "--provider",
+            "hosted",
+            "--base-url",
+            "https://api.openai.com/v1",
+            "--model",
+            "gpt-test",
+        ])
+        .expect("connect parses")
+        else {
+            panic!("expected the connect command");
+        };
+        assert_eq!(connect.provider, "hosted");
+        assert_eq!(connect.adapter, "openai-compatible", "the only adapter built");
+        assert_eq!(connect.base_url, "https://api.openai.com/v1");
+        assert_eq!(connect.model, "gpt-test");
+        assert_eq!(connect.env, None);
+        assert_eq!(connect.token, None);
+        assert_eq!(connect.keychain_entry, None);
+
+        let Cli {
+            command: Command::Disconnect(disconnect),
+            ..
+        } = Cli::try_parse_from(["aicontext", "disconnect", "--provider", "hosted"])
+            .expect("disconnect parses")
+        else {
+            panic!("expected the disconnect command");
+        };
+        assert_eq!(disconnect.provider, "hosted");
+    }
+
+    #[test]
+    fn connect_never_accepts_a_blank_flag_value() {
+        // An empty id would be written into `.ai/ai.yaml` and be unlookupable afterwards; an empty
+        // `--base-url` would fail later as a transport error that looks like the server's fault.
+        for flag in ["--provider", "--adapter", "--base-url", "--model", "--env"] {
+            assert!(
+                Cli::try_parse_from(["aicontext", "connect", flag, "  "]).is_err(),
+                "{flag} \"\" must be a usage error"
+            );
+        }
+        assert!(
+            Cli::try_parse_from(["aicontext", "connect", "--provider", "local"]).is_err(),
+            "--base-url and --model are required"
+        );
     }
 
     #[test]

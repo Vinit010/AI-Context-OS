@@ -7,6 +7,12 @@
 //! write fails, the keychain entry survives and reconnecting restores a working profile, which is the
 //! recoverable direction to fail in.
 //!
+//! The last provider is the one case where the file cannot be written at all:
+//! `schemas/ai-config.schema.json` requires `providers` to hold at least one item, so an emptied list
+//! would be a document that fails the schema other tools read it by. Since `init` never creates this
+//! file, the state a project with no providers is *in* is "no `.ai/ai.yaml`", and removing the file is
+//! how `disconnect` returns to it.
+//!
 //! The two writes cannot be made atomic, so the order is chosen rather than assumed. What is *not*
 //! negotiable is the error path: an id the file does not list is a failure that names the ids it does,
 //! never a silent success (`RULES.md` §4.10).
@@ -65,16 +71,25 @@ fn execute(
         });
     };
     config.clear_default(&args.provider)?;
-    config.save()?;
+
+    let remaining = config.provider_ids()?.len();
+    let config_deleted = if remaining == 0 {
+        config.discard()?;
+        true
+    } else {
+        config.save()?;
+        false
+    };
 
     let keychain_deleted = delete_credential(keychain, &entry)?;
 
     Ok(Outcome {
         provider: entry.id.clone(),
         config_path,
+        config_deleted,
         keychain_entry: entry.auth.keychain_entry.clone(),
         keychain_deleted,
-        remaining: config.provider_ids()?.len(),
+        remaining,
     })
 }
 
@@ -97,6 +112,7 @@ fn delete_credential(keychain: &dyn Keychain, entry: &ProviderEntry) -> Result<b
 }
 
 /// What a successful `disconnect` produced.
+#[derive(Debug)]
 struct Outcome {
     provider: String,
     config_path: String,
@@ -177,11 +193,21 @@ mod tests {
 
     use super::{execute, known_hint};
     use crate::args::DisconnectArgs;
-    use crate::connect::{AiConfig, ConnectError};
+    use crate::connect::ConnectError;
 
     #[derive(Debug, Default)]
     struct FakeKeychain {
         entries: Mutex<BTreeMap<(String, String), String>>,
+    }
+
+    impl FakeKeychain {
+        fn stored(&self, service: &str, account: &str) -> Option<String> {
+            self.entries
+                .lock()
+                .expect("lock")
+                .get(&(service.to_string(), account.to_string()))
+                .cloned()
+        }
     }
 
     impl Keychain for FakeKeychain {
@@ -220,8 +246,8 @@ mod tests {
         std::fs::write(root.join(".ai/ai.yaml"), text).expect("write ai.yaml");
     }
 
-    fn args(provider: &str) -> crate::args::DisconnectArgs {
-        crate::args::DisconnectArgs {
+    fn args(provider: &str) -> DisconnectArgs {
+        DisconnectArgs {
             provider: provider.to_string(),
         }
     }
@@ -241,9 +267,14 @@ mod tests {
             )])),
         };
 
-        let outcome = super::execute(&args("hosted"), temp.path(), &keychain).expect("disconnect");
+        let outcome = execute(&args("hosted"), temp.path(), &keychain).expect("disconnect");
         assert!(outcome.keychain_deleted);
         assert_eq!(outcome.remaining, 1);
+        assert_eq!(
+            keychain.stored("aicontext", "hosted"),
+            None,
+            "the credential is residue once the reference is gone"
+        );
 
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
         assert!(!text.contains("id: hosted"), "{text}");
@@ -255,10 +286,6 @@ mod tests {
         assert!(
             !text.contains("keychain_entry"),
             "the reference is gone: {text}"
-        );
-        assert!(
-            temp_keychain_has_removed(&temp) || true,
-            "placeholder"
         );
     }
 
@@ -324,6 +351,7 @@ mod tests {
     #[test]
     fn a_keychain_failure_is_reported_after_the_file_is_updated() {
         // The file no longer names the provider; the failure is still surfaced rather than swallowed.
+        #[derive(Debug)]
         struct Failing;
         impl Keychain for Failing {
             fn get(&self, _reference: &KeychainReference) -> Result<Option<Secret>, KeychainError> {
@@ -346,18 +374,4 @@ mod tests {
         let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
         assert!(!text.contains("id: hosted"), "the file was still updated: {text}");
     }
-
-    #[allow(dead_code, reason = "kept to document that the fake keychain is a pure map")]
-    fn entries_of(keychain: &FakeKeychain) -> BTreeMap<(String, String), String> {
-        keychain.entries.lock().expect("lock").clone()
-    }
-
-    fn temp_path_of(_root: &std::path::Path) -> () {}
-
-    #[allow(dead_code)]
-    fn temp_path() -> () {}
-
-    fn _unused(_: &DisconnectArgs) {}
-
-    fn temp_path_unused() {}
 }
