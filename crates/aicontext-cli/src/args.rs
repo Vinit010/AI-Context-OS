@@ -131,6 +131,9 @@ pub(crate) enum Command {
     Connect(ConnectArgs),
     /// Remove a stored provider profile and the credential reference it named.
     Disconnect(DisconnectArgs),
+    /// Plan a task with the configured provider. Plan mode only: it modifies nothing outside
+    /// `.aicontext/plans/`.
+    Agent(AgentArgs),
 }
 
 /// `aicontext status`.
@@ -317,6 +320,43 @@ pub(crate) struct ImportArgs {
     pub(crate) force: bool,
 }
 
+/// `aicontext agent`.
+///
+/// The agent has one subcommand today, `run`, in plan mode only (`ADR-006` #1). The subcommand is
+/// required, so a bare `aicontext agent` is a usage error naming what exists, and `agent list` or
+/// `agent plan` are refused rather than silently doing something else.
+#[derive(Debug, Args)]
+pub(crate) struct AgentArgs {
+    /// What the agent should do.
+    #[command(subcommand)]
+    pub(crate) command: AgentCommand,
+}
+
+/// The subcommands `agent` has today.
+#[derive(Debug, Subcommand)]
+pub(crate) enum AgentCommand {
+    /// Assemble the task's context, ask the provider for a plan, write it; modify nothing else.
+    Run(AgentRunArgs),
+}
+
+/// `aicontext agent run`.
+///
+/// Plan mode is the whole of the command: it grounds one task's plan in the assembled context,
+/// asks the configured provider for the plan, and writes the answer under `.aicontext/plans/`.
+/// `--execute` and `--allow` are deliberately absent — an execution mode must not exist until plan
+/// mode has proved itself (`ADR-006` #7), so passing either is a usage error rather than a flag
+/// that quietly does nothing.
+#[derive(Debug, Args)]
+pub(crate) struct AgentRunArgs {
+    /// The task in scope: context is assembled for it and the plan is written for it.
+    #[arg(long, value_name = "ID", value_parser = required_value)]
+    pub(crate) task: String,
+
+    /// Assemble the context and report what would be sent; no call, nothing written.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+}
+
 /// Rejects a blank value for a flag that has to say something, at the parser where a usage error
 /// belongs.
 ///
@@ -443,11 +483,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         summary: "Run a documented workflow",
     },
     PendingCommand {
-        name: "agent",
-        task: Some("TASK-055"),
-        summary: "Agent profiles and runs (plan mode only)",
-    },
-    PendingCommand {
         name: "ai",
         task: None,
         summary: "Provider configuration",
@@ -512,12 +547,12 @@ Commands:
   import <archive>         Verify an archive and write it into .ai/     available
   connect                  Prove a provider answers, then store it      available
   disconnect               Remove a stored provider reference           available
+  agent run                Plan a task with the configured provider     available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   plan                     Produce an implementation plan for a task
   task | memory | decision | bug | change | workflow
                            Project registers
-  agent                    Agent profiles and runs (plan mode only)               TASK-055
   ai                       Provider configuration
   plugin                   Plugin management                                      TASK-077
   audit                    Audit log (show, verify, tail)                         TASK-075
@@ -570,12 +605,16 @@ connect / disconnect flags:
       --keychain-entry <NAME>
                            Keychain entry; defaults to the provider id
 
+agent run flags:
+      --task <ID>          The task in scope (required)
+      --dry-run            Assemble and report; no call, nothing written
+
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, ColorChoice, Command, ContextArgs, DoctorArgs, GlobalArgs, OutputFormat,
+        AgentCommand, Cli, ColorChoice, Command, ContextArgs, DoctorArgs, GlobalArgs, OutputFormat,
         code_or_prefix, first_command_word, pending,
     };
     use clap::Parser;
@@ -661,8 +700,11 @@ mod tests {
     #[test]
     fn a_pending_command_is_found_by_name() {
         assert_eq!(pending("plan").map(|c| c.task), Some(None));
-        assert_eq!(pending("agent").map(|c| c.task), Some(Some("TASK-055")));
         assert!(pending("init").is_none());
+        assert!(
+            pending("agent").is_none(),
+            "agent run is implemented (plan mode), so it must not also be pending"
+        );
         assert!(
             pending("status").is_none(),
             "status is implemented, so it must not also be pending"
@@ -752,6 +794,71 @@ mod tests {
         assert!(
             Cli::try_parse_from(["aicontext", "connect", "--provider", "local"]).is_err(),
             "--base-url and --model are required"
+        );
+    }
+
+    #[test]
+    fn agent_run_requires_a_task_and_refuses_execution_mode() {
+        let Cli {
+            command: Command::Agent(agent),
+            ..
+        } = Cli::try_parse_from(["aicontext", "agent", "run", "--task", "TASK-001"])
+            .expect("agent run parses")
+        else {
+            panic!("expected the agent command");
+        };
+        let AgentCommand::Run(run) = agent.command;
+        assert_eq!(run.task, "TASK-001");
+        assert!(!run.dry_run, "a run makes the call unless told otherwise");
+
+        let Cli {
+            command: Command::Agent(agent),
+            ..
+        } = Cli::try_parse_from(["aicontext", "agent", "run", "--task", "TASK-001", "--dry-run"])
+            .expect("agent run --dry-run parses")
+        else {
+            panic!("expected the agent command");
+        };
+        let AgentCommand::Run(run) = agent.command;
+        assert!(run.dry_run);
+
+        // The task names the whole scope of the run; without it there is nothing to plan.
+        assert!(
+            Cli::try_parse_from(["aicontext", "agent", "run"]).is_err(),
+            "--task is required"
+        );
+        assert!(
+            Cli::try_parse_from(["aicontext", "agent", "run", "--task", "  "]).is_err(),
+            "--task \"\" must be a usage error"
+        );
+
+        // A bare `agent` and an unknown subcommand are usage errors, and `--execute` does not
+        // exist: an execution mode must not be accepted before plan mode has proved itself
+        // (`ADR-006` #7).
+        assert!(
+            Cli::try_parse_from(["aicontext", "agent"]).is_err(),
+            "agent requires a subcommand"
+        );
+        assert!(
+            Cli::try_parse_from(["aicontext", "agent", "list"]).is_err(),
+            "only run exists today"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "aicontext",
+                "agent",
+                "run",
+                "--task",
+                "TASK-001",
+                "--execute"
+            ])
+            .is_err(),
+            "--execute is deliberately not accepted"
+        );
+        assert!(
+            Cli::try_parse_from(["aicontext", "agent", "run", "--task", "TASK-001", "--allow"])
+                .is_err(),
+            "--allow is deliberately not accepted"
         );
     }
 

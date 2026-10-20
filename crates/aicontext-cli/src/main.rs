@@ -7,8 +7,9 @@
 //! # What exists today
 //!
 //! `init` (`TASK-012`), `status` (`TASK-013`), `doctor` (`TASK-014`), `health` (`TASK-038`),
-//! `context` (`TASK-037`), `export` and `import` (`TASK-020`), and `connect` and `disconnect`
-//! (`TASK-053`), plus the global flags. Every other command in the §3 tree is listed in
+//! `context` (`TASK-037`), `export` and `import` (`TASK-020`), `connect` and `disconnect`
+//! (`TASK-053`), and `agent run` in plan mode (`TASK-055`), plus the global flags. Every other
+//! command in the §3 tree is listed in
 //! [`args::PENDING`] and exits 2 naming the task that will build it, which is what §3 requires of a
 //! command that is not implemented yet — a named refusal rather than an unknown-word usage error.
 //!
@@ -18,6 +19,7 @@
 
 #![forbid(unsafe_code)]
 
+mod agent;
 mod archive;
 mod args;
 mod connect;
@@ -70,6 +72,9 @@ fn main() -> ExitCode {
         Command::Disconnect(disconnect_args) => {
             disconnect::run(disconnect_args, &cli.global, &mut terminal)
         }
+        Command::Agent(agent_args) => match &agent_args.command {
+            args::AgentCommand::Run(run_args) => agent::run(run_args, &cli.global, &mut terminal),
+        },
     };
 
     terminal.flush();

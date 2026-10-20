@@ -18,6 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
+use aicontext_providers::{CredentialSource, KeychainReference};
 use yaml_serde::{Mapping, Value};
 
 use super::error::ConnectError;
@@ -75,6 +76,30 @@ pub(crate) struct AuthEntry {
     pub(crate) env: Option<String>,
     /// The keychain account, when the keychain is part of the source.
     pub(crate) keychain_entry: Option<String>,
+}
+
+impl AuthEntry {
+    /// The credential source this entry records, in the provider crate's vocabulary.
+    ///
+    /// The keychain account defaults to the provider id, which is exactly the name `connect`
+    /// writes when it stores a credential without `--keychain-entry` — the same default on both
+    /// sides, or the entry could be written under one name and looked up under another
+    /// (`docs/AI_PROVIDER_SPEC.md` §4).
+    pub(crate) fn source(&self, provider_id: &str) -> CredentialSource {
+        let account = self
+            .keychain_entry
+            .clone()
+            .unwrap_or_else(|| provider_id.to_string());
+        let reference = KeychainReference::new(KEYCHAIN_SERVICE, account);
+        match self.kind {
+            AuthKind::None => CredentialSource::None,
+            AuthKind::Keychain => CredentialSource::Keychain { reference },
+            AuthKind::EnvironmentOrKeychain => CredentialSource::EnvironmentOrKeychain {
+                variable: self.env.clone().unwrap_or_default(),
+                reference,
+            },
+        }
+    }
 }
 
 /// One entry of the `providers` list.
@@ -282,6 +307,35 @@ impl AiConfig {
                     })
             })
             .collect()
+    }
+
+    /// The id `default_provider` names, when the file names one.
+    ///
+    /// `agent run` reads through this rather than guessing which provider to call: a project with
+    /// three providers and no default must be told which one to use, not have one picked for it
+    /// (`RULES.md` §4.10).
+    pub(crate) fn default_provider(&self) -> Option<String> {
+        self.document
+            .as_mapping()
+            .and_then(|mapping| mapping.get("default_provider"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    }
+
+    /// The entry for `id`, when the file lists it.
+    ///
+    /// `None` means the id is not in the list — for `default_provider`, a dangling reference the
+    /// caller reports rather than works around.
+    pub(crate) fn provider(&self, id: &str) -> Result<Option<ProviderEntry>, ConnectError> {
+        let path = self.display();
+        let found = self
+            .providers()?
+            .iter()
+            .find(|provider| provider.get("id").and_then(Value::as_str) == Some(id))
+            .cloned();
+        found
+            .map(|value| ProviderEntry::from_value(&value, &path))
+            .transpose()
     }
 
     /// Writes the document back, verbatim apart from the change that was made.

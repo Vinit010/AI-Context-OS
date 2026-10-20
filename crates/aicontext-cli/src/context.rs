@@ -106,7 +106,7 @@ fn plan_options(args: &ContextArgs) -> PlanOptions {
 ///
 /// A cache that cannot be written is reported, not fatal: the packet is built from the scan either
 /// way, and a read-only checkout is a directory a developer can still assemble context in.
-fn read_index(root: &Path, findings: &mut Vec<Finding>) -> ContextIndex {
+pub(crate) fn read_index(root: &Path, findings: &mut Vec<Finding>) -> ContextIndex {
     let cache = root.join(INDEX_PATH);
     let previous = ContextIndex::load(&cache).ok();
     let (index, _report) = ContextIndex::build(root, previous.as_ref());
