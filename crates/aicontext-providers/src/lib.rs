@@ -34,10 +34,25 @@
 //! - It does not write. No filesystem, no process spawn, no tool execution. A [`ToolCall`] is a
 //!   proposal the gateway validates, never an instruction (`docs/AI_PROVIDER_SPEC.md` §2.2).
 //! - It holds no credential. [`Secret`] redacts a value that was handed in; resolving one from the
-//!   environment or a keychain is a later task, per `decisions/ADR-005-credential-handling.md`.
-//! - It ships exactly one adapter, [`openai`]: one implementation over a configurable `base_url`
-//!   that reaches `OpenAI` and every server speaking the same shape, and adding it changed no other
-//!   crate (`docs/AI_PROVIDER_SPEC.md` §12).
+//!   environment or a keychain belongs to the CLI that calls this crate, per
+//!   `decisions/ADR-005-credential-handling.md`.
+//!
+//! # The adapters
+//!
+//! Three adapters ship, one per wire format in `docs/AI_PROVIDER_SPEC.md` §3: [`openai`] for the
+//! chat-completions shape that reaches OpenAI, Ollama, vLLM, and every compatible server;
+//! [`anthropic`] for the Messages API; and [`gemini`] for `generateContent`. Each is one module that
+//! maps its wire format onto the provider-neutral types, and adding one changed no other crate
+//! (`docs/AI_PROVIDER_SPEC.md` §12).
+//!
+//! What the three share — credentials, the three timeouts, the retry policy, error classification,
+//! the SSE parser and stream pump — is not repeated three times. It is the `transport` module, and
+//! an adapter is only the mapping its wire format needs. The [`Adapter`] enum names the three by
+//! the strings `.ai/ai.yaml` carries, so a command reads a config and builds a provider without
+//! matching on adapter names itself.
+//!
+//! [`anthropic`]: mod@anthropic
+//! [`gemini`]: mod@gemini
 //!
 //! # Example
 //!
@@ -67,27 +82,34 @@
 mod cancel;
 mod credential;
 mod error;
+pub mod anthropic;
+pub mod gemini;
 pub mod openai;
 mod provider;
 mod registry;
 mod secret;
+mod transport;
 mod types;
+
+mod adapter;
 
 // Re-exported so an adapter implements the trait and reads a stream with only this crate in scope,
 // which is what "adding an adapter touches no other crate" has to mean in practice.
 pub use async_trait::async_trait;
 pub use futures_core::Stream;
 
+pub use adapter::Adapter;
 pub use cancel::CancellationToken;
 pub use credential::{
     CredentialError, CredentialResolver, CredentialSource, Environment, Keychain, KeychainError,
     KeychainReference, KeyringKeychain, ProcessEnvironment, Redactor,
 };
 pub use error::{ProviderError, TimeoutPhase};
-pub use openai::{Auth, OpenAiCompatible, OpenAiCompatibleConfig, RetryPolicy, Timeouts};
+pub use openai::{OpenAiCompatible, OpenAiCompatibleConfig};
 pub use provider::{AIProvider, BoxStream};
 pub use registry::ProviderRegistry;
 pub use secret::Secret;
+pub use transport::{Auth, RetryPolicy, Timeouts};
 pub use types::{
     Capabilities, CompletionRequest, CompletionResponse, DataBlock, FinishReason, Message,
     ModelOptions, PolicyBlock, PolicyRegion, ProviderId, Role, RoutingRequest, StreamEvent,

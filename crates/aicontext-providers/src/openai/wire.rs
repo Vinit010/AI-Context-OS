@@ -5,14 +5,13 @@
 //! message wrapped in an envelope. A `DataBlock` can therefore never reach a `system` message
 //! (`docs/AI_PROVIDER_SPEC.md` §2.1, §11 T9).
 
-use std::fmt::Write as _;
-
 use serde_json::{Map, Value};
 
 use crate::error::ProviderError;
+use crate::transport::envelope::render_data;
 use crate::types::{
-    CompletionRequest, CompletionResponse, DataBlock, FinishReason, Message, ProviderId, Role,
-    ToolCall, ToolSpec, Usage,
+    CompletionRequest, CompletionResponse, FinishReason, Message, ProviderId, Role, ToolCall,
+    ToolSpec, Usage,
 };
 
 /// The path every OpenAI-compatible server exposes, relative to `base_url`.
@@ -103,35 +102,6 @@ fn tool_json(tool: &ToolSpec) -> Value {
             "parameters": tool.input_schema,
         }
     })
-}
-
-/// Renders the untrusted `DataBlock`s into one envelope, never into a forwardable instruction.
-fn render_data(blocks: &[DataBlock]) -> String {
-    let mut rendered = String::new();
-    for (position, block) in blocks.iter().enumerate() {
-        if position > 0 {
-            rendered.push_str("\n\n");
-        }
-        let _ = write!(
-            rendered,
-            "<untrusted-data source=\"{}\" path=\"{}\" tier=\"{}\" trust=\"untrusted\">\n{}\n\
-             </untrusted-data>",
-            escape(&block.source),
-            escape(&block.path),
-            block.tier,
-            block.content,
-        );
-    }
-    rendered
-}
-
-/// Escapes the four characters that can end the envelope's attribute or open one.
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 /// Parses a non-streaming chat-completions body into the neutral response.
@@ -253,31 +223,6 @@ fn count(value: &Value, key: &str) -> Option<u32> {
         .get(key)
         .and_then(Value::as_u64)
         .and_then(|number| u32::try_from(number).ok())
-}
-
-/// The provider's own message for a failed request, capped so a body cannot flood an error.
-pub(super) fn error_detail(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-        if let Some(message) = value.pointer("/error/message").and_then(Value::as_str) {
-            return truncate(message);
-        }
-        if let Some(message) = value.get("message").and_then(Value::as_str) {
-            return truncate(message);
-        }
-    }
-    truncate(text.trim())
-}
-
-/// Caps `text` at a few hundred characters.
-fn truncate(text: &str) -> String {
-    const LIMIT: usize = 400;
-    if text.chars().count() <= LIMIT {
-        return text.to_owned();
-    }
-    let mut capped: String = text.chars().take(LIMIT).collect();
-    capped.push('…');
-    capped
 }
 
 /// A `MalformedResponse` naming the provider.

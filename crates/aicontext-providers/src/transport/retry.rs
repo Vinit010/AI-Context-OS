@@ -2,7 +2,8 @@
 //!
 //! `docs/AI_PROVIDER_SPEC.md` §6 says retries are bounded (two by default), only for transport
 //! errors and 429/5xx, only when the request is idempotent, and only with exponential backoff and
-//! jitter. This module holds those rules; the adapter is the thing that obeys them.
+//! jitter. This module holds those rules; [`super::Transport`] is the thing that obeys them, and
+//! every adapter goes through it.
 
 use std::time::Duration;
 

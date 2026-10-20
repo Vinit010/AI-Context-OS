@@ -1,27 +1,30 @@
-//! A minimal Server-Sent Events parser, for the `stream: true` response.
+//! A minimal Server-Sent Events parser, for every adapter's `stream: true` response.
 //!
 //! `docs/AI_PROVIDER_SPEC.md` §2 says `stream` returns `BoxStream<StreamEvent>`, and the wire the
-//! stream arrives on is SSE: `data:` lines, an event per blank line, ending with `data: [DONE]`.
-//! That grammar is four lines of text, so this is a few dozen lines of our own rather than a crate
-//! whose dependency list would only ever be one importer deep.
+//! stream arrives on is SSE in all three adapters (`docs/AI_PROVIDER_SPEC.md` §3): `data:` lines,
+//! an event per blank line, ending with a sentinel only OpenAI-compatible servers send. That
+//! grammar is four lines of text, so this is a few dozen lines of our own rather than a crate whose
+//! dependency list would only ever be one importer deep.
 //!
 //! The parser is incremental because chunks arrive on arbitrary boundaries: a field may split
-//! across two reads, so a chunk is appended and the next complete event is taken out.
+//! across two reads, so a chunk is appended and the next complete event is taken out. The `event:`
+//! field is skipped: each adapter's payload names its own event type in its JSON, so nothing is
+//! lost by reading only `data:`.
 
 /// An incremental `text/event-stream` parser.
 #[derive(Debug, Default)]
-pub(super) struct SseParser {
+pub(crate) struct SseParser {
     buffer: String,
 }
 
 impl SseParser {
     /// An empty parser.
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Appends a chunk, normalising the `\r\n` SSE is allowed to use.
-    pub(super) fn push(&mut self, chunk: &str) {
+    pub(crate) fn push(&mut self, chunk: &str) {
         if chunk.contains('\r') {
             self.buffer.push_str(&chunk.replace("\r\n", "\n"));
         } else {
@@ -33,7 +36,7 @@ impl SseParser {
     /// holds no complete event.
     ///
     /// A comment-only event (SSE keep-alives start with `:`) carries no data and is skipped.
-    pub(super) fn next(&mut self) -> Option<String> {
+    pub(crate) fn next(&mut self) -> Option<String> {
         loop {
             let boundary = self.buffer.find("\n\n")?;
             let event: String = self.buffer.drain(..boundary + 2).collect();

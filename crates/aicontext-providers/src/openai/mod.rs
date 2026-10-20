@@ -1,99 +1,48 @@
-//! The OpenAI-compatible adapter: one implementation that reaches `OpenAI` and any server that
-//! speaks the same `/chat/completions` shape.
+//! The `OpenAI`-compatible adapter: the chat-completions wire format (`docs/AI_PROVIDER_SPEC.md` §3).
 //!
-//! `docs/AI_PROVIDER_SPEC.md` §3 names this adapter and explains why it is first: the hosted model
-//! and the local model (Ollama, llama.cpp, vLLM, LM Studio, `OpenRouter`, Azure) are one
-//! implementation over a configurable `base_url`, which is the cheapest possible proof that the
-//! abstraction is real.
+//! Every provider that speaks `POST {base}/chat/completions` — a hosted OpenAI endpoint, Ollama,
+//! vLLM, llama.cpp, LM Studio, a corporate proxy in front of any of them — is one config away, so
+//! the spec makes this adapter the first one and the CLI's default.
+//!
+//! # What is in this module, and what is not
+//!
+//! The request body, the response parser, and the SSE translation are here, because they are what
+//! "chat completions" *means*. The conversation with the HTTP server — timeouts, retries,
+//! cancellation, the error classes — is not: that is [`crate::transport`], and it is shared with the
+//! Anthropic and Gemini adapters, because a 429 means the same thing in every wire format. Adding
+//! an adapter therefore adds one module like this one and touches nothing else
+//! (`docs/AI_PROVIDER_SPEC.md` §12).
+//!
+//! # Example
 //!
 //! ```no_run
 //! use aicontext_providers::openai::{OpenAiCompatible, OpenAiCompatibleConfig};
-//! use aicontext_providers::{AIProvider, ProviderId};
+//! use aicontext_providers::ProviderId;
 //!
-//! # async fn run() -> Result<(), aicontext_providers::ProviderError> {
-//! let config = OpenAiCompatibleConfig::new(
-//!     ProviderId::new("local")?,
-//!     "http://localhost:11434/v1",
-//!     "qwen2.5-coder",
-//! );
+//! let id = ProviderId::new("local")?;
+//! let config = OpenAiCompatibleConfig::new(id, "http://localhost:11434/v1", "qwen3-coder");
 //! let provider = OpenAiCompatible::new(config)?;
-//! let request = aicontext_providers::CompletionRequest {
-//!     policy: aicontext_providers::PolicyRegion::default(),
-//!     messages: vec![aicontext_providers::Message::new(
-//!         aicontext_providers::Role::User,
-//!         "hello".to_owned(),
-//!     )],
-//!     data: Vec::new(),
-//!     tools: Vec::new(),
-//!     budget: aicontext_providers::TokenBudget { max_output_tokens: 256 },
-//!     options: aicontext_providers::ModelOptions::default(),
-//!     idempotency_key: "run-1".to_owned(),
-//! };
-//! let answer = provider.complete(request).await?;
-//! # let _ = answer;
-//! # Ok(())
-//! # }
+//! # Ok::<(), aicontext_providers::ProviderError>(())
 //! ```
 //!
-//! # What this adapter does not do
-//!
-//! It never resolves a credential — [`crate::CredentialResolver`] does, and hands [`Auth::Bearer`] a
-//! value. The value is redacted everywhere it could be printed, including the provider's own error
-//! body. It never switches provider or model on a failure (`docs/AI_PROVIDER_SPEC.md` §6): a failure
-//! is a failure.
+//! The example uses port `11434` because that is Ollama's — a real, free, local server, and the
+//! reason the adapter exists in the shape it does.
 
-mod retry;
-mod sse;
-mod stream;
-mod wire;
-
-pub use retry::RetryPolicy;
-
-use std::time::Duration;
+pub(crate) mod stream;
+pub(crate) mod wire;
 
 use async_trait::async_trait;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, RETRY_AFTER};
-use serde_json::Value;
 
 use crate::cancel::CancellationToken;
-use crate::credential::Redactor;
-use crate::error::{ProviderError, TimeoutPhase};
+use crate::error::ProviderError;
 use crate::provider::{AIProvider, BoxStream};
-use crate::secret::Secret;
+use crate::transport::{self, Transport};
 use crate::types::{Capabilities, CompletionRequest, CompletionResponse, ProviderId, StreamEvent};
 
-/// How the adapter proves who it is.
-#[derive(Clone, Debug, Default)]
-#[non_exhaustive]
-pub enum Auth {
-    /// No credential. A typical local server does not want one.
-    #[default]
-    None,
-    /// A bearer token, sent as `Authorization: Bearer …`. The value is a [`Secret`], so it cannot be
-    /// printed by accident (`docs/AI_PROVIDER_SPEC.md` §11 T10).
-    Bearer(Secret),
-}
-
-/// The three timeouts the spec requires, each configurable (`docs/AI_PROVIDER_SPEC.md` §6).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Timeouts {
-    /// The limit on establishing a connection.
-    pub connect: Duration,
-    /// The limit on one request and its response.
-    pub request: Duration,
-    /// The limit on the whole call, retries included.
-    pub total: Duration,
-}
-
-impl Default for Timeouts {
-    fn default() -> Self {
-        Self {
-            connect: Duration::from_secs(10),
-            request: Duration::from_secs(60),
-            total: Duration::from_secs(120),
-        }
-    }
-}
+// The credential, the timeouts, and the retry policy are the same three knobs on every adapter, so
+// they are one type in `transport` and re-exported here: `openai::Auth` and `transport::Auth` are
+// the same path, and code written against the first keeps working.
+pub use crate::transport::{Auth, RetryPolicy, Timeouts};
 
 /// Everything the adapter needs to exist: where it is, how it authenticates, and how patient it is.
 #[derive(Clone, Debug)]
@@ -163,7 +112,7 @@ impl OpenAiCompatibleConfig {
 #[derive(Debug)]
 pub struct OpenAiCompatible {
     config: OpenAiCompatibleConfig,
-    client: reqwest::Client,
+    transport: Transport,
 }
 
 impl OpenAiCompatible {
@@ -173,14 +122,14 @@ impl OpenAiCompatible {
     ///
     /// Returns [`ProviderError::Transport`] when the client cannot be built.
     pub fn new(config: OpenAiCompatibleConfig) -> Result<Self, ProviderError> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(config.timeouts.connect)
-            .build()
-            .map_err(|source| ProviderError::Transport {
-                provider: config.id.clone(),
-                source: Box::new(source),
-            })?;
-        Ok(Self { config, client })
+        let transport = Transport::new(
+            config.id.clone(),
+            &config.auth,
+            config.timeouts,
+            config.retry,
+            config.cancel.clone(),
+        )?;
+        Ok(Self { config, transport })
     }
 
     /// The configuration this provider was built with.
@@ -198,178 +147,38 @@ impl OpenAiCompatible {
         )
     }
 
+    /// The header that carries the credential, or nothing without one.
+    ///
+    /// A chat-completions server speaks bearer and only bearer: a compatible proxy forwards
+    /// `Authorization` and reads nothing else, so both credential variants are presented the same
+    /// way here. Anthropic and Gemini map the same [`Auth`] onto their own headers instead.
+    fn auth_header(&self) -> Vec<(String, String)> {
+        let value = match &self.config.auth {
+            Auth::None => return Vec::new(),
+            Auth::Bearer(secret) | Auth::ApiKey(secret) => {
+                format!("Bearer {}", secret.expose())
+            }
+        };
+        vec![("authorization".to_owned(), value)]
+    }
+
     /// Answers in one shot; the total-timeout wrapper is in `AIProvider::complete`.
     async fn complete_inner(
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
         let body = wire::request_body(&request, &self.config.model, false);
-        let seed = seed_of(&request.idempotency_key);
+        let seed = transport::seed_of(&request.idempotency_key);
         let idempotent = !request.idempotency_key.is_empty();
-        let response = self.dispatch(&body, idempotent, seed).await?;
+        let response = self
+            .transport
+            .dispatch(&self.endpoint(), &self.auth_header(), &body, idempotent, seed)
+            .await?;
         let bytes = response
             .bytes()
             .await
-            .map_err(|error| self.classify(error))?;
+            .map_err(|error| self.transport.classify(error))?;
         wire::parse_completion(&self.config.id, &bytes)
-    }
-
-    /// Sends one attempt, honouring the request timeout and racing cancellation.
-    async fn attempt(&self, body: &Value) -> Result<reqwest::Response, ProviderError> {
-        let provider = self.config.id.clone();
-        let mut request = self
-            .client
-            .post(self.endpoint())
-            .timeout(self.config.timeouts.request)
-            .header(CONTENT_TYPE, "application/json");
-        if let Auth::Bearer(secret) = &self.config.auth {
-            // Constructing the header by hand keeps an invalid credential a typed error rather than
-            // a panic inside reqwest, and none of this prints the value.
-            let header =
-                HeaderValue::from_str(&format!("Bearer {}", secret.expose())).map_err(|_| {
-                    ProviderError::InvalidRequest {
-                        provider: provider.clone(),
-                        detail: "the configured credential is not a valid HTTP header value"
-                            .to_owned(),
-                    }
-                })?;
-            request = request.header(AUTHORIZATION, header);
-        }
-        let encoded = serde_json::to_vec(body).map_err(|error| ProviderError::InvalidRequest {
-            provider: provider.clone(),
-            detail: error.to_string(),
-        })?;
-        let cancel = self.config.cancel.clone();
-        tokio::select! {
-            () = cancel.cancelled() => Err(ProviderError::Cancelled { provider }),
-            result = request.body(encoded).send() => result.map_err(|error| self.classify(error)),
-        }
-    }
-
-    /// Sends the body, retrying a retryable failure when `idempotent` allows it.
-    async fn dispatch(
-        &self,
-        body: &Value,
-        idempotent: bool,
-        seed: u64,
-    ) -> Result<reqwest::Response, ProviderError> {
-        let mut attempt = 0u32;
-        loop {
-            let error = match self.attempt(body).await {
-                Ok(response) if response.status().is_success() => return Ok(response),
-                Ok(response) => self.failure(response).await,
-                Err(error) => error,
-            };
-            if !self.may_retry(&error, idempotent, attempt) {
-                return Err(error);
-            }
-            self.pause(attempt, seed, &error).await;
-            attempt += 1;
-        }
-    }
-
-    /// Whether the loop may make another attempt.
-    fn may_retry(&self, error: &ProviderError, idempotent: bool, attempt: u32) -> bool {
-        idempotent && attempt < self.config.retry.max_retries && RetryPolicy::is_retryable(error)
-    }
-
-    /// Waits out the backoff, logging the retry and watching for cancellation.
-    async fn pause(&self, attempt: u32, seed: u64, error: &ProviderError) {
-        let delay = self.delay(attempt, seed, error);
-        tracing::warn!(
-            provider = %self.config.id,
-            code = error.code(),
-            retry = attempt + 1,
-            delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-            "provider call failed; retrying",
-        );
-        let cancel = self.config.cancel.clone();
-        tokio::select! {
-            biased;
-            () = cancel.cancelled() => {}
-            () = tokio::time::sleep(delay) => {}
-        }
-    }
-
-    /// The pause before the next attempt: the provider's `Retry-After` when it gave one, the
-    /// policy's backoff otherwise.
-    fn delay(&self, attempt: u32, seed: u64, error: &ProviderError) -> Duration {
-        if let ProviderError::RateLimited {
-            retry_after: Some(after),
-            ..
-        } = error
-        {
-            return (*after).min(self.config.retry.max_delay);
-        }
-        self.config.retry.delay(attempt, seed)
-    }
-
-    /// The redactor for this provider's own credential.
-    ///
-    /// A provider's error body is the one string in a call that the provider, not we, built, so it is
-    /// the one place a credential we sent could be echoed back. Redacting it here keeps the rule at a
-    /// single boundary (`docs/SECURITY.md` §6) instead of remembering it at each call site.
-    fn redactor(&self) -> Redactor {
-        match &self.config.auth {
-            Auth::Bearer(secret) => Redactor::new().with_secret(secret.clone()),
-            Auth::None => Redactor::new(),
-        }
-    }
-
-    /// The typed error for an HTTP failure, read from the provider's own body.
-    async fn failure(&self, response: reqwest::Response) -> ProviderError {
-        let provider = self.config.id.clone();
-        let status = response.status();
-        let retry_after = retry_after(response.headers());
-        let detail = match response.bytes().await {
-            Ok(bytes) => self
-                .redactor()
-                .redact(&wire::error_detail(&bytes))
-                .into_owned(),
-            Err(error) => return self.classify(error),
-        };
-        match status.as_u16() {
-            400 => ProviderError::InvalidRequest { provider, detail },
-            401 => ProviderError::Unauthorized { provider },
-            403 => ProviderError::Forbidden { provider },
-            404 => ProviderError::NotFound { provider, detail },
-            429 => ProviderError::RateLimited {
-                provider,
-                retry_after,
-            },
-            code if (500..600).contains(&code) => ProviderError::ServerError {
-                provider,
-                status: code,
-            },
-            code if (400..500).contains(&code) => {
-                ProviderError::InvalidRequest { provider, detail }
-            }
-            code => ProviderError::MalformedResponse {
-                provider,
-                detail: format!("unexpected HTTP status {code}"),
-            },
-        }
-    }
-
-    /// The typed error for a failure below HTTP.
-    fn classify(&self, error: reqwest::Error) -> ProviderError {
-        let provider = self.config.id.clone();
-        if error.is_timeout() {
-            let (phase, limit) = if error.is_connect() {
-                (TimeoutPhase::Connect, self.config.timeouts.connect)
-            } else {
-                (TimeoutPhase::Request, self.config.timeouts.request)
-            };
-            return ProviderError::Timeout {
-                provider,
-                phase,
-                limit,
-            };
-        }
-        ProviderError::Transport {
-            provider,
-            source: Box::new(error),
-        }
     }
 }
 
@@ -383,16 +192,7 @@ impl AIProvider for OpenAiCompatible {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
-        let provider = self.config.id.clone();
-        let limit = self.config.timeouts.total;
-        match tokio::time::timeout(limit, self.complete_inner(request)).await {
-            Ok(result) => result,
-            Err(_) => Err(ProviderError::Timeout {
-                provider,
-                phase: TimeoutPhase::Total,
-                limit,
-            }),
-        }
+        self.transport.within_total(self.complete_inner(request)).await
     }
 
     async fn stream(
@@ -400,9 +200,12 @@ impl AIProvider for OpenAiCompatible {
         request: CompletionRequest,
     ) -> Result<BoxStream<StreamEvent>, ProviderError> {
         let body = wire::request_body(&request, &self.config.model, true);
-        let seed = seed_of(&request.idempotency_key);
+        let seed = transport::seed_of(&request.idempotency_key);
         let idempotent = !request.idempotency_key.is_empty();
-        let response = self.dispatch(&body, idempotent, seed).await?;
+        let response = self
+            .transport
+            .dispatch(&self.endpoint(), &self.auth_header(), &body, idempotent, seed)
+            .await?;
         Ok(stream::open(response, self.config.cancel.clone()))
     }
 
@@ -416,24 +219,59 @@ impl AIProvider for OpenAiCompatible {
     }
 }
 
-/// The `Retry-After` header as whole seconds; the date form is left to a later task.
-fn retry_after(headers: &HeaderMap) -> Option<Duration> {
-    headers
-        .get(RETRY_AFTER)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()
-        .map(Duration::from_secs)
-}
+#[cfg(test)]
+mod tests {
+    use super::{OpenAiCompatible, OpenAiCompatibleConfig};
+    use crate::transport::Auth;
+    use crate::{ProviderId, Secret};
 
-/// A deterministic seed for the retry jitter: FNV-1a over the idempotency key.
-fn seed_of(idempotency_key: &str) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in idempotency_key.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    fn config() -> OpenAiCompatibleConfig {
+        OpenAiCompatibleConfig::new(
+            ProviderId::new("local").expect("valid"),
+            "http://localhost:11434/v1",
+            "test-model",
+        )
     }
-    hash
+
+    #[test]
+    fn the_auth_header_is_bearer_for_either_credential_variant() {
+        let secret = Secret::new("sk-live-do-not-print");
+        for auth in [
+            Auth::Bearer(secret.clone()),
+            Auth::ApiKey(secret.clone()),
+        ] {
+            let provider =
+                OpenAiCompatible::new(config().with_auth(auth)).expect("the adapter builds");
+            assert_eq!(
+                provider.auth_header(),
+                vec![(
+                    "authorization".to_owned(),
+                    format!("Bearer {}", secret.expose())
+                )]
+            );
+        }
+        let anonymous = OpenAiCompatible::new(config()).expect("the adapter builds");
+        assert!(anonymous.auth_header().is_empty());
+    }
+
+    #[test]
+    fn the_debug_rendering_redacts_the_credential() {
+        let provider = OpenAiCompatible::new(config().with_auth(Auth::Bearer(Secret::new(
+            "sk-live-do-not-print",
+        ))))
+        .expect("the adapter builds");
+        let rendered = format!("{provider:?}");
+        assert!(!rendered.contains("sk-live-do-not-print"), "{rendered}");
+        assert!(rendered.contains("redacted"), "{rendered}");
+    }
+
+    #[test]
+    fn the_endpoint_joins_the_base_url_and_the_path_once() {
+        for base in ["http://x/v1", "http://x/v1/"] {
+            let mut config = config();
+            config.base_url = base.to_owned();
+            let provider = OpenAiCompatible::new(config).expect("builds");
+            assert_eq!(provider.endpoint(), "http://x/v1/chat/completions");
+        }
+    }
 }

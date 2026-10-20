@@ -1,65 +1,31 @@
-//! Turns a streaming HTTP response into a `StreamEvent` stream.
+//! Turns a chat-completions SSE stream into `StreamEvent`s.
 //!
-//! The bytes arrive on the reader's task, so a small task reads them and forwards parsed events
-//! over a channel; dropping the returned stream drops the receiver, the next send fails, and the
-//! task ends with the response. That is what makes cancellation and an abandoned stream both
-//! bounded (`docs/AI_PROVIDER_SPEC.md` §6).
+//! The pump — the reader task, the channel, the cancellation race — is [`crate::transport::stream`],
+//! shared by all three adapters. What is here is what "chat completions" means on the wire: a
+//! `choices[].delta` carrying a text fragment or a tool-call fragment, an optional `usage`, and the
+//! `data: [DONE]` sentinel that ends the stream.
 
 use std::collections::BTreeMap;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
-use futures_core::Stream;
 use serde_json::Value;
-use tokio::sync::mpsc;
 
-use crate::cancel::CancellationToken;
 use crate::provider::BoxStream;
+use crate::transport::stream;
 use crate::types::StreamEvent;
 
-use super::sse::SseParser;
 use super::wire;
 
-/// How many parsed events may wait before the reader is back-pressured.
-const CAPACITY: usize = 32;
-
-/// A [`StreamEvent`] stream backed by the reader task; the task owns the HTTP response.
+/// Opens the pump over a chat-completions response, carrying the per-stream tool-name memory.
 pub(super) fn open(
     response: reqwest::Response,
-    cancel: CancellationToken,
+    cancel: crate::cancel::CancellationToken,
 ) -> BoxStream<StreamEvent> {
-    let (sender, receiver) = mpsc::channel::<StreamEvent>(CAPACITY);
-    tokio::spawn(async move {
-        let mut response = response;
-        let mut parser = SseParser::new();
-        let mut tools = BTreeMap::new();
-        loop {
-            tokio::select! {
-                () = cancel.cancelled() => break,
-                chunk = response.chunk() => match chunk {
-                    Ok(Some(bytes)) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        parser.push(&text);
-                        while let Some(payload) = parser.next() {
-                            let Some(events) = translate(&payload, &mut tools) else {
-                                return;
-                            };
-                            for event in events {
-                                if sender.send(event).await.is_err() {
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    // A clean end, a transport error, and a dropping receiver all end the stream:
-                    // `StreamEvent` has no error item, so there is nothing to report and nothing to
-                    // invent (docs/AI_PROVIDER_SPEC.md §2).
-                    Ok(None) | Err(_) => return,
-                },
-            }
-        }
-    });
-    Box::pin(EventReceiver { receiver })
+    // A tool call is named on its first fragment and its arguments follow, so a reader that keeps
+    // no state still sees the name on every fragment (`docs/AI_PROVIDER_SPEC.md` §2).
+    let mut tools = ToolNames::new();
+    stream::open(response, cancel, move |payload| {
+        translate(payload, &mut tools)
+    })
 }
 
 /// The named tip of a tool call, repeated on each fragment so a reader keeps no state.
@@ -127,15 +93,87 @@ fn collect_tool_calls(delta: &Value, tools: &mut ToolNames, events: &mut Vec<Str
     }
 }
 
-/// A `Stream` over the receiver end of the reader channel.
-struct EventReceiver {
-    receiver: mpsc::Receiver<StreamEvent>,
-}
+#[cfg(test)]
+mod tests {
+    use super::translate;
+    use crate::types::{FinishReason, StreamEvent, Usage};
 
-impl Stream for EventReceiver {
-    type Item = StreamEvent;
+    fn one(payload: &str) -> Vec<StreamEvent> {
+        let mut tools = super::ToolNames::new();
+        translate(payload, &mut tools).expect("a parseable payload")
+    }
 
-    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.receiver.poll_recv(context)
+    #[test]
+    fn the_done_sentinel_ends_the_stream() {
+        let mut tools = super::ToolNames::new();
+        assert!(translate("[DONE]", &mut tools).is_none());
+    }
+
+    #[test]
+    fn a_text_fragment_becomes_a_delta() {
+        assert_eq!(
+            one(r#"{"choices":[{"delta":{"content":"hi"}}]}"#),
+            vec![StreamEvent::TextDelta("hi".to_owned())]
+        );
+    }
+
+    #[test]
+    fn usage_and_finish_are_reported() {
+        let events = one(
+            r#"{"choices":[{"delta":{},"finish_reason":"stop"}],
+                 "usage":{"prompt_tokens":1,"completion_tokens":2}}"#,
+        );
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::Usage(Usage {
+                    input_tokens: Some(1),
+                    output_tokens: Some(2),
+                    cached_input_tokens: None,
+                    estimated: false,
+                }),
+                StreamEvent::Finish(FinishReason::Stop),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_call_is_named_once_and_repeated_on_each_fragment() {
+        let mut tools = super::ToolNames::new();
+        let first = translate(
+            r#"{"choices":[{"delta":{"tool_calls":[
+                 {"index":0,"id":"call_1","function":{"name":"stop_ec2","arguments":""}}]}}]}"#,
+            &mut tools,
+        )
+        .expect("first fragment");
+        let second = translate(
+            r#"{"choices":[{"delta":{"tool_calls":[
+                 {"index":0,"function":{"arguments":"{\"id\":\"i-9\"}"}}]}}]}"#,
+            &mut tools,
+        )
+        .expect("second fragment");
+        assert_eq!(
+            first,
+            vec![StreamEvent::ToolCallDelta {
+                id: "call_1".to_owned(),
+                tool: "stop_ec2".to_owned(),
+                arguments_delta: String::new(),
+            }]
+        );
+        assert_eq!(
+            second,
+            vec![StreamEvent::ToolCallDelta {
+                id: "call_1".to_owned(),
+                tool: "stop_ec2".to_owned(),
+                arguments_delta: "{\"id\":\"i-9\"}".to_owned(),
+            }],
+            "the id and name set on the first fragment must survive into the second"
+        );
+    }
+
+    #[test]
+    fn a_payload_that_is_not_json_ends_the_stream_rather_than_inventing_an_event() {
+        let mut tools = super::ToolNames::new();
+        assert!(translate("not json", &mut tools).is_none());
     }
 }
