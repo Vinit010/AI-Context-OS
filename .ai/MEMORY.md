@@ -1244,6 +1244,47 @@ artefact, not an `.ai/` document, so `doctor`'s count of 20 document schemas sta
 future task decides plugins may be authored inside `.ai/`, it must revisit both `init` and the count;
 until then, adding the schema to that copy set would make the count mean two different things.
 
+## MEM-038 — An explicit policy default is honored, but an absent policy is deny-all, and a wildcard no step consults is refused rather than inert
+
+```yaml
+id: MEM-038
+category: constraint
+scope: permissions
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [permissions, resolver, policy, wildcard, default-deny, task-071]
+```
+
+The policy schema publishes `defaults.mode` as one of four values, so the resolver honors the value
+the file states; treating the field as decoration would make the schema lie. The fail-closed
+guarantees live at the boundary instead: `Policy::default()` is deny-all, the shipped template writes
+`mode: deny`, and a missing or unreadable policy is deny-all. An invalid policy is `CTX-003`, never a
+silent fallback. Invariant I3 therefore means "no explicit mapping, including the default mapping,
+resolves to deny"; a file that explicitly maps the unmentioned set to allow has said so as policy
+and must not be silently overridden.
+
+The old `PLUGIN_SPEC` §5 example used a top-level `permissions:` map and an `aws.*` deny beside
+`aws.ec2.describe` allow. Both were wrong: the schema and template require
+`version`/`defaults`/`tools`, and step 2 puts wildcard `DENY` ahead of step 7 exact `ALLOW`, so that
+example denied everything it appeared to allow. The docs now show the committed shape and a
+coherent rule set.
+
+Wildcard rules are accepted only as `provider.service.*`, and only with `deny` or `approval`.
+`allow` and `explicit_approval` wildcards are rejected with `UnsupportedWildcardMode` because the
+resolution table has no step that could consult them; accepting one would create a rule that looks
+load-bearing and can never match. `*`, `*.action`, extra segments, embedded `*`, and an empty
+provider or service are invalid. A wildcard covers exactly one action segment, so `aws.ec2.*` does
+not cover `aws.ec2` or `aws.ec2.describe.extra`.
+
+File order is not a tie-break. Duplicate patterns are refused, each step matches at most one rule,
+and the tests reverse rule order to prove decisions do not depend on it. Exact `ALLOW` losing to
+wildcard `APPROVAL` is intentional because step 6 precedes step 7; the earlier "a more specific rule
+always beats a wildcard" wording contradicted the table and was removed. `DecisionSource` records
+which step matched, including `Destructive`, so an audit entry can explain the result without
+re-resolving against a policy that may have changed.
+
 ## Bugs encountered
 
 None shipped. Seven defects were found before a consumer saw them. Two were found by running the

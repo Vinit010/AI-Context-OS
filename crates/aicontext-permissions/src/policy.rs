@@ -186,8 +186,7 @@ impl Default for Policy {
 /// The one wildcard form `docs/PLUGIN_SPEC.md` §5 permits: `provider.service.*`.
 fn is_provider_service_wildcard(pattern: &str) -> bool {
     let mut parts = pattern.split('.');
-    let (Some(provider), Some(service), Some(action)) =
-        (parts.next(), parts.next(), parts.next())
+    let (Some(provider), Some(service), Some(action)) = (parts.next(), parts.next(), parts.next())
     else {
         return false;
     };

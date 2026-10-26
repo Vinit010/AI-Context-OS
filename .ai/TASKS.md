@@ -11,7 +11,7 @@ updated: 2026-10-26
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-071
+**Current task:** TASK-072
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1585,7 +1585,7 @@ done:
 ```yaml
 id: TASK-071
 title: Implement the permission model and resolver
-status: IN_PROGRESS
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-070]
@@ -1602,6 +1602,48 @@ acceptance:
   - Precedence is DENY over EXPLICIT_APPROVAL over APPROVAL over ALLOW, defaulting to DENY
   - 100 percent branch coverage over the full mode matrix, including unspecified capabilities
   - Property tests over the resolution order
+done:
+  - '`crates/aicontext-permissions/` is a new workspace member with `policy.rs`, `resolver.rs`,
+    `error.rs`, and `lib.rs`. Its only internal dependency is `aicontext-core`, because
+    `PermissionMode` has one definition; its only production external dependency is `thiserror`;
+    `proptest` is dev-only. There is no loader, file access, clock, randomness, environment read,
+    prompt, approval broker, or tool runtime in the crate'
+  - '`Policy` owns the schema''s explicit `defaults.mode` plus validated rules. `Policy::default()`
+    and `Policy::deny_all()` are deny-all, `Rule::exact` accepts local and dotted tool names, and
+    `Rule::wildcard` accepts only `provider.service.*` with `deny` or `approval`. Empty patterns, a
+    `*` in an exact rule, a top-level `*`, `*.action`, extra or empty segments, embedded `*`, a
+    wildcard `allow` or `explicit_approval`, and duplicate patterns are refused with `PolicyError`
+    carrying `CTX-003`'
+  - '`Resolver::resolve` implements the eight PLUGIN_SPEC 5 steps literally: exact deny, wildcard
+    deny, exact explicit approval, the destructive floor, exact approval, wildcard approval, exact
+    allow, then the policy default. `Decision` carries both the mode and a `DecisionSource` naming
+    the step that won. A wildcard covers exactly one action segment, so `aws.ec2.*` matches
+    `aws.ec2.describe` but not `aws.ec2` or `aws.ec2.describe.extra`'
+  - 'Tests: 28 unit tests, 7 proptest properties, and 1 doctest. The matrix test runs every one of
+    the four default modes against every one of the four exact rule modes and both destructive
+    states, then every default against both valid wildcard modes and both destructive states, plus
+    an unmatched capability for each default. Direct helper tests cover every branch of the
+    wildcard matcher. Properties cover determinism, reversed rule order, exact and wildcard deny
+    dominance, the destructive floor, wildcard approval ahead of exact allow, and default fallback'
+  - 'Branch coverage: every resolver return and every wildcard-matcher branch is asserted by the
+    matrix and helper tests, including unspecified capabilities and both destructive states.
+    `cargo-llvm-cov` and `cargo-tarpaulin` are not installed on this machine, so the 100 percent
+    branch claim is demonstrated by exhaustive tests rather than a generated coverage report'
+  - '`docs/PLUGIN_SPEC.md` 5 now uses the committed `version`/`defaults`/`tools` shape, states that
+    file order never matters, records that a wildcard DENY beats an exact EXPLICIT_APPROVAL and a
+    wildcard APPROVAL beats an exact ALLOW, limits wildcards to deny/approval and one action
+    segment, and explains the explicit default versus an absent policy. `.ai/MEMORY.md` adds
+    MEM-038; `README.md` adds the crate to the graph and layout and reduces the not-yet-created list
+    to the runtime and audit crates'
+  - 'Gates: `cargo fmt --all --check`; `cargo check --workspace --all-targets --locked`; `cargo
+    clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`
+    (994 passed, 0 failed, was 958); `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+    --locked`; `aicontext doctor` (exit 0, only the pre-existing CTX-012 warning about no
+    `.ai/schemas` copies); and `git diff --check`. No `unwrap` or `expect` outside tests, no
+    `unsafe` outside the `forbid` attribute, and no secret value in the crate, tests, or docs'
+  - 'Deliberately not done: no policy-file loader, approval broker, tool gateway, plugin runtime,
+    audit log, or CLI wiring. Those are TASK-072 to TASK-075. `scope` and `reason` remain approval
+    metadata and are not resolution inputs'
 ```
 
 ### TASK-072 — Implement the approval broker

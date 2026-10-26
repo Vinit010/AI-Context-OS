@@ -26,18 +26,14 @@ pub enum PolicyError {
     },
 
     /// A wildcard is not the one documented shape, `provider.service.*`.
-    #[error(
-        "`{pattern}` is not a valid wildcard; the only form is `provider.service.*`"
-    )]
+    #[error("`{pattern}` is not a valid wildcard; the only form is `provider.service.*`")]
     InvalidWildcard {
         /// The rejected pattern.
         pattern: String,
     },
 
     /// A wildcard uses a mode the resolution order never consults.
-    #[error(
-        "wildcard `{pattern}` uses `{mode}`; wildcard rules may only use `deny` or `approval`"
-    )]
+    #[error("wildcard `{pattern}` uses `{mode}`; wildcard rules may only use `deny` or `approval`")]
     UnsupportedWildcardMode {
         /// The rejected pattern.
         pattern: String,
@@ -96,6 +92,8 @@ impl From<PolicyError> for AicontextError {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use aicontext_core::ErrorCode;
 
     use super::PolicyError;

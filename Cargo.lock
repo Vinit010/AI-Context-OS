@@ -78,6 +78,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicontext-permissions"
+version = "0.1.0"
+dependencies = [
+ "aicontext-core",
+ "proptest",
+ "thiserror",
+]
+
+[[package]]
 name = "aicontext-plugin-sdk"
 version = "0.1.0"
 dependencies = [

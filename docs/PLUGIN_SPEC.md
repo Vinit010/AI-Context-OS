@@ -161,24 +161,50 @@ Resolution, in order — **the first match wins**:
 8  otherwise                                                  → DENY   (default deny)
 ```
 
+File order never affects the answer. Within a mode an exact rule is checked before its
+`provider.service` wildcard, and between modes the order above is the only precedence: the mode
+order is `DENY` > `EXPLICIT_APPROVAL` > `APPROVAL` > `ALLOW`. In particular a wildcard `DENY` beats
+an exact `EXPLICIT_APPROVAL` (step 2 before step 3), and a wildcard `APPROVAL` beats an exact `ALLOW`
+(step 6 before step 7).
+
 Policy file `.ai/permissions/permissions.yaml`:
 
 ```yaml
-permissions:
-  "aws.ec2.describe":  { mode: allow }
-  "aws.ec2.start":     { mode: approval }
-  "aws.ec2.stop":      { mode: approval }
-  "aws.ec2.terminate": { mode: explicit_approval }
-  "github.repo.read":  { mode: allow }
-  "github.issue.create": { mode: approval }
-  "aws.*":             { mode: deny }
+version: 1
+
+defaults:
+  mode: deny
+
+tools:
+  "read_file":           { mode: allow }
+  "aws.ec2.describe":    { mode: allow }
+  "aws.ec2.start":       { mode: approval }
+  "aws.ec2.stop":        { mode: approval }
+  "aws.ec2.terminate":   { mode: explicit_approval }
+  "github.repo.read":    { mode: allow }
+  "github.issue.*":      { mode: approval }
+  "aws.s3.*":            { mode: deny }
 ```
 
+Every `tools` key is a capability name and every entry must carry its own `mode`; a missing `mode`
+is a validation failure, never an assumed `deny`. `scope` and `reason`, when present, are approval
+metadata rather than resolution inputs: they do not change the mode the resolver returns.
+
 Wildcards are permitted at the `provider.service` level only, never at the top level, and never as
-`*.action`. A more specific rule always beats a wildcard, regardless of file order.
+`*.action`. A wildcard covers exactly one action segment: `aws.ec2.*` covers `aws.ec2.describe` but
+not `aws.ec2` or `aws.ec2.describe.extra`. A wildcard may carry only `deny` or `approval`; the
+table above has no wildcard step for `allow` or `explicit_approval`, so a policy that gives one a
+wildcard mode is rejected (`CTX-003`) rather than left silently inert.
+
+`defaults.mode` is the policy's explicit mapping for every capability its `tools` table does not
+name. The shipped template and `Policy::default()` both set it to `deny`; an absent or unreadable
+policy is deny-all. A policy that fails schema or rule validation is an error (`CTX-003`), not a
+default mode.
 
 The resolver is a pure function: no I/O, no clock, no randomness, no environment. `TASK-071` in
-`TASKS.md` requires 100 % branch coverage over the matrix above.
+`TASKS.md` requires 100 % branch coverage over the matrix above; the resolver's matrix test
+enumerates every default mode, every rule mode, both destructive states, and an unspecified
+capability, and its property tests exercise arbitrary rule sets in either file order.
 
 ---
 
