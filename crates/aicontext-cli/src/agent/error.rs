@@ -12,7 +12,7 @@
 //! Every variant names its code, its exit code, and its remediation here, so no call site
 //! improvises any of the three.
 
-use aicontext_providers::{CredentialError, ProviderError};
+use aicontext_providers::{Cost, CredentialError, ProviderError};
 
 use crate::connect::ConnectError;
 use crate::exit::Exit;
@@ -118,6 +118,35 @@ pub(crate) enum AgentError {
     /// `agent run` calls a provider, and `--offline` forbids every call.
     #[error("`agent run` asks the provider for the plan, which `--offline` forbids")]
     Offline,
+
+    /// A per-run ceiling is configured, but the provider records no prices to check it against.
+    ///
+    /// Failing closed is the point: a ceiling that cannot be projected is not a ceiling, and a run
+    /// that spent without one because the prices were missing would be the silent overspend
+    /// `docs/AI_PROVIDER_SPEC.md` §7 forbids.
+    #[error(
+        "a per-run budget ceiling is configured, but provider `{provider}` has no `pricing` block \
+         in .ai/ai.yaml"
+    )]
+    PricingMissing {
+        /// The provider whose prices are missing.
+        provider: String,
+    },
+
+    /// The worst case for the request that is about to be sent is over the configured ceiling, so
+    /// no call is made.
+    #[error(
+        "provider `{provider}`: the request is projected to cost {projected} at the configured \
+         prices, above the {ceiling} ceiling; no call was made"
+    )]
+    OverBudget {
+        /// The provider that would have been called.
+        provider: String,
+        /// The projected cost of the request at the configured prices.
+        projected: Cost,
+        /// The configured per-run ceiling.
+        ceiling: Cost,
+    },
 }
 
 impl AgentError {
@@ -140,6 +169,8 @@ impl AgentError {
             Self::Declined { .. } => "AGENT-007",
             Self::UnexpectedResponse { .. } => "AGENT-008",
             Self::PlanWrite { .. } => "AGENT-009",
+            Self::PricingMissing { .. } => "AGENT-011",
+            Self::OverBudget { .. } => "AGENT-012",
         }
     }
 
@@ -178,6 +209,13 @@ impl AgentError {
             Self::PlanWrite { .. } => {
                 "check that `.aicontext/` is writable and has free space, then run it again"
             }
+            Self::PricingMissing { .. } => {
+                "add `pricing.input_per_mtok` and `pricing.output_per_mtok` (USD per million \
+                 tokens) to the provider in `.ai/ai.yaml`, or remove `budget.max_run_usd`"
+            }
+            Self::OverBudget { .. } => {
+                "raise `budget.max_run_usd`, or narrow the task so its context fits the ceiling"
+            }
         }
     }
 
@@ -198,6 +236,8 @@ impl AgentError {
             | Self::UnsupportedAdapter { .. }
             | Self::MalformedProposal { .. }
             | Self::Declined { .. }
+            | Self::PricingMissing { .. }
+            | Self::OverBudget { .. }
             // Assembly runs on an already-built index, so its failures are the packet's shape —
             // today always `CTX-030`, a budget that cannot hold the never-dropped tiers — and the
             // `context` command maps the same failure to the same exit code for the same reason.
@@ -227,7 +267,7 @@ fn clip(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use aicontext_providers::{CredentialError, ProviderError};
+    use aicontext_providers::{Cost, CredentialError, ProviderError};
 
     use super::AgentError;
     use crate::exit::Exit;
@@ -252,6 +292,28 @@ mod tests {
 
         assert_eq!(AgentError::Offline.code(), "AGENT-003");
         assert_eq!(AgentError::Offline.exit(), Exit::Usage);
+    }
+
+    #[test]
+    fn the_budget_ceiling_codes_are_stable_and_fail_closed() {
+        let missing = AgentError::PricingMissing {
+            provider: "hosted".to_string(),
+        };
+        assert_eq!(missing.code(), "AGENT-011");
+        assert_eq!(missing.exit(), Exit::Validation);
+        assert!(missing.to_string().contains("hosted"));
+        assert!(missing.remediation().contains("pricing"));
+
+        let over = AgentError::OverBudget {
+            provider: "hosted".to_string(),
+            projected: Cost::from_micro_usd(2_000_000),
+            ceiling: Cost::from_micro_usd(1_000_000),
+        };
+        assert_eq!(over.code(), "AGENT-012");
+        assert_eq!(over.exit(), Exit::Validation);
+        assert!(over.to_string().contains("$2.000000"));
+        assert!(over.to_string().contains("$1.000000"));
+        assert!(over.to_string().contains("no call was made"));
     }
 
     #[test]

@@ -151,6 +151,27 @@ Layering, later wins: built-in defaults → `.ai/ai.yaml` (committed) → `.aico
 (local, git-ignored) → environment → flags. Committing provider *preferences* is fine; committing
 credentials is not.
 
+Per-provider `pricing` is optional and is how a run knows what it spent:
+
+```yaml
+providers:
+  - id: hosted
+    adapter: openai-compatible
+    base_url: https://api.openai.com/v1
+    model: <configured at connect time>
+    auth:
+      type: env_or_keychain
+      env: AICON_AI_HOSTED_KEY
+    pricing:
+      input_per_mtok: 2.50             # USD per million uncached input tokens
+      output_per_mtok: 10.00           # USD per million output tokens
+      cached_input_per_mtok: 1.25      # optional; absent means cached tokens cost the input price
+```
+
+Prices are USD per million tokens, the unit vendors quote them in. They are configuration, not
+secrets: when a vendor changes its list price, the developer updates this block, and no release is
+needed to track it. `aicontext connect` preserves a `pricing` block when it rewrites a provider.
+
 ---
 
 ## 6. Reliability
@@ -172,13 +193,37 @@ credentials is not.
 
 ## 7. Cost and usage
 
-`CompletionResponse.usage` is provider-reported. Where a local server reports nothing, the estimate
-is derived from the context budget and is **labelled as an estimate**. Per-run totals are printed
-and optionally appended to the audit log.
+`CompletionResponse.usage` is provider-reported. `cached_input_tokens` is a **subset** of
+`input_tokens`: the adapters normalise to that shape, because the vendors disagree about whether a
+cache hit sits inside or beside the prompt count on the wire. The Anthropic adapter adds cache reads
+and cache writes into the input total, and reports only cache reads as cached. Where a local server
+reports nothing, the estimate is derived from the context budget and is **labelled as an estimate**.
+
+A run's cost is the provider's counts × the provider's configured `pricing` (§5), reported as a
+six-decimal USD total in the human report, in the JSON envelope (`cost_usd`), and in the plan file.
+No price table is compiled in: a provider with no `pricing` has an **unavailable** cost, never `$0`,
+and a configured price of zero is a real zero. Money is integer micro-USD end to end; each component
+rounds up, so a reported cost is never below the arithmetic truth. A cache write is charged at the
+input price — a cached write is usually dearer than a plain input token, so a run that writes a large
+cache can be under-estimated by this rule.
 
 Cost control is exposed, never inferred: per-provider model choice, per-task ceilings, a per-run
 ceiling, and the degradation report. The platform may *suggest* a cheaper model for a simple task,
-but it does not silently spend differently from what was configured.
+but it does not silently spend differently from what was configured. `budget.max_run_usd` is enforced
+in two places:
+
+- **Before the call**, the input side is estimated with the context engine's bytes-over-four
+  heuristic over the JSON-escaped request, plus a small scaffolding allowance, and the output side is
+  charged at the full output ceiling. A worst case above the ceiling stops the run with `AGENT-012`
+  and **no call is made**.
+- **After the call**, the provider-reported total is compared with the ceiling. An overage is an
+  `AGENT-013` error finding — the plan is still written, because the spend already happened, and the
+  run exits 3. Usage too incomplete to price is an `AGENT-014` warning: a ceiling that cannot be
+  verified says so rather than claiming success.
+
+A configured ceiling on a provider with no `pricing` is `AGENT-011` and stops the run before any
+call, including a dry run: a ceiling that cannot be projected is not a ceiling. The projection is an
+estimate and is labelled one wherever it is shown.
 
 ---
 

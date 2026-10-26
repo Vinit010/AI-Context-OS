@@ -379,7 +379,9 @@ impl Fixture for AnthropicFixture {
 
     fn usage(&self) -> Value {
         serde_json::json!({
-            "input_tokens": 10,
+            // The Messages API reports cache reads beside `input_tokens`; 8 + 2 is the shared
+            // contract's 10 input tokens, of which 2 are cached.
+            "input_tokens": 8,
             "output_tokens": 4,
             "cache_read_input_tokens": 2,
         })

@@ -205,14 +205,33 @@ pub(super) fn finish_reason(raw: &str) -> FinishReason {
 }
 
 /// Reads provider usage, tolerating a server that reports none (T4).
+///
+/// The Messages API reports cache reads and cache writes *beside* `input_tokens`, not inside it.
+/// [`Usage::input_tokens`] is normalised to the whole input side — direct plus cache read plus cache
+/// write — and [`Usage::cached_input_tokens`] carries only the cache *reads*, the tokens a cache
+/// discount applies to. A cache write is charged at the plain input price by
+/// [`crate::Pricing`](struct@crate::Pricing); that is a documented limitation, not an accident.
 pub(super) fn parse_usage(usage: Option<&Value>) -> Usage {
     let Some(usage) = usage else {
         return Usage::default();
     };
+    let direct = count(usage, "input_tokens");
+    let cache_read = count(usage, "cache_read_input_tokens");
+    let cache_write = count(usage, "cache_creation_input_tokens");
+    let input_tokens = if direct.is_none() && cache_read.is_none() && cache_write.is_none() {
+        None
+    } else {
+        Some(
+            direct
+                .unwrap_or(0)
+                .saturating_add(cache_read.unwrap_or(0))
+                .saturating_add(cache_write.unwrap_or(0)),
+        )
+    };
     Usage {
-        input_tokens: count(usage, "input_tokens"),
+        input_tokens,
         output_tokens: count(usage, "output_tokens"),
-        cached_input_tokens: count(usage, "cache_read_input_tokens"),
+        cached_input_tokens: cache_read,
         estimated: false,
     }
 }
@@ -359,7 +378,8 @@ mod tests {
     fn a_tool_use_block_becomes_a_tool_call_with_an_object_input() {
         let body = br#"{"content":[{"type":"tool_use","id":"toolu_1","name":"aws.ec2.stop",
             "input":{"instance_id":"i-9"}}],"stop_reason":"tool_use",
-            "usage":{"input_tokens":10,"output_tokens":4,"cache_read_input_tokens":2}}"#;
+            "usage":{"input_tokens":6,"output_tokens":4,"cache_read_input_tokens":2,
+                     "cache_creation_input_tokens":2}}"#;
         let response = parse_completion(&provider(), body).expect("a parseable body");
         assert_eq!(response.finish_reason, FinishReason::ToolUse);
         assert_eq!(response.tool_calls.len(), 1);
@@ -371,7 +391,16 @@ mod tests {
             serde_json::json!({"instance_id": "i-9"}),
             "the input is already an object and must not be re-parsed from a string"
         );
-        assert_eq!(response.usage.cached_input_tokens, Some(2));
+        assert_eq!(
+            response.usage.input_tokens,
+            Some(10),
+            "cache reads and cache writes are input tokens too"
+        );
+        assert_eq!(
+            response.usage.cached_input_tokens,
+            Some(2),
+            "only cache reads are discounted; a cache write is charged at the input price"
+        );
     }
 
     #[test]

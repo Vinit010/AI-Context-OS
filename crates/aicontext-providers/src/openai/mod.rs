@@ -8,9 +8,9 @@
 //!
 //! The request body, the response parser, and the SSE translation are here, because they are what
 //! "chat completions" *means*. The conversation with the HTTP server — timeouts, retries,
-//! cancellation, the error classes — is not: that is [`crate::transport`], and it is shared with the
-//! Anthropic and Gemini adapters, because a 429 means the same thing in every wire format. Adding
-//! an adapter therefore adds one module like this one and touches nothing else
+//! cancellation, the error classes — is not: that is the private `transport` module, and it is
+//! shared with the Anthropic and Gemini adapters, because a 429 means the same thing in every wire
+//! format. Adding an adapter therefore adds one module like this one and touches nothing else
 //! (`docs/AI_PROVIDER_SPEC.md` §12).
 //!
 //! # Example

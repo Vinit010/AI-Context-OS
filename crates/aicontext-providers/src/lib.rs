@@ -21,6 +21,7 @@
 //! | [`AIProvider`] | The trait an adapter implements; no provider-specific type appears in it |
 //! | [`ProviderRegistry`] | Owns the configured adapters and routes a request to one |
 //! | [`ProviderError`] | The typed failures of a call, each with a stable code and a remediation |
+//! | [`Pricing`] | Turns reported [`Usage`] into a [`Cost`] at configured list prices |
 //!
 //! # The two regions are two types
 //!
@@ -81,6 +82,7 @@
 
 pub mod anthropic;
 mod cancel;
+mod cost;
 mod credential;
 mod error;
 pub mod gemini;
@@ -100,6 +102,7 @@ pub use futures_core::Stream;
 
 pub use adapter::Adapter;
 pub use cancel::CancellationToken;
+pub use cost::{Cost, Price, Pricing};
 pub use credential::{
     CredentialError, CredentialResolver, CredentialSource, Environment, Keychain, KeychainError,
     KeychainReference, KeyringKeychain, ProcessEnvironment, Redactor,

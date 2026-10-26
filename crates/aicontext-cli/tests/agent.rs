@@ -74,6 +74,19 @@ fn profile_yaml(base_url: &str) -> String {
     )
 }
 
+/// The same profile with list prices, and optionally a per-run ceiling.
+fn priced_profile_yaml(base_url: &str, ceiling: Option<&str>) -> String {
+    let budget = ceiling.map_or_else(String::new, |ceiling| {
+        format!("budget:\n  max_run_usd: {ceiling}\n")
+    });
+    format!(
+        "{budget}version: 1\ndefault_provider: local\nproviders:\n  - id: local\n    \
+         adapter: openai-compatible\n    base_url: {base_url}/v1\n    model: test-model\n    \
+         auth:\n      type: none\n    pricing:\n      input_per_mtok: 2.5\n      \
+         output_per_mtok: 10\n"
+    )
+}
+
 /// Writes the profile directly, for the tests whose subject is not `connect`.
 fn write_profile(root: &Path, base_url: &str) {
     fs::write(root.join(".ai/ai.yaml"), profile_yaml(base_url)).expect("write ai.yaml");
@@ -306,6 +319,172 @@ fn connect_then_agent_run_plans_the_task_and_touches_nothing_else() {
         fs::read_to_string(root.join(".ai/ai.yaml")).expect("the profile") == profile_before,
         "the profile is read, never rewritten"
     );
+}
+
+#[test]
+fn a_priced_run_reports_its_cost_in_the_json_and_the_plan() {
+    let (_outer, root) = project();
+    let server = Server::start(200, PLAN);
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        priced_profile_yaml(&server.url, None),
+    )
+    .expect("write ai.yaml");
+
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001", "--json"]);
+
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(body["data"]["usage"]["input_tokens"], 1200);
+    assert_eq!(
+        body["data"]["cost_usd"], "0.004800",
+        "1,200 input at $2.50/M plus 180 output at $10/M"
+    );
+    assert_eq!(body["data"]["budget_usd"], Value::Null);
+    assert_eq!(body["data"]["projected_cost_usd"], Value::Null);
+    assert_eq!(
+        server.seen().len(),
+        1,
+        "one plan call, no verification call"
+    );
+
+    let document = fs::read_to_string(root.join(".aicontext/plans/TASK-001.md"))
+        .expect("the plan was written");
+    assert!(
+        document.contains("cost $0.004800"),
+        "the plan records its own cost: {document}"
+    );
+}
+
+#[test]
+fn a_per_run_ceiling_refuses_the_call_before_any_spend() {
+    let (_outer, root) = project();
+    let server = Server::start(200, PLAN);
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        priced_profile_yaml(&server.url, Some("0.000001")),
+    )
+    .expect("write ai.yaml");
+
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001"]);
+
+    assert_eq!(run.code, 3, "stderr: {}", run.stderr);
+    assert!(run.stderr.contains("AGENT-012"), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("no call was made"),
+        "the refusal is before the provider is touched: {}",
+        run.stderr
+    );
+    assert!(
+        server.seen().is_empty(),
+        "an over-budget request is refused before it reaches the socket"
+    );
+    assert!(!root.join(".aicontext/plans/TASK-001.md").exists());
+}
+
+#[test]
+fn a_ceiling_without_prices_exits_three_and_makes_no_call() {
+    let (_outer, root) = project();
+    let server = Server::start(200, PLAN);
+    let profile = format!(
+        "budget:\n  max_run_usd: 1.00\n{}",
+        profile_yaml(&server.url)
+    );
+    fs::write(root.join(".ai/ai.yaml"), profile).expect("write ai.yaml");
+
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001"]);
+
+    assert_eq!(run.code, 3, "stderr: {}", run.stderr);
+    assert!(run.stderr.contains("AGENT-011"), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("pricing"),
+        "the missing block is named: {}",
+        run.stderr
+    );
+    assert!(server.seen().is_empty());
+}
+
+#[test]
+fn a_dry_run_reports_the_projected_cost_and_the_ceiling() {
+    let (_outer, root) = project();
+    let server = Server::start(200, PLAN);
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        priced_profile_yaml(&server.url, Some("1.00")),
+    )
+    .expect("write ai.yaml");
+
+    let run = run_in(
+        &root,
+        &["agent", "run", "--task", "TASK-001", "--dry-run", "--json"],
+    );
+
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    assert!(server.seen().is_empty(), "a dry run makes no call");
+    let body: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(body["data"]["dry_run"], true);
+    assert_eq!(body["data"]["usage"], Value::Null);
+    assert_eq!(body["data"]["cost_usd"], Value::Null);
+    assert_eq!(body["data"]["budget_usd"], "1.000000");
+    assert!(
+        body["data"]["projected_cost_usd"].is_string(),
+        "the projection is a priced estimate: {}",
+        body["data"]["projected_cost_usd"]
+    );
+}
+
+#[test]
+fn an_actual_cost_over_the_ceiling_exits_three_after_writing_the_plan() {
+    let (_outer, root) = project();
+    let body = PLAN.replace(r#""prompt_tokens":1200"#, r#""prompt_tokens":10000000"#);
+    let server = Server::start(200, &body);
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        priced_profile_yaml(&server.url, Some("0.10")),
+    )
+    .expect("write ai.yaml");
+
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001", "--json"]);
+
+    assert_eq!(run.code, 3, "stderr: {}", run.stderr);
+    let result: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["exit_code"], 3);
+    assert_eq!(
+        result["data"]["cost_usd"], "25.001800",
+        "10,000,000 input at $2.50/M plus 180 output at $10/M"
+    );
+    assert_eq!(result["findings"][0]["code"], "AGENT-013");
+    assert_eq!(result["findings"][0]["severity"], "error");
+    assert!(
+        root.join(".aicontext/plans/TASK-001.md").exists(),
+        "the spend happened; the plan it bought is still worth writing"
+    );
+}
+
+#[test]
+fn a_provider_that_reports_no_usage_leaves_the_ceiling_unverified() {
+    let (_outer, root) = project();
+    let body = PLAN.replace(
+        r#","usage":{"prompt_tokens":1200,"completion_tokens":180,"total_tokens":1380}"#,
+        "",
+    );
+    let server = Server::start(200, &body);
+    fs::write(
+        root.join(".ai/ai.yaml"),
+        priced_profile_yaml(&server.url, Some("1.00")),
+    )
+    .expect("write ai.yaml");
+
+    let run = run_in(&root, &["agent", "run", "--task", "TASK-001", "--json"]);
+
+    assert_eq!(run.code, 0, "a warning is not a failure: {}", run.stderr);
+    let result: Value = serde_json::from_str(&run.stdout).expect("one JSON object");
+    assert_eq!(result["data"]["usage"]["input_tokens"], Value::Null);
+    assert_eq!(result["data"]["cost_usd"], Value::Null);
+    assert_eq!(result["findings"][0]["code"], "AGENT-014");
+    assert_eq!(result["findings"][0]["severity"], "warning");
+    assert!(root.join(".aicontext/plans/TASK-001.md").exists());
 }
 
 #[test]

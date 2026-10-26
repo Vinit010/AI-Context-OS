@@ -4,8 +4,8 @@
 //!
 //! The request body, the response parser, and the SSE translation are here, because they are what
 //! "generateContent" *means*: `contents` of parts, a `systemInstruction`, `functionDeclarations`,
-//! and a `generationConfig`. The conversation with the HTTP server is not: that is
-//! [`crate::transport`], shared with the other two adapters.
+//! and a `generationConfig`. The conversation with the HTTP server is not: that is the private
+//! `transport` module, shared with the other two adapters.
 //!
 //! One thing here is different from the other two adapters, and it is worth knowing before reading
 //! the code: **the model is part of the URL**, not the body. `generateContent` is addressed as

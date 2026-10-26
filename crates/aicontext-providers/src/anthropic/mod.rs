@@ -4,8 +4,8 @@
 //!
 //! The request body, the response parser, and the SSE translation are here, because they are what
 //! "the Messages API" *means*: a top-level `system` string, a required `max_tokens`, `tool_use` and
-//! `tool_result` content blocks. The conversation with the HTTP server is not: that is
-//! [`crate::transport`], shared with the other two adapters, because a 429 means the same thing in
+//! `tool_result` content blocks. The conversation with the HTTP server is not: that is the private
+//! `transport` module, shared with the other two adapters, because a 429 means the same thing in
 //! every wire format.
 //!
 //! # Example

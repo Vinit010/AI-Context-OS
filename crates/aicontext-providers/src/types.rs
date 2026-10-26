@@ -301,13 +301,18 @@ pub enum FinishReason {
 /// Each count is optional because a provider may report none of them, and `estimated` marks a number
 /// the host derived from the context budget rather than one the provider reported. The two are never
 /// conflated: a local server that reports nothing produces an estimate that says so.
+///
+/// [`cached_input_tokens`](Self::cached_input_tokens) is a **subset** of
+/// [`input_tokens`](Self::input_tokens): every cached token is also an input token. The adapters
+/// normalise their wire formats to that shape, because the vendors disagree about whether a cache
+/// hit is reported inside or beside the prompt count on the wire.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Usage {
     /// Input tokens, when the provider reported them.
     pub input_tokens: Option<u32>,
     /// Output tokens, when the provider reported them.
     pub output_tokens: Option<u32>,
-    /// Cached input tokens, when the provider reported them.
+    /// Cached input tokens, when the provider reported them. A subset of `input_tokens`.
     pub cached_input_tokens: Option<u32>,
     /// Whether these numbers are a host-derived estimate rather than a provider report.
     pub estimated: bool,

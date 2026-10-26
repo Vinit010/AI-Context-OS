@@ -32,8 +32,9 @@ pub use retry::RetryPolicy;
 /// How an adapter proves who it is, whatever header it proves it with.
 ///
 /// [`Secret`] is the credential itself, so it cannot be printed by accident
-/// (`docs/AI_PROVIDER_SPEC.md` §11 T10). Each adapter maps a variant onto its own header with
-/// [`Auth::header`], which is the only place a credential becomes an HTTP value.
+/// (`docs/AI_PROVIDER_SPEC.md` §11 T10). Each adapter maps a variant onto its own header by calling
+/// the private `header` method on this type, which is the only place a credential becomes an HTTP
+/// value.
 #[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub enum Auth {

@@ -181,6 +181,16 @@ provider for a plan, and writes it to `.aicontext/plans/<task>.md`. It modifies 
 has proved itself (`ADR-006` #7), so passing either is a usage error rather than a flag that
 quietly does nothing.
 
+The run reports what it cost. With `pricing` configured for the provider (`AI_PROVIDER_SPEC.md` §5),
+the human report and the plan file carry the provider-reported token counts and a six-decimal
+`cost_usd`; without prices the cost is reported as unavailable, never as zero. The JSON payload adds
+`cost_usd`, `projected_cost_usd` (a dry run), and `budget_usd` when a ceiling is configured.
+
+`budget.max_run_usd` is checked before and after the call (`AI_PROVIDER_SPEC.md` §7): a projected
+worst case above the ceiling exits 3 with `AGENT-012` and makes no call; an actual cost above it is
+an `AGENT-013` error finding after the plan is written; usage too incomplete to price is the
+`AGENT-014` warning; a ceiling with no prices is `AGENT-011` and stops before any call.
+
 ### `aicontext plugin install <ref>`
 
 Validates the manifest, prints the permission diff and auth requirements, confirms, and records the
@@ -295,7 +305,7 @@ a script can tell "there was nothing there" from "it worked".
 | 0 | `OK` | Success |
 | 1 | `GENERAL` | Unclassified failure |
 | 2 | `USAGE` | Bad arguments, unknown command, or not yet implemented |
-| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding, or a command's request cannot be satisfied (`context` names `CTX-030` when tiers 1–5 do not fit the budget) |
+| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding, or a command's request cannot be satisfied (`context` names `CTX-030` when tiers 1–5 do not fit the budget; `agent run` names `AGENT-011`/`AGENT-012` before a call, or `AGENT-013` after one that exceeded the configured ceiling) |
 | 4 | `PERMISSION_DENIED` | The permission resolver denied the action |
 | 5 | `APPROVAL_REQUIRED` | Approval was required and not granted (including every non-interactive case) |
 | 6 | `PROVIDER_ERROR` | The AI provider failed, timed out, or was unreachable |

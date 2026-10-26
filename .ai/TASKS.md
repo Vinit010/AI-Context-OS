@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-20
+updated: 2026-10-26
 ---
 
 # TASKS
 
-**Current phase:** Phase 3 — AI provider layer
-**Current task:** TASK-056
+**Current phase:** Phase 4 — Plugin system
+**Current task:** TASK-070
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1418,15 +1418,71 @@ acceptance:
 ```yaml
 id: TASK-056
 title: Add cost and usage reporting
-status: BACKLOG
+status: DONE
 priority: MEDIUM
 phase: 3
 depends_on: [TASK-055]
 spec: null
 touches: ["crates/aicontext-providers/**", "crates/aicontext-cli/**"]
+scope_notes:
+  - 'Cost is configured, not compiled in, and the configuration lives in `.ai/ai.yaml` beside the
+    providers it prices: an optional top-level `budget.max_run_usd` and a per-provider `pricing`
+    block (`input_per_mtok`, `output_per_mtok`, optional `cached_input_per_mtok`, all USD per million
+    tokens). Agreed with the user as option A. This extends the declared touches to
+    `schemas/ai-config.schema.json`, `docs/AI_PROVIDER_SPEC.md` sections 5 and 7, and
+    `docs/CLI_SPEC.md` sections 4 and 5, because the schema and both contracts publish the new keys
+    and the exit-3 behaviour'
+  - 'Four pre-existing rustdoc private-intra-doc-link errors in `crates/aicontext-providers/src`
+    (`openai`, `anthropic`, `gemini`, and `transport`) were fixed in the same change. They are inside
+    the declared crate but outside this task''s subject; the Documentation gate runs with
+    `RUSTDOCFLAGS=-D warnings` and could not pass otherwise (`MEM-031`)'
 acceptance:
   - Per-run token and cost totals, from provider-reported usage
   - Configurable budget ceiling that stops the run before overspend
+done:
+  - '`crates/aicontext-providers/src/cost.rs` is new: `Price` (micro-USD per million tokens), `Cost`
+    (micro-USD, rendered with six fixed decimals) and `Pricing` (input, output, optional cached
+    input). Money is integer micro-USD end to end — the product is `u128` before it saturates into
+    `u64` — so no `f64` is on the path and the same usage always produces the same total. Each
+    component rounds up, and `cost()` returns `None` unless both an input and an output count were
+    reported: half a total is reported as unavailable, never as a total'
+  - '`Usage.cached_input_tokens` is documented as a subset of `input_tokens`, and the Anthropic
+    adapter normalises both paths to that shape: `input_tokens` becomes direct + cache reads + cache
+    writes, `cached_input_tokens` carries only cache reads. Cache writes are charged at the input
+    price, a documented limitation rather than an invented fourth price. The non-streamed and
+    streamed tests and the shared contract fixture now use 8 direct + 2 cached = 10 input'
+  - '`crates/aicontext-cli/src/connect/config.rs` reads `budget.max_run_usd` and each provider''s
+    `pricing` exactly, from the YAML number''s decimal rendering rather than through `f64`; a value
+    finer than a micro-dollar rounds up, so a ceiling is never looser than the number written. A
+    malformed or incomplete block is `CONNECT-003` rather than a silently ignored price. `upsert`
+    now merges the fields `connect` owns and preserves every other key, so reconnecting cannot
+    delete a manually added `pricing` block or a field a future adapter needs'
+  - '`crates/aicontext-cli/src/agent/mod.rs` enforces the ceiling twice. Before the call it
+    estimates the request''s input from the JSON-escaped bytes of every string it carries plus a
+    256-byte scaffolding allowance (over four) and charges the full 4,000-token output ceiling; a
+    projection above the ceiling is `AGENT-012` and no call is made. After the call the
+    provider-reported total is compared with the ceiling: an overage is an `AGENT-013` error finding,
+    the plan is still written because the spend already happened, and the run exits 3; usage too
+    incomplete to price is the `AGENT-014` warning. A ceiling on a provider with no `pricing` is
+    `AGENT-011` and stops the run before any call, including a dry run'
+  - 'Cost reaches every surface the run already had: the usage line carries in/out/cached counts,
+    their origin (provider-reported or host estimate) and the cost, a dry run adds a projected line,
+    and a configured ceiling adds a budget line. The JSON payload adds `cost_usd`,
+    `projected_cost_usd` on a dry run, and `budget_usd`, all six-decimal strings, and the plan file
+    records the cost of the run that wrote it. Exit 3 now comes from an error-severity finding as
+    well as from a typed error'
+  - 'Tests: 8 in `cost.rs`; 1 new error-catalogue test for `AGENT-011`/`AGENT-012`; 7 in
+    `connect/config.rs` (exact and rounded-up ceilings, negative and malformed values, complete and
+    incomplete pricing, merge-preserving upsert, decimal-to-micro conversion); the Anthropic
+    cache-normalisation tests; 6 in `agent/mod.rs` (priced run, dry-run projection, missing prices,
+    projected overage, actual overage, unverified usage); and 6 end-to-end in
+    `crates/aicontext-cli/tests/agent.rs`. The refusal test asserts the socket saw no request, so
+    "stops before overspend" is observed rather than inferred. No test reads a real keychain or
+    reaches the network beyond `127.0.0.1`'
+  - 'Gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D
+    warnings`, `cargo test --workspace --locked` (all suites green),
+    `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, and `aicontext doctor`
+    (exit 0, only the pre-existing CTX-012 finding about the missing `.ai/schemas` copies)'
 ```
 
 ---

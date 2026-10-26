@@ -41,7 +41,40 @@
             }
           },
           "timeout_seconds": { "type": "integer", "minimum": 1 },
-          "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 }
+          "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 },
+          "pricing": {
+            "type": "object",
+            "description": "List prices used to report what a run cost, in USD per million tokens. A provider with no `pricing` reports cost as *unavailable*, never as zero. A configured `budget.max_run_usd` with no `pricing` here is a configuration error that stops the run before the call.",
+            "required": ["input_per_mtok", "output_per_mtok"],
+            "properties": {
+              "input_per_mtok": {
+                "type": "number",
+                "minimum": 0,
+                "description": "USD per million uncached input tokens."
+              },
+              "output_per_mtok": {
+                "type": "number",
+                "minimum": 0,
+                "description": "USD per million output tokens."
+              },
+              "cached_input_per_mtok": {
+                "type": "number",
+                "minimum": 0,
+                "description": "USD per million cached input tokens. Cached tokens are a subset of input tokens; when this is absent they are charged at the input price."
+              }
+            }
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "description": "Optional spending limit for `agent run`. A ceiling that cannot be checked against the selected provider's `pricing` stops the run rather than spending unbounded.",
+      "properties": {
+        "max_run_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The most one run may cost, in USD. The worst case for the request — its estimated input tokens plus the full output ceiling, at the provider's configured prices — is projected before the call; a projection above this stops the run before it is sent."
         }
       }
     },

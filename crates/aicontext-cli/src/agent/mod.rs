@@ -45,13 +45,15 @@ use aicontext_context::{
     ContextAssembler, ContextIndex, ContextPacket, PlanOptions, Register, RetrievalPlan, TaskEntry,
 };
 use aicontext_providers::{
-    Adapter, CompletionRequest, CompletionResponse, CredentialResolver, DataBlock, Environment,
-    FinishReason, Keychain, KeyringKeychain, Message, ModelOptions, PolicyBlock, PolicyRegion,
-    ProcessEnvironment, ProviderError, ProviderId, Role, Secret, TokenBudget, Trust, Usage,
+    Adapter, CompletionRequest, CompletionResponse, Cost, CredentialResolver, DataBlock,
+    Environment, FinishReason, Keychain, KeyringKeychain, Message, ModelOptions, PolicyBlock,
+    PolicyRegion, Pricing, ProcessEnvironment, ProviderError, ProviderId, Role, Secret,
+    TokenBudget, Trust, Usage,
 };
 use serde::Serialize;
 
 use crate::args::{AgentRunArgs, GlobalArgs};
+use crate::connect::config::CONFIG_PATH;
 use crate::connect::{AiConfig, ProviderEntry};
 use crate::exit::Exit;
 use crate::output::{Finding, Terminal, envelope};
@@ -67,6 +69,20 @@ const PLAN_MAX_OUTPUT_TOKENS: u32 = 4000;
 
 /// The warning a run leaves when the model hit that ceiling (`docs/CLI_SPEC.md` §6 findings).
 const TRUNCATED_WARNING: &str = "AGENT-006";
+
+/// The error a run leaves when the call cost more than the configured per-run ceiling.
+const CEILING_EXCEEDED: &str = "AGENT-013";
+
+/// The warning a run leaves when the provider reported too little usage to price the call, so the
+/// ceiling could not be checked against what was actually spent.
+const CEILING_UNVERIFIED_WARNING: &str = "AGENT-014";
+
+/// Bytes allowed for the JSON scaffolding around a request in the pre-call token estimate.
+///
+/// One allowance for every adapter this build has: the envelope around the text (model name roles,
+/// tools array, separators) is smaller than this, and the estimate is conservative in the only
+/// direction a ceiling cares about.
+const PROJECTION_OVERHEAD_BYTES: u64 = 256;
 
 /// The three effects `agent run` needs, so a test can replace each in isolation.
 struct Ports<'a> {
@@ -151,11 +167,16 @@ pub(crate) fn run(args: &AgentRunArgs, global: &GlobalArgs, terminal: &mut Termi
     let mut findings = Vec::new();
     match execute(args, global.offline, &root, &ports, &mut findings) {
         Ok(outcome) => {
+            let exit = if findings.iter().any(Finding::is_error) {
+                Exit::Validation
+            } else {
+                Exit::Ok
+            };
             if global.json {
-                report_json(&outcome, findings, terminal)
+                report_json(&outcome, findings, exit, terminal)
             } else {
                 print_human(&outcome, &name, &root, findings, terminal);
-                Exit::Ok
+                exit
             }
         }
         Err(error) => error.report(terminal),
@@ -195,6 +216,16 @@ fn execute(
             known: Adapter::ALL.map(Adapter::name).join(", "),
         })?;
 
+    // Configuration is read before anything is assembled or spent: a ceiling that cannot be
+    // checked against prices is refused here, not discovered after the call.
+    let ceiling = config.budget_ceiling()?;
+    let pricing = config.pricing(&entry.id)?;
+    if ceiling.is_some() && pricing.is_none() {
+        return Err(AgentError::PricingMissing {
+            provider: entry.id.clone(),
+        });
+    }
+
     // The same cache-warm scan `context` uses: the only file it may write is the rebuildable,
     // git-ignored index under `.aicontext/`.
     let index = crate::context::read_index(root, findings);
@@ -209,23 +240,38 @@ fn execute(
     };
 
     if args.dry_run {
-        return Ok(Outcome::dry_run(&args.task, &entry, context));
+        let request = build_request(task, &packet, &index);
+        let projected = projected_cost(pricing, &request);
+        return Ok(Outcome::dry_run(
+            &args.task, &entry, context, projected, ceiling,
+        ));
     }
     if offline {
         return Err(AgentError::Offline);
+    }
+
+    let request = build_request(task, &packet, &index);
+    let projected = projected_cost(pricing, &request);
+    if let (Some(projected), Some(ceiling)) = (projected, ceiling) {
+        if projected > ceiling {
+            return Err(AgentError::OverBudget {
+                provider: entry.id.clone(),
+                projected,
+                ceiling,
+            });
+        }
     }
 
     let source = entry.auth.source(&entry.id);
     let credential =
         CredentialResolver::new(ports.environment, ports.keychain).resolve(&source, None)?;
 
-    let request = build_request(task, &packet, &index);
     let response = ports
         .planner
         .plan(&entry, adapter, credential.as_ref(), request)?;
 
     finish(
-        args, root, task, &entry, context, &packet, &response, findings,
+        args, root, task, &entry, context, &packet, &response, pricing, ceiling, findings,
     )
 }
 
@@ -246,6 +292,8 @@ fn finish(
     context: ContextCounts,
     packet: &aicontext_context::ContextPacket,
     response: &aicontext_providers::CompletionResponse,
+    pricing: Option<Pricing>,
+    ceiling: Option<Cost>,
     findings: &mut Vec<Finding>,
 ) -> Result<Outcome, AgentError> {
     match &response.finish_reason {
@@ -280,6 +328,34 @@ fn finish(
         ));
     }
 
+    // What the call cost, from the provider's own counts and the configured prices. A cost is
+    // `None` when either half is missing; it is never zero by default (`AI_PROVIDER_SPEC.md` §7).
+    let cost = pricing.and_then(|pricing| pricing.cost(&response.usage));
+    if let Some(ceiling) = ceiling {
+        match cost {
+            Some(cost) if cost > ceiling => findings.push(Finding::new(
+                CEILING_EXCEEDED,
+                "error",
+                CONFIG_PATH,
+                format!("the run cost {cost}, above the {ceiling} ceiling; the plan was written"),
+                "compare `pricing` in `.ai/ai.yaml` with the provider's current list price — the \
+                 pre-call projection underestimated this run",
+            )),
+            None => findings.push(Finding::new(
+                CEILING_UNVERIFIED_WARNING,
+                "warning",
+                CONFIG_PATH,
+                format!(
+                    "the provider did not report enough usage to price the call, so the {ceiling} \
+                     ceiling could not be verified"
+                ),
+                "check the provider's dashboard for what this call cost, and that the provider's \
+                 `pricing` in `.ai/ai.yaml` is current",
+            )),
+            Some(_) => {}
+        }
+    }
+
     // §9, as the schema states it: prose is a plan, and a claim of being a proposal must prove it.
     let (body, structured) = match proposal::parse(&response.text) {
         Parsed::Structured(proposal) => (planfile::Body::Structured(proposal), true),
@@ -287,7 +363,7 @@ fn finish(
         Parsed::Invalid(problems) => return Err(AgentError::MalformedProposal { problems }),
     };
 
-    let usage = UsageSummary::of(&response.usage);
+    let usage = UsageSummary::of(&response.usage, cost);
     let relative = PathBuf::from(PLANS_PATH).join(planfile::filename(&args.task));
     let document = planfile::render(
         &planfile::Meta {
@@ -312,6 +388,7 @@ fn finish(
         structured,
         usage,
         truncated,
+        ceiling,
     ))
 }
 
@@ -396,6 +473,62 @@ fn sources(packet: &ContextPacket) -> Vec<String> {
             )
         }))
         .collect()
+}
+
+/// The pre-call cost of `request` at `pricing`, or `None` when the provider has no prices.
+///
+/// The input half is the host's own bytes-over-four estimate of every string the call carries,
+/// JSON-escaped so quotes and newlines are counted as they travel, plus a small fixed allowance for
+/// the wire scaffolding. The output half is the full output ceiling, because the provider may use
+/// all of it. The result is an estimate and is labelled one wherever it is shown.
+fn projected_cost(pricing: Option<Pricing>, request: &CompletionRequest) -> Option<Cost> {
+    pricing.map(|pricing| {
+        pricing.projected(
+            u64::from(projected_input_tokens(request)),
+            u64::from(PLAN_MAX_OUTPUT_TOKENS),
+        )
+    })
+}
+
+/// Estimated input tokens: the JSON-escaped bytes of every string in the request, over four.
+///
+/// This is the same heuristic the context index uses (`CONTEXT_SPEC.md` §6), applied to the request
+/// that is about to be sent rather than to the documents it was assembled from.
+fn projected_input_tokens(request: &CompletionRequest) -> u32 {
+    let mut bytes: u64 = 0;
+    if let Some(instruction) = &request.policy.instruction {
+        add_text(instruction, &mut bytes);
+    }
+    for block in &request.policy.policy {
+        add_text(&block.source, &mut bytes);
+        add_text(&block.path, &mut bytes);
+        add_text(&block.content, &mut bytes);
+    }
+    for message in &request.messages {
+        add_text(&message.content, &mut bytes);
+        if let Some(id) = &message.tool_call_id {
+            add_text(id, &mut bytes);
+        }
+    }
+    for block in &request.data {
+        add_text(&block.source, &mut bytes);
+        add_text(&block.path, &mut bytes);
+        add_text(&block.content, &mut bytes);
+    }
+    for tool in &request.tools {
+        add_text(&tool.name, &mut bytes);
+        add_text(&tool.description, &mut bytes);
+        let schema = serde_json::to_string(&tool.input_schema).map_or(0, |text| text.len());
+        bytes = bytes.saturating_add(u64::try_from(schema).unwrap_or(u64::MAX));
+    }
+    let tokens = bytes.saturating_add(PROJECTION_OVERHEAD_BYTES).div_ceil(4);
+    u32::try_from(tokens).unwrap_or(u32::MAX)
+}
+
+/// Adds one string's JSON-encoded length to `bytes`.
+fn add_text(text: &str, bytes: &mut u64) {
+    let escaped = serde_json::to_string(text).map_or(text.len(), |rendered| rendered.len());
+    *bytes = bytes.saturating_add(u64::try_from(escaped).unwrap_or(u64::MAX));
 }
 
 /// The request one plan run makes: policy in the policy region, documents as untrusted data.
@@ -541,11 +674,21 @@ struct Outcome {
     usage: Option<UsageSummary>,
     context: ContextCounts,
     truncated: bool,
+    /// The per-run ceiling that applied, when one was configured.
+    ceiling: Option<Cost>,
+    /// The pre-call projection, set on a dry run when prices are configured.
+    projected: Option<Cost>,
 }
 
 impl Outcome {
     /// The `--dry-run` outcome: context assembled, no call, nothing written.
-    fn dry_run(task_id: &str, entry: &ProviderEntry, context: ContextCounts) -> Self {
+    fn dry_run(
+        task_id: &str,
+        entry: &ProviderEntry,
+        context: ContextCounts,
+        projected: Option<Cost>,
+        ceiling: Option<Cost>,
+    ) -> Self {
         Self {
             task: task_id.to_string(),
             task_title: None,
@@ -558,6 +701,8 @@ impl Outcome {
             usage: None,
             context,
             truncated: false,
+            ceiling,
+            projected,
         }
     }
 
@@ -572,6 +717,7 @@ impl Outcome {
         structured: bool,
         usage: UsageSummary,
         truncated: bool,
+        ceiling: Option<Cost>,
     ) -> Self {
         Self {
             task: task_id.to_string(),
@@ -585,6 +731,8 @@ impl Outcome {
             usage: Some(usage),
             context,
             truncated,
+            ceiling,
+            projected: None,
         }
     }
 }
@@ -602,32 +750,35 @@ struct ContextCounts {
     budget_used: u32,
 }
 
-/// Token usage as the report spells it, with the estimate flag kept: a number the host derived and
-/// a number the provider reported are never conflated (`AI_PROVIDER_SPEC.md` §7).
+/// Token usage and cost as the report spells them, with the estimate flag kept: a number the host
+/// derived and a number the provider reported are never conflated (`AI_PROVIDER_SPEC.md` §7).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct UsageSummary {
     input: Option<u32>,
     output: Option<u32>,
     cached: Option<u32>,
     estimated: bool,
+    /// What the usage cost at the configured prices, or `None` when either half is unavailable.
+    cost: Option<Cost>,
 }
 
 impl UsageSummary {
-    /// The provider's own usage, verbatim.
-    const fn of(usage: &Usage) -> Self {
+    /// The provider's own usage, priced when prices are configured.
+    const fn of(usage: &Usage, cost: Option<Cost>) -> Self {
         Self {
             input: usage.input_tokens,
             output: usage.output_tokens,
             cached: usage.cached_input_tokens,
             estimated: usage.estimated,
+            cost,
         }
     }
 }
 
-/// The usage line: what the provider reported, or what it did not.
+/// The usage line: what the provider reported, what it did not, and what it cost.
 fn usage_text(usage: &UsageSummary) -> String {
     let (Some(input), Some(output)) = (usage.input, usage.output) else {
-        return "no token counts reported by the server".to_string();
+        return "no token counts reported by the server; cost unavailable".to_string();
     };
     let cached = usage.cached.unwrap_or(0);
     let origin = if usage.estimated {
@@ -635,7 +786,11 @@ fn usage_text(usage: &UsageSummary) -> String {
     } else {
         "provider-reported"
     };
-    format!("in {input}, out {output}, cached {cached} — {origin}")
+    let cost = usage.cost.map_or_else(
+        || "cost unavailable".to_string(),
+        |cost| format!("cost {cost}"),
+    );
+    format!("in {input}, out {output}, cached {cached} — {origin}; {cost}")
 }
 
 /// The `--json` payload: names, counts, and usage — never the model's text, which the plan file
@@ -655,6 +810,12 @@ struct AgentData {
     context: ContextCounts,
     /// Token usage, when a call was made.
     usage: Option<UsageData>,
+    /// The run's cost in USD at the configured prices, when both usage and prices are available.
+    cost_usd: Option<String>,
+    /// The pre-call projection in USD, when nothing was spent (a dry run) and prices exist.
+    projected_cost_usd: Option<String>,
+    /// The configured per-run ceiling in USD, when one is configured.
+    budget_usd: Option<String>,
     /// Whether the output-token ceiling was reached.
     truncated: bool,
 }
@@ -670,7 +831,12 @@ struct UsageData {
 }
 
 /// Writes the JSON envelope for a successful run.
-fn report_json(outcome: &Outcome, findings: Vec<Finding>, terminal: &mut Terminal) -> Exit {
+fn report_json(
+    outcome: &Outcome,
+    findings: Vec<Finding>,
+    exit: Exit,
+    terminal: &mut Terminal,
+) -> Exit {
     let data = AgentData {
         task: outcome.task.clone(),
         task_title: outcome.task_title.clone(),
@@ -687,6 +853,9 @@ fn report_json(outcome: &Outcome, findings: Vec<Finding>, terminal: &mut Termina
             cached_input_tokens: usage.cached,
             estimated: usage.estimated,
         }),
+        cost_usd: outcome.usage.and_then(|usage| usage.cost).map(Cost::usd),
+        projected_cost_usd: outcome.projected.map(Cost::usd),
+        budget_usd: outcome.ceiling.map(Cost::usd),
         truncated: outcome.truncated,
     };
     let summary = if outcome.dry_run {
@@ -697,7 +866,7 @@ fn report_json(outcome: &Outcome, findings: Vec<Finding>, terminal: &mut Termina
             outcome.plan_path.clone().unwrap_or_default()
         )
     };
-    let body = envelope("agent", Exit::Ok.code(), data, findings, summary);
+    let body = envelope("agent", exit.code(), data, findings, summary);
     if let Err(error) = terminal.json(&body) {
         terminal.error_report(
             "AGENT-010",
@@ -706,7 +875,7 @@ fn report_json(outcome: &Outcome, findings: Vec<Finding>, terminal: &mut Termina
         );
         return Exit::General;
     }
-    Exit::Ok
+    exit
 }
 
 /// Prints the human report: the identity line, the task, the context, the plan, and the usage.
@@ -759,6 +928,16 @@ fn print_human(
     if let Some(usage) = &outcome.usage {
         terminal.row(&ok, "usage", &usage_text(usage));
     }
+    if let Some(projected) = outcome.projected {
+        let text = match outcome.ceiling {
+            Some(ceiling) => format!("{projected} at configured prices (ceiling {ceiling})"),
+            None => format!("{projected} at configured prices, no ceiling configured"),
+        };
+        terminal.row(&info, "projected", &text);
+    }
+    if let Some(ceiling) = outcome.ceiling {
+        terminal.row(&info, "budget", &format!("{ceiling} per run"));
+    }
     for finding in findings {
         terminal.row(
             &warn,
@@ -783,7 +962,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use aicontext_providers::{
-        Adapter, CompletionRequest, CompletionResponse, Environment, FinishReason, Keychain,
+        Adapter, CompletionRequest, CompletionResponse, Cost, Environment, FinishReason, Keychain,
         KeychainError, KeychainReference, ProviderError, Usage,
     };
 
@@ -813,6 +992,25 @@ mod tests {
 
     /// A free local server: no credential is recorded, so none can be missing.
     const FREE_YAML: &str = "default_provider: local\nproviders:\n  - id: local\n    \
+        adapter: openai-compatible\n    base_url: http://127.0.0.1:9/v1\n    model: test-model\n    \
+        auth:\n      type: none\n";
+
+    /// The same provider with list prices, and optionally a per-run ceiling.
+    fn priced_yaml(ceiling: Option<&str>) -> String {
+        let budget = ceiling.map_or_else(String::new, |ceiling| {
+            format!("budget:\n  max_run_usd: {ceiling}\n")
+        });
+        format!(
+            "{budget}default_provider: local\nproviders:\n  - id: local\n    \
+             adapter: openai-compatible\n    base_url: http://127.0.0.1:9/v1\n    \
+             model: test-model\n    auth:\n      type: none\n    pricing:\n      \
+             input_per_mtok: 2.5\n      output_per_mtok: 10\n"
+        )
+    }
+
+    /// A ceiling with no prices: the configuration that must fail closed.
+    const UNPRICED_CEILING_YAML: &str = "budget:\n  max_run_usd: 1.00\n\
+        default_provider: local\nproviders:\n  - id: local\n    \
         adapter: openai-compatible\n    base_url: http://127.0.0.1:9/v1\n    model: test-model\n    \
         auth:\n      type: none\n";
 
@@ -959,7 +1157,8 @@ mod tests {
                 input: Some(1200),
                 output: Some(180),
                 cached: None,
-                estimated: false
+                estimated: false,
+                cost: None
             })
         );
         assert!(findings.is_empty());
@@ -970,6 +1169,10 @@ mod tests {
         assert!(document.contains("## Files to modify"));
         assert!(document.contains("- `.ai/TASKS.md`"));
         assert!(document.contains("in 1200, out 180, cached 0 — provider-reported"));
+        assert!(
+            document.contains("cost unavailable"),
+            "a project with no prices reports cost as unavailable, never as zero"
+        );
 
         // The request it built: instruction in the policy region, RULES.md as trusted policy, and
         // a hard output ceiling.
@@ -997,6 +1200,167 @@ mod tests {
         );
         assert_eq!(request.budget.max_output_tokens, 4000);
         assert!(request.idempotency_key.is_empty(), "one attempt, by design");
+    }
+
+    #[test]
+    fn a_priced_run_reports_the_cost_from_provider_reported_usage() {
+        let (_outer, root) = fixture(&priced_yaml(None));
+        let planner = FakePlanner::answering(Ok(proposal_response()));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+        let mut findings = Vec::new();
+
+        let outcome = execute(&args("TASK-001"), false, &root, &ports, &mut findings)
+            .expect("the run succeeds");
+
+        // 1,200 input at $2.50/M plus 180 output at $10/M is $0.004800 exactly.
+        assert_eq!(
+            outcome.usage.expect("usage").cost,
+            Some(Cost::from_micro_usd(4_800))
+        );
+        assert_eq!(outcome.ceiling, None, "reporting cost needs no ceiling");
+        assert!(findings.is_empty());
+
+        let document = std::fs::read_to_string(root.join(".aicontext/plans/TASK-001.md"))
+            .expect("the plan was written");
+        assert!(
+            document.contains("cost $0.004800"),
+            "the plan records what the run cost: {document}"
+        );
+    }
+
+    #[test]
+    fn a_dry_run_reports_the_projection_and_makes_no_call() {
+        let (_outer, root) = fixture(&priced_yaml(Some("1.00")));
+        let planner = FakePlanner::answering(Ok(proposal_response()));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+        let mut dry = args("TASK-001");
+        dry.dry_run = true;
+
+        let outcome =
+            execute(&dry, true, &root, &ports, &mut Vec::new()).expect("a priced dry run succeeds");
+
+        assert!(outcome.dry_run);
+        assert_eq!(outcome.ceiling, Some(Cost::from_micro_usd(1_000_000)));
+        assert!(
+            outcome.projected.is_some_and(|cost| cost > Cost::ZERO),
+            "the projection is at the configured prices and the full output ceiling"
+        );
+        assert!(planner.requests.borrow().is_empty(), "no call was made");
+        assert!(!root.join(".aicontext/plans").exists(), "nothing written");
+    }
+
+    #[test]
+    fn a_ceiling_without_prices_fails_closed_before_any_call() {
+        let (_outer, root) = fixture(UNPRICED_CEILING_YAML);
+        let planner = FakePlanner::answering(Ok(proposal_response()));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+
+        let error = execute(&args("TASK-001"), false, &root, &ports, &mut Vec::new())
+            .expect_err("a ceiling that cannot be checked must not spend");
+
+        assert_eq!(error.code(), "AGENT-011");
+        assert_eq!(error.exit(), Exit::Validation);
+        assert!(error.to_string().contains("pricing"));
+        assert!(planner.requests.borrow().is_empty());
+        assert!(!root.join(".aicontext/plans").exists());
+    }
+
+    #[test]
+    fn a_request_projected_over_the_ceiling_is_refused_before_the_call() {
+        let (_outer, root) = fixture(&priced_yaml(Some("0.000001")));
+        let planner = FakePlanner::answering(Ok(proposal_response()));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+
+        let error = execute(&args("TASK-001"), false, &root, &ports, &mut Vec::new())
+            .expect_err("one micro-dollar cannot cover a plan call");
+
+        assert_eq!(error.code(), "AGENT-012");
+        assert_eq!(error.exit(), Exit::Validation);
+        assert!(error.to_string().contains("no call was made"));
+        assert!(planner.requests.borrow().is_empty());
+        assert!(!root.join(".aicontext/plans").exists());
+    }
+
+    #[test]
+    fn an_actual_cost_over_the_ceiling_is_an_error_finding_and_still_writes_the_plan() {
+        let (_outer, root) = fixture(&priced_yaml(Some("0.10")));
+        let mut response = proposal_response();
+        // Far more input than the request estimated: the plan is still useful, and the overage is
+        // exactly what the post-call check exists to report.
+        response.usage = Usage::reported(10_000_000, 180);
+        let planner = FakePlanner::answering(Ok(response));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+        let mut findings = Vec::new();
+
+        let outcome = execute(&args("TASK-001"), false, &root, &ports, &mut findings)
+            .expect("the call happened; the overage is a finding, not a lost plan");
+
+        assert_eq!(
+            outcome.usage.expect("usage").cost,
+            Some(Cost::from_micro_usd(25_001_800))
+        );
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "AGENT-013");
+        assert_eq!(findings[0].severity, "error");
+        assert!(root.join(".aicontext/plans/TASK-001.md").exists());
+    }
+
+    #[test]
+    fn usage_the_provider_did_not_report_leaves_the_ceiling_unverified() {
+        let (_outer, root) = fixture(&priced_yaml(Some("1.00")));
+        let mut response = proposal_response();
+        response.usage = Usage::default();
+        let planner = FakePlanner::answering(Ok(response));
+        let environment = FakeEnvironment::default();
+        let keychain = FakeKeychain::default();
+        let ports = Ports {
+            environment: &environment,
+            keychain: &keychain,
+            planner: &planner,
+        };
+        let mut findings = Vec::new();
+
+        let outcome = execute(&args("TASK-001"), false, &root, &ports, &mut findings)
+            .expect("a plan without usage still lands");
+
+        assert_eq!(outcome.usage.expect("usage").cost, None);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "AGENT-014");
+        assert_eq!(findings[0].severity, "warning");
+        let document = std::fs::read_to_string(root.join(".aicontext/plans/TASK-001.md"))
+            .expect("the plan was written");
+        assert!(document.contains("no token counts reported"));
+        assert!(document.contains("cost unavailable"));
     }
 
     #[test]

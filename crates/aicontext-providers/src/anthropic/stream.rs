@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use crate::provider::BoxStream;
 use crate::transport::stream;
-use crate::types::StreamEvent;
+use crate::types::{StreamEvent, Usage};
 
 use super::wire;
 
@@ -37,8 +37,8 @@ pub(super) fn open(
 struct Blocks {
     /// Index to `(id, name)`, for the tool-use blocks seen so far.
     tools: BTreeMap<u64, (String, String)>,
-    /// The input-token count from `message_start`, held until `message_delta` reports both halves.
-    input_tokens: Option<u32>,
+    /// Input-side usage from `message_start`, held until `message_delta` reports the output half.
+    usage: Usage,
 }
 
 impl Blocks {
@@ -53,10 +53,9 @@ fn translate(payload: &str, blocks: &mut Blocks) -> Option<Vec<StreamEvent>> {
     let mut events = Vec::new();
     match value.get("type").and_then(Value::as_str) {
         Some("message_start") => {
-            blocks.input_tokens = value
-                .pointer("/message/usage/input_tokens")
-                .and_then(Value::as_u64)
-                .and_then(|number| u32::try_from(number).ok());
+            // Cache reads and writes arrive here too, beside `input_tokens`; the shared parser
+            // normalises them the same way a non-streamed body is normalised.
+            blocks.usage = wire::parse_usage(value.pointer("/message/usage"));
         }
         Some("content_block_start") => {
             let index = value.get("index").and_then(Value::as_u64).unwrap_or(0);
@@ -104,17 +103,13 @@ fn translate(payload: &str, blocks: &mut Blocks) -> Option<Vec<StreamEvent>> {
         }
         Some("message_delta") => {
             // Usage is split: input tokens arrive with `message_start`, output tokens here.
-            let output = value
+            let mut usage = blocks.usage;
+            usage.output_tokens = value
                 .pointer("/usage/output_tokens")
                 .and_then(Value::as_u64)
                 .and_then(|number| u32::try_from(number).ok());
-            if blocks.input_tokens.is_some() || output.is_some() {
-                events.push(StreamEvent::Usage(crate::types::Usage {
-                    input_tokens: blocks.input_tokens,
-                    output_tokens: output,
-                    cached_input_tokens: None,
-                    estimated: false,
-                }));
+            if usage.input_tokens.is_some() || usage.output_tokens.is_some() {
+                events.push(StreamEvent::Usage(usage));
             }
             if let Some(reason) = value.pointer("/delta/stop_reason").and_then(Value::as_str) {
                 events.push(StreamEvent::Finish(wire::finish_reason(reason)));
@@ -169,6 +164,38 @@ mod tests {
                     input_tokens: Some(3),
                     output_tokens: Some(5),
                     cached_input_tokens: None,
+                    estimated: false,
+                }),
+                StreamEvent::Finish(FinishReason::Stop),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_streamed_message_normalises_cache_reads_and_writes_into_input() {
+        let mut blocks = Blocks::new();
+        assert!(
+            translate(
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":6,
+                     "cache_read_input_tokens":2,"cache_creation_input_tokens":2}}}"#,
+                &mut blocks
+            )
+            .expect("message_start")
+            .is_empty()
+        );
+        let events = translate(
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},
+                 "usage":{"output_tokens":5}}"#,
+            &mut blocks,
+        )
+        .expect("message_delta");
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::Usage(Usage {
+                    input_tokens: Some(10),
+                    output_tokens: Some(5),
+                    cached_input_tokens: Some(2),
                     estimated: false,
                 }),
                 StreamEvent::Finish(FinishReason::Stop),

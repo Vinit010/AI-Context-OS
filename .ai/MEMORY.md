@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-20
+updated: 2026-10-26
 ---
 
 # MEMORY
@@ -1142,6 +1142,54 @@ local provider runs with none resolved and no keychain read, while a misconfigur
 loudly. The general lesson: when a machine's answer is about to become an artifact, the artifact is a
 rendering of what *validated*, and the validation is a contract with a test holding it to its schema
 (`MEM-034`).
+
+## MEM-036 — A cost is unavailable or exact, never zero, and a ceiling that cannot be projected is not a ceiling
+
+```yaml
+id: MEM-036
+category: constraint
+scope: cli
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [providers, cli, cost, budget, money, anthropic, task-056]
+```
+
+A run reports what it cost only from two facts it actually has: the usage the provider reported and
+the prices the developer configured in `.ai/ai.yaml` (`budget.max_run_usd` for the ceiling, a
+per-provider `pricing` block for the rates of USD per million tokens). No vendor price table is
+compiled in, because a hard-coded price is wrong the day the vendor changes it and wrong silently.
+When either half is missing the answer is **unavailable**, never `$0`: a provider with no `pricing`
+block, or a response with no usage, is unknown, and an unknown cost must not look free. A configured
+price of zero is a real zero, and the types keep the two apart — `Some(Cost::ZERO)` versus `None`.
+
+Money is integer micro-USD on the whole path. The product is `u128` before it saturates into a `u64`,
+each component rounds **up**, and the YAML number is parsed from its decimal rendering rather than
+through `f64`, so a price is the number that was written and a reported cost is never below the
+arithmetic truth. Six fixed decimals are printed so a human comparing a cost with a ceiling does not
+have to count zeros. `Usage.cached_input_tokens` is a subset of `input_tokens`; the adapters
+normalise to that shape because the vendors disagree on the wire, and the Anthropic adapter adds
+cache reads and cache writes into the input total while reporting only cache reads as cached. A cache
+*write* is therefore charged at the input price — usually an under-estimate, and documented as one
+rather than papered over with an invented fourth price.
+
+The ceiling is checked in both directions. Before the call, the input side is estimated from the
+JSON-escaped bytes of the request (over four) plus a small scaffolding allowance, and the output side
+is charged at the full output ceiling; a projection above the limit is `AGENT-012` and **no call is
+made**, which is the only check that can actually stop overspend. After the call, the
+provider-reported total is compared with the ceiling: an overage is `AGENT-013` and exits 3, but the
+plan is still written because the spend already happened and destroying its result helps nobody.
+Usage too incomplete to price is the `AGENT-014` warning, so an unverifiable ceiling says so.
+A ceiling with no prices is `AGENT-011` and fails closed before any call, including a dry run.
+
+Two smaller consequences. `connect` may rewrite a provider entry, so its `upsert` merges rather than
+replaces: a hand-written `pricing` block, a `default_model`, or a future adapter's key is
+configuration the writer does not own and must survive a reconnect. And because an error finding can
+now fail a run, `agent run` derives its exit code from the findings as `doctor` and `export` already
+do — the plan-mode path had no way to report a problem after a successful call until now. The general
+lesson: a budget is only a budget when both halves of the arithmetic are present and the check
+happens before the money is spent; a check after the fact is a receipt, not a limit.
 
 ## Bugs encountered
 

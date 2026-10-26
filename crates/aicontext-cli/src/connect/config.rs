@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use aicontext_providers::{CredentialSource, KeychainReference};
+use aicontext_providers::{Cost, CredentialSource, KeychainReference, Price, Pricing};
 use yaml_serde::{Mapping, Value};
 
 use super::error::ConnectError;
@@ -221,6 +221,12 @@ impl AiConfig {
     }
 
     /// Adds `entry`, replacing any provider that already has its id.
+    ///
+    /// The replacement updates the fields `connect` writes and leaves every other key alone. A
+    /// `pricing` block, a `default_model`, or a field a future adapter needs is configuration the
+    /// developer wrote; reconnecting must not be the act that deletes it. A key that is optional in
+    /// [`ProviderEntry`] and absent from the replacement (`base_url`, `model`) is removed, because
+    /// its absence is the new state.
     pub(crate) fn upsert(&mut self, entry: &ProviderEntry) -> Result<(), ConnectError> {
         let replacement = entry.to_value();
         let providers = self.providers_mut()?;
@@ -228,7 +234,7 @@ impl AiConfig {
             .iter_mut()
             .find(|provider| provider.get("id").and_then(Value::as_str) == Some(entry.id.as_str()))
         {
-            Some(existing) => *existing = replacement,
+            Some(existing) => merge_provider(existing, &replacement),
             None => providers.push(replacement),
         }
         Ok(())
@@ -336,6 +342,67 @@ impl AiConfig {
         found
             .map(|value| ProviderEntry::from_value(&value, &path))
             .transpose()
+    }
+
+    /// The per-run spend ceiling `budget.max_run_usd` records, in micro-USD.
+    ///
+    /// `None` means no ceiling is configured, which is different from a ceiling of zero: zero
+    /// refuses every non-free call, `None` refuses none. A ceiling is read exactly — no `f64` touches
+    /// it — and a value finer than a micro-dollar is rounded **up**, so the ceiling can only be
+    /// stricter than the number written, never looser.
+    pub(crate) fn budget_ceiling(&self) -> Result<Option<Cost>, ConnectError> {
+        let path = self.display();
+        let Some(budget) = self
+            .document
+            .as_mapping()
+            .and_then(|mapping| mapping.get("budget"))
+        else {
+            return Ok(None);
+        };
+        let budget = budget.as_mapping().ok_or_else(|| ConnectError::Shape {
+            path: path.clone(),
+            detail: "`budget` is not a mapping of keys to values".to_string(),
+        })?;
+        let Some(value) = budget.get("max_run_usd") else {
+            return Ok(None);
+        };
+        let micro_usd = usd_micros(value, "budget.max_run_usd", &path)?;
+        Ok(Some(Cost::from_micro_usd(micro_usd)))
+    }
+
+    /// The list prices `id`'s `pricing` block records, when it has one.
+    ///
+    /// `None` means the provider is priced by nothing this tool knows: its cost is *unavailable*,
+    /// never zero (`docs/AI_PROVIDER_SPEC.md` §7). A block that exists but cannot be read is a shape
+    /// error rather than a silent omission, because a price that is half understood is a budget
+    /// check that cannot be trusted.
+    pub(crate) fn pricing(&self, id: &str) -> Result<Option<Pricing>, ConnectError> {
+        let path = self.display();
+        let Some(provider) = self
+            .providers()?
+            .iter()
+            .find(|provider| provider.get("id").and_then(Value::as_str) == Some(id))
+        else {
+            return Ok(None);
+        };
+        let Some(pricing) = provider.get("pricing") else {
+            return Ok(None);
+        };
+        let pricing = pricing.as_mapping().ok_or_else(|| ConnectError::Shape {
+            path: path.clone(),
+            detail: format!("provider `{id}`: `pricing` is not a mapping of keys to values"),
+        })?;
+        let input = price_field(pricing, "input_per_mtok", id, &path)?;
+        let output = price_field(pricing, "output_per_mtok", id, &path)?;
+        let cached_input = match pricing.get("cached_input_per_mtok") {
+            Some(value) => Some(Price::from_micro_usd(usd_micros(
+                value,
+                "pricing.cached_input_per_mtok",
+                &path,
+            )?)),
+            None => None,
+        };
+        Ok(Some(Pricing::new(input, output, cached_input)))
     }
 
     /// Writes the document back, verbatim apart from the change that was made.
@@ -449,6 +516,106 @@ fn put(mapping: &mut Mapping, name: &str, value: Value) {
     mapping.insert(Value::String(name.to_string()), value);
 }
 
+/// Updates a provider's written fields without deleting keys this build does not own.
+fn merge_provider(existing: &mut Value, replacement: &Value) {
+    let Some(replacement) = replacement.as_mapping() else {
+        return;
+    };
+    let Value::Mapping(current) = existing else {
+        *existing = Value::Mapping(replacement.clone());
+        return;
+    };
+    // These are optional in the entry, so an absent one in the replacement is the new state. Every
+    // other key — `pricing`, a future adapter's fields — is configuration this writer must not own.
+    for optional in ["base_url", "model"] {
+        if !replacement.contains_key(optional) {
+            current.remove(optional);
+        }
+    }
+    for (key, value) in replacement {
+        current.insert(key.clone(), value.clone());
+    }
+}
+
+/// Reads one required price from a provider's `pricing` block.
+fn price_field(pricing: &Mapping, key: &str, id: &str, path: &str) -> Result<Price, ConnectError> {
+    let Some(value) = pricing.get(key) else {
+        return Err(ConnectError::Shape {
+            path: path.to_string(),
+            detail: format!("provider `{id}`: `pricing` has no `{key}`"),
+        });
+    };
+    Ok(Price::from_micro_usd(usd_micros(
+        value,
+        &format!("pricing.{key}"),
+        path,
+    )?))
+}
+
+/// Reads a non-negative USD amount as micro-USD, rounding **up**.
+///
+/// Rounding up is the conservative direction both for a price and for a ceiling: a price can never
+/// undercharge a run, and a ceiling can never be looser than the number the developer wrote.
+fn usd_micros(value: &Value, field: &str, path: &str) -> Result<u64, ConnectError> {
+    let Value::Number(number) = value else {
+        return Err(ConnectError::Shape {
+            path: path.to_string(),
+            detail: format!(
+                "`{field}` must be a non-negative USD amount, found {}",
+                describe(value)
+            ),
+        });
+    };
+    decimal_micros(&number.to_string()).ok_or_else(|| ConnectError::Shape {
+        path: path.to_string(),
+        detail: format!(
+            "`{field}` must be a non-negative USD amount with at most 18 integer digits"
+        ),
+    })
+}
+
+/// Converts a decimal USD string to micro-USD exactly, rounding any remainder up.
+///
+/// The value comes from [`yaml_serde::Number`]'s shortest round-trip rendering, so `2.50` arrives as
+/// `2.5`; that is the same number. The parse is textual rather than `f64` multiplication so a price
+/// or a ceiling is the number that was written, not the nearest binary float to it.
+fn decimal_micros(text: &str) -> Option<u64> {
+    let text = text.strip_prefix('+').unwrap_or(text);
+    if text.starts_with('-') {
+        return None;
+    }
+    let (mantissa, exponent) = match text.find(['e', 'E']) {
+        Some(index) => (&text[..index], text[index + 1..].parse::<i32>().ok()?),
+        None => (text, 0_i32),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    if whole.is_empty() && fraction.is_empty() {
+        return None;
+    }
+    let whole = if whole.is_empty() { "0" } else { whole };
+    if !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let digits = format!("{whole}{fraction}");
+    let digits = digits.trim_start_matches('0');
+    if digits.is_empty() {
+        return Some(0);
+    }
+    let scale = exponent
+        .checked_sub(i32::try_from(fraction.len()).ok()?)?
+        .checked_add(6)?;
+    let value = digits.parse::<u128>().ok()?;
+    let micros = if scale >= 0 {
+        value.checked_mul(10u128.checked_pow(u32::try_from(scale).ok()?)?)?
+    } else {
+        let divisor = 10u128.checked_pow(u32::try_from(scale.checked_neg()?).ok()?)?;
+        value.checked_add(divisor.checked_sub(1)?)? / divisor
+    };
+    u64::try_from(micros).ok()
+}
+
 /// One word for what a value is, for an error message.
 fn describe(value: &Value) -> String {
     match value {
@@ -464,7 +631,9 @@ fn describe(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiConfig, AuthEntry, AuthKind, KEYCHAIN_SERVICE, ProviderEntry};
+    use aicontext_providers::{Cost, Price};
+
+    use super::{AiConfig, AuthEntry, AuthKind, KEYCHAIN_SERVICE, ProviderEntry, decimal_micros};
     use crate::connect::ConnectError;
 
     fn entry(id: &str) -> ProviderEntry {
@@ -640,5 +809,155 @@ mod tests {
             .expect_err("no id to look anything up by");
         assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
         assert_eq!(error.code(), "CONNECT-003");
+    }
+
+    #[test]
+    fn a_budget_ceiling_is_read_exactly_and_rounds_up() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "budget:\n  max_run_usd: 1.25\nproviders:\n  - id: local\n    auth:\n      type: none\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        assert_eq!(
+            config.budget_ceiling().expect("a ceiling"),
+            Some(Cost::from_micro_usd(1_250_000))
+        );
+
+        write(
+            temp.path(),
+            "budget:\n  max_run_usd: 0.0000001\nproviders:\n  - id: local\n    auth:\n      type: none\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        assert_eq!(
+            config.budget_ceiling().expect("a ceiling"),
+            Some(Cost::from_micro_usd(1)),
+            "a ceiling below one micro-dollar is rounded up, never down"
+        );
+    }
+
+    #[test]
+    fn no_budget_block_means_no_ceiling_and_a_malformed_one_is_a_shape_error() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "providers:\n  - id: local\n    auth:\n      type: none\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        assert_eq!(config.budget_ceiling().expect("no ceiling"), None);
+
+        write(
+            temp.path(),
+            "budget:\n  max_run_usd: -1\nproviders:\n  - id: local\n    auth:\n      type: none\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        let error = config.budget_ceiling().expect_err("a negative ceiling");
+        assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
+        assert_eq!(error.code(), "CONNECT-003");
+        assert!(error.to_string().contains("max_run_usd"));
+    }
+
+    #[test]
+    fn a_pricing_block_is_read_into_provider_prices() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "providers:\n  - id: hosted\n    adapter: anthropic\n    auth:\n      type: none\n    \
+             pricing:\n      input_per_mtok: 2.5\n      output_per_mtok: 10\n      \
+             cached_input_per_mtok: 1.25\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        let pricing = config
+            .pricing("hosted")
+            .expect("a readable block")
+            .expect("a configured block");
+        assert_eq!(pricing.input().micro_usd(), 2_500_000);
+        assert_eq!(pricing.output().micro_usd(), 10_000_000);
+        assert_eq!(
+            pricing.cached_input().map(Price::micro_usd),
+            Some(1_250_000)
+        );
+    }
+
+    #[test]
+    fn a_provider_without_pricing_has_no_cost_not_a_free_one() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "providers:\n  - id: local\n    auth:\n      type: none\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        assert_eq!(config.pricing("local").expect("readable"), None);
+        assert_eq!(
+            config.pricing("absent").expect("not listed"),
+            None,
+            "an unlisted provider has no prices either"
+        );
+    }
+
+    #[test]
+    fn an_incomplete_or_malformed_pricing_block_is_a_shape_error() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "providers:\n  - id: hosted\n    auth:\n      type: none\n    pricing:\n      \
+             input_per_mtok: 2.5\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        let error = config.pricing("hosted").expect_err("no output price");
+        assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
+        assert!(error.to_string().contains("output_per_mtok"));
+
+        write(
+            temp.path(),
+            "providers:\n  - id: hosted\n    auth:\n      type: none\n    pricing:\n      \
+             input_per_mtok: '2.50'\n      output_per_mtok: 10\n",
+        );
+        let config = AiConfig::load(temp.path()).expect("loads");
+        let error = config
+            .pricing("hosted")
+            .expect_err("a string is not a price");
+        assert!(matches!(error, ConnectError::Shape { .. }), "{error:?}");
+        assert_eq!(error.code(), "CONNECT-003");
+    }
+
+    #[test]
+    fn reconnecting_preserves_a_manually_added_pricing_block_and_unknown_keys() {
+        let temp = tree();
+        write(
+            temp.path(),
+            "providers:\n  - id: local\n    adapter: openai-compatible\n    model: old-model\n    \
+             auth:\n      type: none\n    pricing:\n      input_per_mtok: 2.5\n      \
+             output_per_mtok: 10\n    future_field: keep-me\n",
+        );
+        let mut config = AiConfig::load(temp.path()).expect("loads");
+        config.upsert(&entry("local")).expect("upsert");
+        config.save().expect("save");
+
+        let text = std::fs::read_to_string(temp.path().join(".ai/ai.yaml")).expect("read");
+        assert!(text.contains("input_per_mtok: 2.5"), "{text}");
+        assert!(text.contains("output_per_mtok: 10"), "{text}");
+        assert!(text.contains("future_field: keep-me"), "{text}");
+        assert!(text.contains("model: qwen2.5-coder"), "{text}");
+        assert!(
+            !text.contains("model: old-model"),
+            "the verified model is the new state: {text}"
+        );
+    }
+
+    #[test]
+    fn a_usd_amount_is_converted_to_micro_usd_without_binary_floating_point() {
+        assert_eq!(decimal_micros("2.5"), Some(2_500_000));
+        assert_eq!(decimal_micros("0.075"), Some(75_000));
+        assert_eq!(decimal_micros("0.000001"), Some(1));
+        assert_eq!(
+            decimal_micros("0.0000001"),
+            Some(1),
+            "anything finer than a micro-dollar rounds up"
+        );
+        assert_eq!(decimal_micros("1e-6"), Some(1));
+        assert_eq!(decimal_micros("0"), Some(0));
+        assert_eq!(decimal_micros("-1"), None);
+        assert_eq!(decimal_micros("not-a-number"), None);
     }
 }
