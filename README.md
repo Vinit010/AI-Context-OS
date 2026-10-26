@@ -5,7 +5,7 @@
 [![CI](https://github.com/Vinit010/AI-Context-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/Vinit010/AI-Context-OS/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV: Rust 1.85](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](rust-toolchain.toml)
-[![Status: Phase 3 of 11](https://img.shields.io/badge/status-phase%203%20of%2011-yellow.svg)](#status)
+[![Status: Phase 4 of 11](https://img.shields.io/badge/status-phase%204%20of%2011-yellow.svg)](#status)
 
 AI coding agents are individually capable and collectively unreliable, because they are *stateless
 with respect to the project*. AI Context OS gives them a persistent, structured, reviewable
@@ -41,31 +41,37 @@ and portable between machines and between AI tools.
 
 ## Status
 
-**Specification complete. Implementation in progress (Phase 3 of 11).**
+**Specification complete. Implementation in progress (Phase 4 of 11).**
 
 | Phase | Scope | State |
 |-------|-------|-------|
 | 0 | Specification and architecture | Done |
 | 1 | Context MVP: `init`, `status`, `doctor`, `export`, `import` | Done |
 | 2 | Discovery, indexing, retrieval, budgets, `health`, `context` | Done |
-| 3 | AI provider layer (plan mode only) | In progress |
-| 4 | Plugin system, permissions, audit | Not started |
+| 3 | AI provider layer: adapters, credentials, `connect`, `agent run` (plan mode) | Done |
+| 4 | Plugin system, permissions, audit | In progress |
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**Seven commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, and `import`.**
+**Ten commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, `import`,
+`connect`, `disconnect`, and `agent run`.**
 
 `init` creates the `.ai` skeleton, `status` reports where the project and its task register stand,
 `doctor` validates the `.ai/` tree and explains what is wrong with it, `health` reports transparent
 context metrics, `context` assembles a context packet for a task or query, `export` writes a
 deterministic archive of `.ai/` with a digest manifest, and `import` verifies such an archive and
-restores it without ever overwriting a file without `--force`.
+restores it without ever overwriting a file without `--force`. `connect` proves a provider answers
+and records only the credential's source — the value goes to the OS keychain, never to `.ai/`;
+`disconnect` removes that reference. `agent run --task <id>` assembles context, asks the configured
+provider for a plan, and writes it under `.aicontext/plans/`; it modifies nothing in the working
+tree.
 
-Every other command in the plan refuses to run and names the task that will build it. Phase 3 defines
-the provider abstraction — provider-neutral request/response types, the `AIProvider` trait, and the
-registry — so the first real adapter can land without touching any other crate. The task register in
-[`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is being built, in what order, and
-what "done" means for each item.
+Every other command in the plan refuses to run and names the task that will build it. Phase 3 is
+complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
+adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has
+started with the plugin SDK; the permission resolver, approval broker, plugin runtime, and audit log
+follow. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
+being built, in what order, and what "done" means for each item.
 
 ```sh
 cargo run -p aicontext-cli -- init --dry-run   # show the plan, write nothing
@@ -99,18 +105,19 @@ cargo run -p aicontext-cli -- doctor
 cargo run -p aicontext-cli -- context --task TASK-001
 ```
 
-Every command has a documented exit code and a machine-readable `--json` mode, and works without a
-TTY. Read commands never touch the network, and anything that writes supports `--dry-run`.
+Every command has a documented exit code and a machine-readable `--json` mode. Read commands never
+touch the network. Commands that modify the knowledge tree support `--dry-run`; `connect` makes its
+verification call before writing anything, and `agent run` is plan-only.
 
 ---
 
 ## How it works
 
 Project knowledge is committed to the repository under `.ai/`. The CLI reads it, assembles a
-**context packet** for a specific task, and — once the provider layer lands — hands that packet to a
-model as *plan mode only*: the model proposes, the human approves, and only then does anything with
-write access run. The flow below is the target shape; today the context engine and the provider
-interface exist, and the adapter and approval broker arrive in later phases.
+**context packet** for a specific task, and hands that packet to a model as *plan mode only*: the
+model proposes, the human approves, and only then does anything with write access run. The context
+engine, provider layer, and plan-mode agent loop exist today; the tool gateway and approval broker
+under the human-approval step are the next Phase 4 work.
 
 ```mermaid
 flowchart LR
@@ -169,7 +176,8 @@ Two properties are enforced in CI and by review, not by convention alone:
 | **Durable project memory** | Requirements, architecture, rules, decisions, bugs, and task state as versioned Markdown under `.ai/`. |
 | **Assembled context** | A bounded, provenance-carrying `ContextPacket` per task, with a transparent retrieval plan and budget report. |
 | **Validation you can trust** | `doctor` reports stable `CTX-*` codes with the exact fix, and never silently repairs the tree. |
-| **Provider-neutral by design** | `CompletionRequest`/`CompletionResponse` are provider-agnostic; adding an adapter touches no other crate. |
+| **Provider-neutral by design** | `CompletionRequest`/`CompletionResponse` are provider-agnostic; OpenAI-compatible, Anthropic, and Gemini adapters, the credential resolver, and plan-mode `agent run` share one interface. |
+| **Credentials stay out of Git** | `connect` proves a provider answers, stores the value in the OS keychain, and commits only the credential's source. |
 | **Honest metrics** | `health` reports counts it can source, each with the command that reproduces it, and no composite score. |
 | **Portable archives** | `export`/`import` round-trip `.ai/` deterministically, with a SHA-256 digest per file. |
 | **Local-first** | Single static binary, no runtime prerequisite, no telemetry, and read commands never touch the network. |
@@ -191,17 +199,17 @@ flowchart TD
     CLI --> CTX
     CLI --> GIT
     CLI --> CORE
+    CLI --> PROV
     CTX --> CORE
     GIT --> CORE
     SDK --> CORE
-    CLI -.-> PROV
 ```
 
 `aicontext-plugin-sdk` is a library for plugin authors and depends on `aicontext-core` only.
 
-`aicontext-providers` is in the workspace with its interface defined, and is not yet wired to the CLI
-(dashed); `aicontext-testkit` has no crate dependencies of its own — it reads every other crate's
-manifest to enforce the boundary policy in CI.
+`aicontext-providers` is wired to the CLI: `connect` uses it for one verification call, and
+`agent run` uses it to plan. `aicontext-testkit` has no internal crate dependency — it reads every
+other crate's manifest to enforce the boundary policy in CI.
 
 ```text
 crates/
@@ -236,18 +244,23 @@ without declaring what it may depend on fails the build.
   artefacts all use — currently 1.95.0 — so `rustup` installs it for you, and a contributor is never
   forced off their own stable to match. Update the pin deliberately, in its own commit.
 - `git` on `PATH`.
-
-No C compiler and no system library are needed: every dependency is pure Rust.
+- **A C compiler available at build time.** `reqwest` uses `rustls`, whose `ring` provider compiles a
+  small amount of C. This is the one accepted deviation from the pure-Rust dependency rule, recorded
+  in [`ADR-009`](.ai/decisions/ADR-009-http-tls-and-the-c-compiler-deviation.md). No OpenSSL or other
+  third-party system TLS library is needed, and the built binary has no compiler or library
+  prerequisite at runtime.
 
 Third-party crates are added only with a written justification in
-[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. The tree currently carries
-nine in production — `thiserror` for typed errors, `yaml_serde` for YAML, `ignore` for
-`.gitignore`-aware file discovery, `clap` for the command tree, `serde` with `serde_json` for the
-published `--json` envelope, `sha2` for the SHA-256 digests in `export`/`import`, and `async-trait`
-with `futures-core` for the async, dyn-safe `AIProvider` interface — plus `proptest`, `tempfile`,
-`jsonschema`, and `futures-executor` for tests. The YAML library is reached only through a private
-two-method trait, so no YAML type appears in a public signature and a future swap touches one module;
-see [`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
+[`.ai/ARCHITECTURE.md`](.ai/ARCHITECTURE.md) §2.2 or a decision record. Production code currently
+uses 13 direct dependencies: `thiserror` for typed errors, `yaml_serde` for YAML, `clap` for the
+command tree, `serde` with `serde_json` for the published `--json` envelope, `sha2` for content and
+archive digests, `ignore` for `.gitignore`-aware discovery, `async-trait` with `futures-core` for the
+dyn-safe `AIProvider` interface, `tokio` as the async runtime, `reqwest` over `rustls` for provider
+HTTP, `tracing` for structured diagnostics, and `keyring` for the OS credential store. Tests add
+`proptest`, `tempfile`, `jsonschema`, and `futures-executor`; `tempfile` also backs the testkit. The
+YAML library is reached only through a private two-method trait, so no YAML type appears in a public
+signature and a future swap touches one module; see
+[`ADR-007`](.ai/decisions/ADR-007-yaml-codec-choice.md).
 
 ## Build and test
 
@@ -279,9 +292,11 @@ aicontext
 ├─ context                  assemble a context packet                         available
 │                            (--task, --include, --exclude, --budget, --explain, --json)
 ├─ export | import          portable .ai archives                            available
-├─ connect | disconnect     configure or remove an integration               TASK-053
-├─ plan | task | memory | decision | bug | change | workflow | agent        planned
-├─ ai | plugin              plugin management                                TASK-077
+├─ connect | disconnect     configure or remove a provider                   available
+├─ agent run                plan a task with the configured provider         available
+├─ plan | task | memory | decision | bug | change | workflow                 planned
+├─ ai                       provider configuration                           planned
+├─ plugin                   plugin management                                TASK-077
 └─ audit                    audit log (show, verify, tail)                   TASK-075
 ```
 
@@ -338,8 +353,8 @@ checks that run today are `CTX-001`, `CTX-002`, `CTX-007`, `CTX-012`, `CTX-013`,
 and `CTX-018`; the rest of the catalogue is listed by `doctor --json` as deferred with the task that
 owns it. `CTX-016` scans `.ai/` for credential-shaped content and reports only the path, line, and rule,
 never the match. `--explain <code>` answers what a check means without reading a project, `--only`
-narrows the run to matching codes, and `--rebuild-index` is accepted and says out loud that there is no
-index cache yet (that arrives with `TASK-031`).
+narrows the run to matching codes, and `--rebuild-index` is accepted and says out loud that this
+release has no persistent index cache to rebuild.
 
 ### `health`
 
@@ -363,6 +378,32 @@ Assembles a context packet for a task or query: the trusted policy region, the r
 their provenance and scores, any detected conflicts, and the budget report. External content is wrapped
 in a data envelope marked untrusted and is never placed in an instruction role. `--explain` shows the
 full retrieval plan and every drop, and `--format prompt` renders the exact provider input.
+
+### `connect` and `disconnect`
+
+```sh
+aicontext connect --provider <id> --adapter <name> --base-url <url> --model <name>
+                  [--env <var> | --token <value>] [--keychain-entry <name>]
+aicontext disconnect --provider <id> [--json]
+```
+
+`connect` resolves the credential, makes one minimal verification call, and only then writes the
+profile to `.ai/ai.yaml`. A failed call leaves both the repository and the keychain unchanged. The
+file records the credential's **source**, never its value; `--token` stores the value in the OS
+keychain. `disconnect` removes the provider's reference and its keychain entry. The adapters are
+`openai-compatible`, `anthropic`, and `gemini`.
+
+### `agent run`
+
+```sh
+aicontext agent run --task <id> [--dry-run] [--json]
+```
+
+Assembles the task's context packet, asks the configured default provider for a plan, validates any
+structured proposal, and writes the result to `.aicontext/plans/<task>.md`. The plan records the
+provider, the context sources, and the token usage. Working-tree files are not modified, and there is
+no execution mode: `--execute` is deliberately not accepted (`ADR-006`). `--dry-run` assembles and
+reports without making a provider call.
 
 ### `export` and `import`
 

@@ -1,0 +1,26 @@
+[package]
+name = "aicontext-permissions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Pure permission policy model and resolver for AI Context OS"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The permission vocabulary is defined once in core (`PermissionMode`), so the policy file, the
+# resolver, the approval broker, and the audit log cannot drift apart. The boundary test in
+# aicontext-testkit permits this crate to depend on core and nothing else internal. TASK-071.
+aicontext-core = { path = "../aicontext-core" }
+# Error enums derive thiserror::Error per RULES.md 4.2. Already in the lockfile; this crate adds no
+# crate to the tree. TASK-071.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Property tests over the resolution order, pre-justified in ARCHITECTURE.md 2.2 as dev-only and
+# named by RULES.md 8 for the permission resolver. TASK-071.
+proptest = { workspace = true }

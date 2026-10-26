@@ -1585,12 +1585,18 @@ done:
 ```yaml
 id: TASK-071
 title: Implement the permission model and resolver
-status: TODO
+status: IN_PROGRESS
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-070]
 spec: docs/SECURITY.md
 touches: ["crates/aicontext-permissions/**"]
+scope_notes:
+  - 'Root Cargo.toml, Cargo.lock, README.md, docs/PLUGIN_SPEC.md, and .ai/MEMORY.md are touched
+    beside the declared crates/aicontext-permissions/**. A new workspace member cannot be built
+    without the root member list, the lockfile records the package, the README layout must name the
+    crate, PLUGIN_SPEC 5 has to describe the committed policy shape rather than the older
+    `permissions:` example, and MEMORY records the default-mode and wildcard decisions.'
 acceptance:
   - Pure: no I/O, no clock, no randomness, no environment access
   - Precedence is DENY over EXPLICIT_APPROVAL over APPROVAL over ALLOW, defaulting to DENY
