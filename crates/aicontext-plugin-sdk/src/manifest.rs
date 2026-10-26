@@ -630,7 +630,9 @@ mod tests {
             .expect_err("the host supports only 1");
         assert_eq!(error.code(), ErrorCode::PLG_004);
         assert_eq!(
-            manifest.negotiate(ApiVersion::CURRENT).expect("the host version"),
+            manifest
+                .negotiate(ApiVersion::CURRENT)
+                .expect("the host version"),
             ApiVersion::CURRENT
         );
     }

@@ -1191,6 +1191,59 @@ do — the plan-mode path had no way to report a problem after a successful call
 lesson: a budget is only a budget when both halves of the arithmetic are present and the check
 happens before the money is spent; a check after the fact is a receipt, not a limit.
 
+## MEM-037 — A plugin API version is negotiated, not pinned by the schema, and MCP compatibility is an input alias, not a second output dialect
+
+```yaml
+id: MEM-037
+category: constraint
+scope: plugin-sdk
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [plugin, sdk, manifest, json-rpc, mcp, versioning, task-070]
+```
+
+`plugin_api_version` is deliberately **not** a schema constant. If the manifest schema pinned it to
+`"1"`, a plugin built for version 2 would fail schema validation before negotiation, and its author
+would get a generic schema error instead of the `PLG-004` that names both versions. The schema
+therefore accepts one decimal version, the SDK parses it into `ApiVersion`, and `negotiate` makes the
+compatibility decision. The split is semantic: a malformed version is a property of the manifest and
+is `PLG-011`; a well-formed version the host does not implement is a property of the *pair* and is
+`PLG-004`. A JSON Schema can express the first and cannot express the second. The current range is
+four digits, which is why every schema-valid value also fits the SDK's `u16` and the two layers
+cannot disagree about what "valid" means.
+
+The manifest types are deliberately stricter than the schema in the places a schema cannot reach:
+`deny_unknown_fields` rejects a typo instead of defaulting it, duplicate tool names are refused, and
+`destructive: true` on a read capability is refused by both layers. `destructive` also raises the
+permission floor to `EXPLICIT_APPROVAL` through `Capability::permission_floor()`, so a manifest cannot
+lower the approval its own flag requires. The full schema is still validated by the installer
+(`TASK-077`); the SDK does not carry a runtime `jsonschema` engine, and the canonical fixture is
+validated against the published schema by a dev-only test. A plugin author should not pay for the
+host's validator.
+
+The wire protocol is JSON-RPC 2.0, and its MCP compatibility is one-directional on purpose. MCP's
+`name`, `description`, `inputSchema`, and `isError` are accepted **on input**, but serialization uses
+the plugin contract's `tool`, `summary`, `input_schema`, and `is_error`. There is one output dialect,
+so the host and the audit record have one shape to reason about, while a third-party MCP descriptor
+still parses. `effect` is required and has no MCP equivalent: defaulting a missing classification to
+`read` would understate a write tool, which is exactly the failure a permission system must not make.
+Unknown MCP fields are preserved with `flatten` rather than dropped, so a newer MCP revision survives
+the bridge; how much of MCP the runtime actually supports is still `TASK-078`'s decision.
+
+`PLG-004` and `PLG-005` are SDK-producible, so they are constants in `aicontext-core` now;
+`PLG-011` invalid manifest is added to `docs/PLUGIN_SPEC.md` §4 as an additive code. The runtime's
+process-supervision codes wait for `TASK-073`, because core must not carry a code no crate can return.
+The family prefix is part of a code's identity: `PLG-004` and `CTX-004` share a number but never a
+rendered code, and `docs/CLI_SPEC.md` §6 promises `code` is safe to branch on.
+
+Finally, the plugin manifest schema is published in `schemas/` and listed in the CLI's
+`EXPECTED_SCHEMAS`, but it is **not** scaffolded into `.ai/schemas`. It validates an external plugin
+artefact, not an `.ai/` document, so `doctor`'s count of 20 document schemas stays correct. If a
+future task decides plugins may be authored inside `.ai/`, it must revisit both `init` and the count;
+until then, adding the schema to that copy set would make the count mean two different things.
+
 ## Bugs encountered
 
 None shipped. Seven defects were found before a consumer saw them. Two were found by running the
