@@ -210,9 +210,9 @@ impl ErrorCode {
     // The PLG family, introduced by TASK-070. `docs/PLUGIN_SPEC.md` 4 documents the full
     // PLG-001 to PLG-011 catalogue; only the codes a crate can actually return are constants here.
     // TASK-072 adds PLG-010 for the approval broker; TASK-073 adds the process-supervision codes
-    // (spawn, handshake, timeout, output limit, unexpected exit, undeclared capability, sandbox
-    // violation) with the crate that can return them, so core never names a failure no code path
-    // can reach.
+    // (spawn, handshake, timeout, output limit, unexpected exit) with the crate that can return
+    // them, so core never names a failure no code path can reach. PLG-008 (capability not declared)
+    // and PLG-009 (sandbox violation) belong to TASK-074 and TASK-076.
     /// A code in the `PLG` family, the plugin manifest and protocol failure modes.
     ///
     /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
@@ -229,9 +229,33 @@ impl ErrorCode {
         }
     }
 
+    /// The plugin executable could not be started.
+    ///
+    /// Added by `TASK-073` for the supervisor. This is a failure to create the process, not a
+    /// process that started and then exited; the latter is [`ErrorCode::PLG_007`].
+    pub const PLG_001: Self = Self::plugin(1);
+    /// The `initialize` handshake failed.
+    ///
+    /// Added by `TASK-073`. A version the host does not implement is [`ErrorCode::PLG_004`]
+    /// instead; this code covers a missing, malformed, or rejected handshake response.
+    pub const PLG_002: Self = Self::plugin(2);
+    /// A request did not complete within `limits.call_timeout_ms`.
+    ///
+    /// Added by `TASK-073`. The supervisor kills the process before returning this, so the host
+    /// cannot time out waiting for a reply on a pipe the plugin still owns.
+    pub const PLG_003: Self = Self::plugin(3);
     /// The plugin's `plugin_api_version` is not one this host supports (`docs/PLUGIN_SPEC.md` 2,
     /// rule 8). The error message states both versions.
     pub const PLG_004: Self = Self::plugin(4);
+    /// The plugin produced more output than `limits.max_output_bytes`.
+    ///
+    /// Added by `TASK-073`. The cap covers one frame, and separately the notification traffic
+    /// during a call; exceeding either kills the process.
+    pub const PLG_006: Self = Self::plugin(6);
+    /// The plugin process exited before it answered, or the pipe to it broke.
+    ///
+    /// Added by `TASK-073`. A crash is an error, never a silent no-op (`docs/PLUGIN_SPEC.md` 7).
+    pub const PLG_007: Self = Self::plugin(7);
     /// A JSON-RPC frame is not valid JSON-RPC 2.0, or names a method outside the protocol.
     ///
     /// The SDK uses this for a frame that cannot be decoded at all. The runtime reuses it for a
@@ -512,12 +536,17 @@ mod tests {
     #[test]
     fn the_plugin_codes_render_in_the_documented_format_and_carry_their_own_family() {
         // TASK-070 added the PLG family for the manifest and protocol failures the SDK can return.
-        // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure. The rest of the
-        // runtime's codes join it in TASK-073; a caller branching on the family must not confuse a
+        // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure, and TASK-073
+        // adds the process-supervision codes. A caller branching on the family must not confuse a
         // plugin failure with a context finding or a git failure.
         for (code, expected) in [
+            (ErrorCode::PLG_001, "PLG-001"),
+            (ErrorCode::PLG_002, "PLG-002"),
+            (ErrorCode::PLG_003, "PLG-003"),
             (ErrorCode::PLG_004, "PLG-004"),
             (ErrorCode::PLG_005, "PLG-005"),
+            (ErrorCode::PLG_006, "PLG-006"),
+            (ErrorCode::PLG_007, "PLG-007"),
             (ErrorCode::PLG_010, "PLG-010"),
             (ErrorCode::PLG_011, "PLG-011"),
         ] {
@@ -539,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_thirty_distinct_codes() {
+    fn the_documented_catalogue_has_thirty_five_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -567,8 +596,13 @@ mod tests {
             ErrorCode::GIT_004,
             ErrorCode::GIT_005,
             ErrorCode::GIT_006,
+            ErrorCode::PLG_001,
+            ErrorCode::PLG_002,
+            ErrorCode::PLG_003,
             ErrorCode::PLG_004,
             ErrorCode::PLG_005,
+            ErrorCode::PLG_006,
+            ErrorCode::PLG_007,
             ErrorCode::PLG_010,
             ErrorCode::PLG_011,
         ];

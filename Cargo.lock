@@ -93,6 +93,8 @@ version = "0.1.0"
 dependencies = [
  "aicontext-core",
  "aicontext-permissions",
+ "aicontext-plugin-sdk",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror",

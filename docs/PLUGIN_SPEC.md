@@ -230,6 +230,10 @@ timeout are denials. The default answer on Enter, timeout, EOF, non-TTY, or an o
 Every prompt is recorded before it is shown and every decision after it is reached. If either audit
 record fails, the call is refused with `PLG-010` (`SECURITY.md` §9).
 
+Approval is the host's decision and happens before the call. A plugin that sends
+`host/request_approval` during a call is answered `approved: false`: the method cannot turn a denial
+into consent, and the host does not re-enter the prompt from inside plugin code.
+
 ### Risk R-8 — approval fatigue
 
 Default most tools to read-only `ALLOW`; prompt only where the consequence is real; group related

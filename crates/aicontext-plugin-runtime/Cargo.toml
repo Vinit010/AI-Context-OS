@@ -17,6 +17,14 @@ workspace = true
 # core, permissions, SDK, and audit. Only core is needed by the approval broker; the other edges
 # arrive with TASK-073 and TASK-074 rather than speculatively. TASK-072.
 aicontext-core = { path = "../aicontext-core" }
+# The supervisor speaks the published wire protocol through the SDK's `Request`, `Response`,
+# `FrameCodec`, `ApiVersion`, and error types rather than re-describing them. The boundary test in
+# aicontext-testkit permits this edge. TASK-073.
+aicontext-plugin-sdk = { path = "../aicontext-plugin-sdk" }
+# `exchange` is generic over the request params and the result type; the bounds are `serde`'s
+# `Serialize` and `DeserializeOwned`. serde is already in the lockfile through the SDK and is
+# pre-justified in ARCHITECTURE.md 2.2. TASK-073.
+serde = { workspace = true }
 # Arguments arrive as the parsed JSON value the plugin protocol carries, and the prompt renders them
 # as compact JSON so a newline or an ANSI escape in an argument cannot forge a prompt line. Already
 # in the lockfile through the SDK and the CLI. TASK-072.
@@ -33,3 +41,14 @@ thiserror = { workspace = true }
 # every call, so the two crates are tested together rather than through a hand-made mode. This is
 # also the edge TASK-074 will use in production. TASK-072.
 aicontext-permissions = { path = "../aicontext-permissions" }
+
+# A deliberately misbehaving plugin for tests/supervisor.rs. It lives outside src/ so the library
+# does not expose it, and Cargo gives integration tests its path as
+# CARGO_BIN_EXE_misbehaving-plugin. One binary with a mode argument keeps the fixture list in one
+# place instead of adding a crate per failure mode. TASK-073.
+[[bin]]
+name = "misbehaving-plugin"
+path = "tests/fixtures/misbehaving_plugin.rs"
+test = false
+doc = false
+bench = false

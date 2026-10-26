@@ -11,7 +11,7 @@ updated: 2026-10-26
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-073
+**Current task:** TASK-074
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1729,17 +1729,80 @@ done:
 ```yaml
 id: TASK-073
 title: Implement the plugin runtime supervisor
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-070]
 spec: docs/PLUGIN_SPEC.md
 touches: ["crates/aicontext-plugin-runtime/**"]
+scope_notes:
+  - '`crates/aicontext-core/src/error.rs` is touched beside the declared crate so the five new
+    PLG codes live in the one catalogue; `docs/PLUGIN_SPEC.md` records that plugin-initiated
+    approval is always denied; `.ai/TASKS.md` and `.ai/MEMORY.md` record the closure.
+    `crates/aicontext-plugin-runtime/Cargo.toml` gains the SDK and serde dependencies and the
+    fixture `[[bin]]`, and `Cargo.lock` records them. No new third-party crate enters the
+    workspace.'
 acceptance:
   - Spawns the plugin, performs the handshake, and negotiates the API version
   - Enforces a per-call timeout, an output size cap, and a clean kill on both
   - A crashing, hanging, or flooding plugin yields a typed error and never wedges the CLI
   - Covered by deliberately misbehaving fixture plugins
+done:
+  - '`crates/aicontext-plugin-runtime/src/supervisor/` adds `mod.rs`, `error.rs`, `transport.rs`,
+    and `process.rs`. The crate gains `aicontext-plugin-sdk` and `serde` as production
+    dependencies: the SDK already owns the frame, version, and manifest types, and the boundary
+    test permits the edge. There is still no terminal, file, environment, sandbox, or approval
+    policy logic in this module'
+  - '`start_plugin` validates the manifest, negotiates `plugin_api_version` before spawning (so a
+    manifest for an unsupported version fails `PLG-004` without executing anything), starts
+    `entry.command` with `entry.args`, pipes stdin/stdout/stderr, starts one reader per pipe, and
+    completes `initialize` with the host version. A handshake that is missing, malformed,
+    rejected, or reports a different version fails with `PLG-002` or `PLG-004` and kills the
+    process'
+  - '`PluginProcess` is synchronous: one child, one request-id sequence, and one deadline per
+    call. `list_tools` and `call_tool` send one frame and wait for the response with the same id.
+    The timeout comes from `limits.call_timeout_ms`, never a CLI flag; on expiry the child is
+    killed and `PLG-003` is returned. Any failure after spawn kills the child and poisons the
+    pipe, so a later call returns `NotRunning`; there is no retry or resynchronisation on a stream
+    that has already broken the protocol'
+  - 'The output cap from `limits.max_output_bytes` is enforced in three places: one frame is
+    refused before it is buffered (`fill_buf` rather than `read_until`, so a line with no newline
+    cannot grow host memory), total `log` and `host/request_approval` traffic during one call is
+    counted, and a result nested deeper than 32 levels is refused. Each failure returns `PLG-006`
+    and kills the process'
+  - '`log` notifications are retained in a bounded queue (64 entries, 512 bytes each) and drained
+    by `take_logs`; stderr is drained into a 4 KiB tail with control characters replaced, available
+    after a failure. A plugin-initiated `host/request_approval` is always answered with
+    `approved: false` and a reason; the host decides before the call (`TASK-072`), so a plugin
+    cannot ask itself for permission. `docs/PLUGIN_SPEC.md` §6 states the same rule for plugin
+    authors'
+  - '`shutdown` sends the request, waits for its response, closes stdin, and gives the child one
+    second to exit before killing it; `Drop` kills. The three pipe threads are detached rather than
+    joined, so a grandchild that inherits a pipe cannot make the host wait for a process it does
+    not own'
+  - '`ErrorCode` gains `PLG_001` spawn, `PLG_002` handshake, `PLG_003` timeout, `PLG_006` output
+    limit, and `PLG_007` unexpected exit or pipe failure, each with documentation. The
+    documented-catalogue test now requires 35 distinct codes'
+  - '`tests/fixtures/misbehaving_plugin.rs` is one fixture binary with modes `ok`, `crash`, `hang`,
+    `hang-handshake`, `flood`, `flood-logs`, `deep`, `bad-version`, `bad-handshake`, `garbage`,
+    `tool-error`, `bad-result`, `wrong-id`, and `no-shutdown`. `tests/supervisor.rs` has 17
+    integration tests covering the good path, every failure mode, the poisoned pipe, and the stderr
+    tail after a crash'
+  - 'Tests: 13 new supervisor unit tests, 17 integration tests, and 1 doctest in the crate; the
+    workspace suite is 1061 passed, 0 failed across 43 suites (was 1031)'
+  - 'Gates: `cargo fmt --all --check`; `cargo check --workspace --all-targets --locked`; `cargo
+    clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`
+    (1061 passed); `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`;
+    `cargo +1.85.0 build --workspace --all-targets --locked`; `cargo +1.85.0 test --workspace
+    --locked`; `aicontext doctor` (exit 0, only the pre-existing CTX-012 warning about no
+    `.ai/schemas` copies); `git diff --check`; and `cargo audit` (clean). No `unwrap` or `expect`
+    outside tests, no `unsafe` outside the `forbid` attribute, and no secret value in the crate,
+    tests, or fixture'
+  - 'Deliberately not done: no tool gateway, argument schema validation, untrusted-result envelope,
+    or CLI wiring (`TASK-074`); no sandbox working directory, environment, filesystem, or network
+    policy (`TASK-076`); and no durable audit log (`TASK-075`). The supervisor also does not retry,
+    pool processes, or accept a per-call timeout from the command line; the manifest remains the
+    only authority'
 ```
 
 ### TASK-074 — Implement the tool gateway

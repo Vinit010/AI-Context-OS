@@ -15,13 +15,19 @@
 //!   it with a terminal; tests implement it with a script.
 //! - [`ApprovalAudit`]: the sink that records every prompt and every decision. The durable
 //!   hash-chained log is `TASK-075`; this crate only depends on the seam.
+//! - [`start_plugin`]: spawns one plugin, completes the `initialize` handshake, and negotiates the
+//!   plugin API version.
+//! - [`PluginProcess`]: the one live pipe to that plugin. `list_tools` and `call_tool` are bounded
+//!   by the manifest's timeout and output cap; any failure kills the process and poisons the pipe.
 //!
 //! # What this crate is not
 //!
-//! There is no terminal I/O, no file access, no clock, and no process spawning here. The prompt is
-//! rendered as a `String`, but writing it belongs to the CLI; the audit event is described, but
-//! storing it belongs to `aicontext-audit`. Those boundaries are what let the approval matrix be
-//! tested with no terminal and no temporary file.
+//! The approval broker has no terminal I/O, file access, or clock: the prompt is rendered as a
+//! `String`, but writing it belongs to the CLI, and the audit event is described, but storing it
+//! belongs to `aicontext-audit`. Those boundaries are what let the approval matrix be tested with
+//! no terminal and no temporary file. The supervisor owns the process and the deadline, but not
+//! the sandbox (`TASK-076`), argument schema validation, or the untrusted-result envelope
+//! (`TASK-074`).
 //!
 //! # Default deny
 //!
@@ -33,9 +39,11 @@
 #![forbid(unsafe_code)]
 
 pub mod approval;
+pub mod supervisor;
 
 pub use approval::{
     APPROVAL_ANSWER, ApprovalAudit, ApprovalBroker, ApprovalError, ApprovalEvent, ApprovalGrant,
     ApprovalOutcome, ApprovalRequest, ApprovalSummary, DenialReason, PromptError, Prompter,
     render_prompt,
 };
+pub use supervisor::{MAX_RESULT_DEPTH, PluginLog, PluginProcess, SupervisorError, start_plugin};

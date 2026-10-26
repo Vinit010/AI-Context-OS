@@ -1360,6 +1360,47 @@ cargo +1.85.0 test --workspace --locked
 The CI job is the detection; a local 1.85 run is the prevention. See
 `.ai/bugs/BUG-006-msrv-let-chain-break.md`.
 
+## MEM-041 — A plugin supervisor owns one process, one deadline, and three byte caps
+
+```yaml
+id: MEM-041
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [plugin-system, supervisor, process, json-rpc, timeout, output-limit, task-073]
+```
+
+`TASK-073` implements the process half of `docs/PLUGIN_SPEC.md` §7 as one synchronous
+`PluginProcess`: one child, one request-id sequence, and one deadline per call. There is no call
+queue and no second path to the plugin; `TASK-074`'s gateway is the only caller. The timeout and
+the output cap come from `limits` in the manifest and are revalidated before spawn, so a command
+line cannot widen a plugin's authority for one call and a plugin cannot negotiate a longer deadline
+at handshake.
+
+Every failure after spawn kills the child and poisons the pipe. A malformed frame, a timeout, an
+output overflow, a broken pipe, or an unexpected exit leaves the stream desynchronised, and later
+calls return `NotRunning` rather than guessing that the next frame answers the next request. There
+is no retry, no process pool, and no resynchronisation.
+
+The output cap has three surfaces, because one is not enough: a single frame is bounded before it
+is buffered (`fill_buf`, not `read_until`, so a line that never ends cannot grow host memory), the
+total `log` and `host/request_approval` traffic during one call is counted so logging cannot extend
+a deadline, and a result is rejected past 32 levels of nesting. Plugin-initiated approval is always
+answered `approved: false` with a reason: the host decides before the call, and a plugin cannot ask
+itself for permission. Logs and stderr are bounded separately and controls are stripped from the
+stderr tail so diagnostics cannot forge terminal output.
+
+The stdout, stdin, and stderr threads are detached rather than joined. A plugin can spawn a
+grandchild that inherits a pipe, and joining would make the host wait for a process it does not
+control; dropping the handles lets the threads end with the pipe without ever wedging the CLI.
+`TASK-074` still adds the gateway and untrusted-result envelope, and `TASK-076` still adds the
+working directory, environment, filesystem, and network controls; the supervisor deliberately
+spawns with the host environment and expects the sandbox to narrow it first. The code uses
+`let ... else` rather than let-chains and both 1.85 gates pass (`MEM-040`).
+
 ## Bugs encountered
 
 None shipped. Eight defects were found before a consumer saw them. Two were found by running the
