@@ -32,6 +32,7 @@ dependencies = [
  "aicontext-context",
  "aicontext-core",
  "aicontext-git",
+ "aicontext-plugin-runtime",
  "aicontext-providers",
  "aicontext-testkit",
  "clap",
@@ -83,6 +84,17 @@ version = "0.1.0"
 dependencies = [
  "aicontext-core",
  "proptest",
+ "thiserror",
+]
+
+[[package]]
+name = "aicontext-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "aicontext-core",
+ "aicontext-permissions",
+ "serde_json",
+ "sha2",
  "thiserror",
 ]
 

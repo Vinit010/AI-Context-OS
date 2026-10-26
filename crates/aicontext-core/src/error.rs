@@ -208,10 +208,11 @@ impl ErrorCode {
     pub const GIT_006: Self = Self::git(6);
 
     // The PLG family, introduced by TASK-070. `docs/PLUGIN_SPEC.md` 4 documents the full
-    // PLG-001 to PLG-011 catalogue; only the codes aicontext-plugin-sdk can produce are constants
-    // here. TASK-073 adds the process-supervision codes (spawn, handshake, timeout, output limit,
-    // unexpected exit, undeclared capability, sandbox violation, unavailable approval) with the
-    // crate that can actually return them, so core never names a failure no code path can reach.
+    // PLG-001 to PLG-011 catalogue; only the codes a crate can actually return are constants here.
+    // TASK-072 adds PLG-010 for the approval broker; TASK-073 adds the process-supervision codes
+    // (spawn, handshake, timeout, output limit, unexpected exit, undeclared capability, sandbox
+    // violation) with the crate that can return them, so core never names a failure no code path
+    // can reach.
     /// A code in the `PLG` family, the plugin manifest and protocol failure modes.
     ///
     /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
@@ -237,6 +238,12 @@ impl ErrorCode {
     /// frame that is well-formed JSON but not a shape this protocol allows, because both mean the
     /// same thing to the host: the bytes on the pipe cannot be trusted.
     pub const PLG_005: Self = Self::plugin(5);
+    /// Approval was required but could not be obtained, recorded, or shown.
+    ///
+    /// Added by `TASK-072` for the approval broker. A denial with a human-readable reason is an
+    /// expected outcome and does not use this code; this is the failure where the broker cannot
+    /// make a decision it can stand behind, including an audit sink that cannot record it.
+    pub const PLG_010: Self = Self::plugin(10);
     /// A plugin manifest does not satisfy `schemas/plugin-manifest.schema.json` or one of the
     /// cross-field rules the schema cannot express, such as duplicate tool names.
     ///
@@ -505,11 +512,13 @@ mod tests {
     #[test]
     fn the_plugin_codes_render_in_the_documented_format_and_carry_their_own_family() {
         // TASK-070 added the PLG family for the manifest and protocol failures the SDK can return.
-        // The runtime's codes join it in TASK-073; a caller branching on the family must not confuse
-        // a plugin failure with a context finding or a git failure.
+        // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure. The rest of the
+        // runtime's codes join it in TASK-073; a caller branching on the family must not confuse a
+        // plugin failure with a context finding or a git failure.
         for (code, expected) in [
             (ErrorCode::PLG_004, "PLG-004"),
             (ErrorCode::PLG_005, "PLG-005"),
+            (ErrorCode::PLG_010, "PLG-010"),
             (ErrorCode::PLG_011, "PLG-011"),
         ] {
             assert_eq!(code.to_string(), expected);
@@ -530,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_twenty_nine_distinct_codes() {
+    fn the_documented_catalogue_has_thirty_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -560,6 +569,7 @@ mod tests {
             ErrorCode::GIT_006,
             ErrorCode::PLG_004,
             ErrorCode::PLG_005,
+            ErrorCode::PLG_010,
             ErrorCode::PLG_011,
         ];
         let unique: std::collections::BTreeSet<String> =

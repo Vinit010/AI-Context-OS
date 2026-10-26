@@ -182,9 +182,7 @@ mod tests {
 
     #[test]
     fn only_a_decision_event_exposes_an_outcome() {
-        let prompted = ApprovalEvent::Prompted {
-            summary: summary(),
-        };
+        let prompted = ApprovalEvent::Prompted { summary: summary() };
         assert!(prompted.outcome().is_none());
         assert_eq!(prompted.summary().tool(), "aws.ec2.stop");
 

@@ -252,7 +252,8 @@ mod tests {
 
     #[test]
     fn an_empty_reason_is_an_empty_string_not_an_omission() {
-        let request = ApprovalRequest::new("read_file", "local", "", json!({}), PermissionMode::Allow);
+        let request =
+            ApprovalRequest::new("read_file", "local", "", json!({}), PermissionMode::Allow);
         assert_eq!(request.reason(), "");
         assert_eq!(request.target(), "");
     }

@@ -6,13 +6,13 @@ members = [
     "crates/aicontext-git",
     "crates/aicontext-cli",
     "crates/aicontext-permissions",
+    "crates/aicontext-plugin-runtime",
     "crates/aicontext-plugin-sdk",
     "crates/aicontext-providers",
     "crates/aicontext-testkit",
 ]
 # Crates added as their tasks land, per ARCHITECTURE.md 3:
 #   aicontext-audit            (TASK-075)
-#   aicontext-plugin-runtime   (TASK-073)
 # Adding a member without adding it to the boundary matrix in
 # crates/aicontext-testkit/tests/crate_boundaries.rs fails `cargo test`.
 

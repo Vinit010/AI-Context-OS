@@ -19,6 +19,10 @@ path = "src/main.rs"
 aicontext-context = { path = "../aicontext-context" }
 aicontext-core = { path = "../aicontext-core" }
 aicontext-git = { path = "../aicontext-git" }
+# The approval broker itself lives in the runtime crate; the CLI supplies the only terminal and
+# reads the answer. The dependency is present now so TASK-074 can wire the gateway without moving
+# the seam, and `src/approval.rs` is its terminal side. TASK-072.
+aicontext-plugin-runtime = { path = "../aicontext-plugin-runtime" }
 # `connect` builds an adapter and makes one verification call, so the CLI is the first binary to need
 # the provider layer rather than only the trait's neighbours. The edge is allowed by the dependency
 # matrix in `aicontext-testkit/tests/crate_boundaries.rs` and justified in ARCHITECTURE.md 2.2.

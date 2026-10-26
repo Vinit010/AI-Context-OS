@@ -131,6 +131,11 @@ fn help_lists_what_works_and_what_does_not() {
         "doctor is built, so it no longer belongs to the planned list: {}",
         run.stdout
     );
+    assert!(
+        run.stdout.contains("--allow-once"),
+        "the global approval flag must be documented: {}",
+        run.stdout
+    );
 }
 
 #[test]

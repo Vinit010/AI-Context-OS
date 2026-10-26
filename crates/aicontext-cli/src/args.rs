@@ -64,6 +64,11 @@ pub(crate) struct GlobalArgs {
     /// Confirm non-destructive prompts. Never satisfies an explicit-approval prompt.
     #[arg(long, global = true)]
     pub(crate) yes: bool,
+
+    /// Approve one named tool for this run without prompting. Repeatable; never satisfies an
+    /// explicit approval.
+    #[arg(long = "allow-once", global = true, value_name = "tool")]
+    pub(crate) allow_once: Vec<String>,
 }
 
 impl GlobalArgs {
@@ -567,6 +572,7 @@ Flags:
       --config <path>      Use a specific configuration file
       --offline            Fail rather than make any network call
       --yes                Confirm non-destructive prompts; never an explicit approval
+      --allow-once <tool>   Approve one exact tool for this run; repeatable
       --version            Version, plugin API version, and build profile
   -h, --help               This text
 
@@ -674,6 +680,32 @@ mod tests {
         assert_eq!(args.color_choice(), ColorChoice::Never);
         let args = parse(&["aicontext", "init"]);
         assert_eq!(args.color_choice(), ColorChoice::Auto);
+    }
+
+    #[test]
+    fn allow_once_is_repeatable_and_takes_one_exact_tool_name() {
+        let args = parse(&[
+            "aicontext",
+            "status",
+            "--allow-once",
+            "aws.ec2.stop",
+            "--allow-once",
+            "github.issue.create",
+        ]);
+        assert_eq!(
+            args.allow_once,
+            vec!["aws.ec2.stop".to_owned(), "github.issue.create".to_owned()]
+        );
+
+        assert!(
+            Cli::try_parse_from(["aicontext", "status", "--allow-once"]).is_err(),
+            "the flag needs a tool name; a missing value is a usage error, not a blanket allow"
+        );
+        let args = parse(&["aicontext", "status"]);
+        assert!(
+            args.allow_once.is_empty(),
+            "no flag must never mean a grant"
+        );
     }
 
     #[test]

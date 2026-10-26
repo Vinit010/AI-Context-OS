@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod agent;
+mod approval;
 mod archive;
 mod args;
 mod connect;
