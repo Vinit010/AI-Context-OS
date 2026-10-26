@@ -184,6 +184,7 @@ flowchart TD
     CTX["aicontext-context<br/>discovery, parsing, retrieval, validation"]
     GIT["aicontext-git<br/>thin wrapper over the git binary"]
     CORE["aicontext-core<br/>domain types and the error model"]
+    SDK["aicontext-plugin-sdk<br/>manifest and protocol types for plugin authors"]
     PROV["aicontext-providers<br/>AIProvider trait and adapters"]
     TK["aicontext-testkit<br/>fixtures and workspace boundary checks"]
 
@@ -192,8 +193,11 @@ flowchart TD
     CLI --> CORE
     CTX --> CORE
     GIT --> CORE
+    SDK --> CORE
     CLI -.-> PROV
 ```
+
+`aicontext-plugin-sdk` is a library for plugin authors and depends on `aicontext-core` only.
 
 `aicontext-providers` is in the workspace with its interface defined, and is not yet wired to the CLI
 (dashed); `aicontext-testkit` has no crate dependencies of its own — it reads every other crate's

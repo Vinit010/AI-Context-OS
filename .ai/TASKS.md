@@ -11,7 +11,7 @@ updated: 2026-10-26
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-070
+**Current task:** TASK-071
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1497,7 +1497,7 @@ call appears in a verifiable audit chain.
 ```yaml
 id: TASK-070
 title: Define the plugin SDK manifest and protocol types
-status: IN_PROGRESS
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-011]
@@ -1516,6 +1516,68 @@ acceptance:
   - Protocol types are JSON-RPC 2.0 and MCP-compatible
   - The SDK depends only on aicontext-core and never on the runtime or CLI
   - Version negotiation rejects an incompatible plugin with a clear message
+done:
+  - '`crates/aicontext-plugin-sdk/` is a new workspace member with five modules: `manifest.rs`,
+    `protocol.rs`, `version.rs`, `error.rs`, and `lib.rs`. Its only internal dependency is
+    `aicontext-core`; its external dependencies are `serde`, `serde_json`, and `thiserror`, all
+    pre-justified in `ARCHITECTURE.md` 2.2. There is no runtime, CLI, process, pipe, timeout, or
+    network code. `jsonschema` is a dev-dependency only, used to prove the published schema accepts
+    the canonical manifest. The boundary test already listed `aicontext-plugin-sdk` as depending on
+    `aicontext-core` only, so it needed no change'
+  - '`manifest.rs` models `PLUGIN_SPEC` 2 field for field with `deny_unknown_fields`, a 1 MiB
+    hostile-input cap, and checks for the plugin-name and three-segment tool patterns, `SemVer`,
+    duplicate tools, empty auth references, and empty filesystem or network entries.
+    `destructive: true` must accompany `effect: write`, and `Capability::permission_floor()` returns
+    `PermissionMode::ExplicitApproval`, so a manifest cannot lower its own approval floor.
+    `plugin_api_version` is parsed but deliberately not negotiated by `from_json`: a well-formed
+    newer version must reach `negotiate` and receive `PLG-004`, while a malformed one is `PLG-011`'
+  - '`schemas/plugin-manifest.schema.json` is new, self-contained Draft 2020-12 with an `$id`
+    matching the file name, `additionalProperties: false` at every object level, the same name,
+    tool, and `SemVer` patterns as the SDK, and an `allOf` rule that rejects `destructive: true` on
+    a read capability. `plugin_api_version` is a four-digit decimal string rather than `const "1"`,
+    so a plugin written for a future API version validates and is rejected at negotiation with both
+    versions named. The canonical fixture `tests/fixtures/aws.json` is the `PLUGIN_SPEC` 2 manifest;
+    `tests/manifest_schema.rs` proves it validates, proves the schema itself is meta-schema-valid,
+    and proves individual mutations fail for the documented reasons'
+  - '`protocol.rs` defines JSON-RPC 2.0 request, notification, success, and error envelopes with the
+    six `PLUGIN_SPEC` 4 methods and a checked direction for each. `RequestId` accepts non-negative
+    integers and strings; `FrameCodec` enforces one newline-terminated object per line and a
+    caller-chosen byte cap. Tool descriptors accept MCP `name`, `description`, and `inputSchema` on
+    input while emitting `tool`, `summary`, and `input_schema`; `CallToolResult` accepts `isError`
+    as an alias for `is_error`; MCP content blocks, tool annotations, and unknown fields survive a
+    round trip. `initialize`, `tools/list`, `tools/call`, `shutdown`, `log`, and
+    `host/request_approval` all have typed params and results'
+  - '`version.rs` parses a single decimal plugin API version, exposes `ApiVersion::CURRENT` and
+    `SUPPORTED`, and implements `negotiate`. A mismatch returns
+    `PluginError::ApiVersionMismatch`, which maps to `PLG-004` and names both the plugin''s version
+    and the host''s. A malformed value returns `PLG-011`. A host that later supports more than one
+    version only widens `SUPPORTED`; the plugin-facing call does not change'
+  - '`crates/aicontext-core/src/error.rs` adds `ErrorFamily::Plugin` and `ErrorCode::plugin`, with
+    only the three codes this task can produce: `PLG_004` mismatch, `PLG_005` invalid frame, and the
+    additive `PLG_011` invalid manifest. TASK-073 adds the process-supervision codes with the
+    runtime that can return them. The catalogue test is now 29 distinct codes, and a new test
+    proves `PLG-004` and `CTX-004` share a number but not a rendered code'
+  - '`docs/PLUGIN_SPEC.md` 4 lists `PLG-011` invalid manifest. `docs/PLUGIN_SPEC.md` 2 already
+    requires negotiation at handshake; the schema and SDK now implement it.
+    `crates/aicontext-cli/tests/schemas.rs` adds `plugin-manifest.schema.json` to
+    `EXPECTED_SCHEMAS` and says why a published external contract belongs there. `README.md` lists
+    the SDK, shows it depending on core in the diagram, and removes it from the not-yet-created list'
+  - 'Tests: 47 unit tests in the SDK, 11 schema-contract tests, and 2 doctests. The schema tests
+    cover the canonical manifest, a minimal manifest, a newer API version that must be schema-valid,
+    malformed versions, destructive-read rejection, unknown fields, two-segment tool names, a
+    missing filesystem block, and an unknown auth source. The workspace suite is 958 passed, 0
+    failed'
+  - 'Gates: `cargo fmt --all`, `cargo check -p aicontext-plugin-sdk --all-targets`, `cargo clippy
+    --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (958
+    passed), `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, `aicontext
+    doctor` (exit 0, only the pre-existing `CTX-012` warning about missing `.ai/schemas` copies),
+    and `git diff --check`. No `unwrap` or `expect` outside tests, no `unsafe` outside the `forbid`
+    attribute, and no secret values in the crate, tests, or fixtures'
+  - 'Deliberately not done: no plugin runtime, process spawn, supervisor, install/list/remove
+    command, approval broker, MCP bridge, or CLI wiring. Those are TASK-072 to TASK-078. The SDK
+    intentionally does not validate the full schema at run time; install (TASK-077) does that. The
+    plugin schema is not scaffolded into `.ai/schemas` because it governs an external plugin
+    artefact, not an `.ai/` document, so `doctor` still reports 20 documents'
 ```
 
 ### TASK-071 — Implement the permission resolver

@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn a_decimal_version_round_trips() {
-        for raw in ["1", "2", "65535"] {
+        for raw in ["1", "2", "9999"] {
             let version = ApiVersion::parse(raw).expect("a decimal version");
             assert_eq!(version.to_string(), raw);
         }

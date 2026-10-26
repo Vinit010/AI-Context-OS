@@ -23,8 +23,8 @@
     },
     "plugin_api_version": {
       "type": "string",
-      "pattern": "^[1-9][0-9]{0,4}$",
-      "maxLength": 5,
+      "pattern": "^[1-9][0-9]{0,3}$",
+      "maxLength": 4,
       "description": "The plugin API version negotiated at handshake. A single decimal number; a valid but unsupported version is refused with PLG-004 rather than a schema failure."
     },
     "name": {
