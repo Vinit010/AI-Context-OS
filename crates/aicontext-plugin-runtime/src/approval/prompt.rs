@@ -2,13 +2,14 @@
 //!
 //! The prompt is plain text on stderr, not a full-screen TUI (`Q-4`, `MEM-039`). Plain text is
 //! what lets a redirected run print the prompt and deny, and it is what lets the tests assert the
-//! exact bytes a human sees. The rendering escapes every caller-controlled field with JSON rules,
-//! so a newline or an ANSI escape in an argument or reason cannot forge another prompt line.
+//! exact bytes a human sees. Every caller-controlled field is JSON-escaped - the text fields by
+//! quoting them, the argument set by its compact JSON form - so a newline or an ANSI escape cannot
+//! forge another prompt line.
 //!
 //! Only the literal answer [`APPROVAL_ANSWER`] approves, after surrounding whitespace is removed.
 //! Everything else - including `y`, `YES`, and a blank line - is a denial.
 
-use super::request::{ApprovalRequest, push_hex_byte};
+use super::request::ApprovalRequest;
 
 /// The one answer that approves a call.
 pub const APPROVAL_ANSWER: &str = "yes";
@@ -59,16 +60,20 @@ pub enum PromptError {
 /// Renders the exact text a human sees before an approval decision.
 ///
 /// The order is fixed by `docs/PLUGIN_SPEC.md` §6: tool, plugin, target, arguments, reason, mode.
-/// The arguments are the compact JSON form, which is also the bytes the audit digest covers.
+///
+/// The caller-controlled text fields are quoted and escaped so a newline in a target or a reason
+/// cannot forge another prompt line. The arguments are shown as compact JSON, whose own escaping
+/// makes a raw newline impossible, and that is also the exact byte string the audit digest covers.
+/// The mode is a word from the fixed permission vocabulary, so it needs no quoting to be unambiguous.
 #[must_use]
 pub fn render_prompt(request: &ApprovalRequest) -> String {
     let mut prompt = String::from("Approval required.\n");
     push_field(&mut prompt, "tool", request.tool());
     push_field(&mut prompt, "plugin", request.plugin());
     push_field(&mut prompt, "target", request.target());
-    push_field(&mut prompt, "arguments", &request.arguments().to_string());
+    push_raw_field(&mut prompt, "arguments", &request.arguments().to_string());
     push_field(&mut prompt, "reason", request.reason());
-    push_field(&mut prompt, "mode", request.mode().as_str());
+    push_raw_field(&mut prompt, "mode", request.mode().as_str());
     prompt.push_str(
         "\nType `yes` to allow this call once; anything else denies.\n\
          > ",
@@ -86,6 +91,23 @@ pub(crate) fn is_approval_answer(answer: &str) -> bool {
 
 /// One `  label:     "escaped value"` line.
 fn push_field(prompt: &mut String, label: &str, value: &str) {
+    push_label(prompt, label);
+    push_quoted(prompt, value);
+    prompt.push('\n');
+}
+
+/// One `  label:     value` line for a value that cannot contain a newline.
+///
+/// Only used for compact JSON and the permission vocabulary. Both are single-line by construction,
+/// so printing them unquoted keeps the argument set readable instead of double-escaping it.
+fn push_raw_field(prompt: &mut String, label: &str, value: &str) {
+    push_label(prompt, label);
+    prompt.push_str(value);
+    prompt.push('\n');
+}
+
+/// The `  label:` prefix and its padding, shared by both field kinds.
+fn push_label(prompt: &mut String, label: &str) {
     prompt.push_str("  ");
     prompt.push_str(label);
     prompt.push(':');
@@ -95,8 +117,6 @@ fn push_field(prompt: &mut String, label: &str, value: &str) {
         prompt.push(' ');
     }
     prompt.push(' ');
-    push_quoted(prompt, value);
-    prompt.push('\n');
 }
 
 /// JSON-style quoting for one field.
@@ -123,10 +143,11 @@ fn push_quoted(text: &mut String, value: &str) {
 /// JSON's four-digit form is enough for every character `char::is_control` returns; the C1 range
 /// ends at `U+009F`.
 fn push_hex_escape(text: &mut String, code: u32) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     text.push_str("\\u");
     for shift in [12, 8, 4, 0] {
-        let nibble = ((code >> shift) & 0x0f) as u8;
-        push_hex_byte(text, nibble);
+        let nibble = ((code >> shift) & 0x0f) as usize;
+        text.push(char::from(HEX[nibble]));
     }
 }
 

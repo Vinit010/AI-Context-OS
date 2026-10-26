@@ -213,13 +213,22 @@ capability, and its property tests exercise arbitrary rule sets in either file o
 `EXPLICIT_APPROVAL` is evaluated per invocation. It is never granted for a session, never stored as
 a grant, and never satisfiable by a non-interactive flag.
 
-`APPROVAL` may be satisfied per invocation, for a session in an interactive TTY, or — in a
-non-interactive environment — only by a scoped grant created explicitly for that run
-(`--allow-once <tool>`, repeated per tool). There is no blanket `--yes`.
+`APPROVAL` may be satisfied per invocation: by an exact `--allow-once <tool>` grant for that run, or
+by answering the prompt in an interactive terminal. There is no blanket `--yes`. A session grant is
+not implemented yet; `TASK-072` implements the per-invocation decision only.
 
-The prompt shows, in this order and verbatim: the tool name, the plugin, the target resource, the
-full argument set, the reason supplied by the caller, and the permission mode. The default answer
-on Enter, timeout, EOF, or non-TTY is **deny**.
+The prompt is line-based plain text on stderr, not a full-screen TUI. It shows, in this order and
+verbatim: the tool name, the plugin, the target resource, the full argument set as compact JSON, the
+reason supplied by the caller, and the permission mode. Caller-controlled text is JSON-quoted and
+escaped, and the argument set is compact JSON, so no field can introduce a prompt line of its own.
+Only the literal answer `yes`, after trimming surrounding whitespace, approves; Enter (an empty
+line), `y`, `YES`, and every other answer deny. The terminal prompter caps an answer at 64 bytes and
+installs no signal handler and no wall-clock timer; an interrupted read and a prompter-reported
+timeout are denials. The default answer on Enter, timeout, EOF, non-TTY, or an over-long answer is
+**deny**.
+
+Every prompt is recorded before it is shown and every decision after it is reached. If either audit
+record fails, the call is refused with `PLG-010` (`SECURITY.md` §9).
 
 ### Risk R-8 — approval fatigue
 

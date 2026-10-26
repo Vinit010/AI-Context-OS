@@ -872,7 +872,7 @@ once its source exists.
 | Q-1 | Which YAML crate? `serde_yaml` is widely used but its maintenance status needs checking; a maintained fork may be required | TASK-016 | **RESOLVED in TASK-016: `yaml_serde` 0.10, see `ADR-007` and `MEM-010`** |
 | Q-2 | JSON Schema validator crate choice, and whether we accept its transitive weight | TASK-015 | **PARTLY RESOLVED in TASK-015: `jsonschema` 0.58.3, `default-features = false`, dev-only for CI meta-validation. The runtime `Validator` remains open for TASK-014** |
 | Q-3 | Should `doctor` fail the build on a deprecation warning, or only on errors? | TASK-014 | Phase 1 |
-| Q-4 | Is the approval prompt a full-screen TUI, or a line-based prompt that composes with pipes? | TASK-072 | Phase 4 |
+| Q-4 | Is the approval prompt a full-screen TUI, or a line-based prompt that composes with pipes? | TASK-072 | **RESOLVED in TASK-072: a line-based plain-text prompt on stderr, not a TUI; only the literal `yes` approves and every missing answer denies, see `MEM-039`** |
 | Q-5 | Does an audit record need a stable third-party timestamp authority to resist backdating? | TASK-075 | Phase 4 |
 | Q-6 | Task inline-vs-split threshold is set at 300 entities; confirm against real usage before Phase 4 | TASK-038 | **RESOLVED in TASK-038: the register holds 41 inline tasks, well under the 300-entity threshold, and `aicontext health` now reports the register's task count, so crossing it is observable. Keep 300 and revisit if the count approaches it** |
 
@@ -1284,6 +1284,45 @@ wildcard `APPROVAL` is intentional because step 6 precedes step 7; the earlier "
 always beats a wildcard" wording contradicted the table and was removed. `DecisionSource` records
 which step matched, including `Destructive`, so an audit entry can explain the result without
 re-resolving against a policy that may have changed.
+
+## MEM-039 — An approval prompt is one line-based exchange on stderr, and only the literal `yes` is consent
+
+```yaml
+id: MEM-039
+category: constraint
+scope: approval
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [approval, prompt, cli, non-interactive, audit, deny-by-default, task-072]
+```
+
+`Q-4` is resolved by `TASK-072`: the approval prompt is plain text on stderr, not a full-screen TUI.
+A line-based prompt composes with pipes, lets a redirected run print the text and deny with exit 5,
+and lets a test assert the exact bytes a human sees without a terminal emulator. The prompt order is
+fixed - tool, plugin, target, compact-JSON arguments, caller's reason, permission mode - and every
+caller-controlled field is escaped so an argument, target, or reason cannot forge another prompt
+line. Only the literal word `yes`, after trimming surrounding whitespace, approves; Enter (an empty
+line), `y`, `YES`, punctuation, and every other word deny. A non-interactive invocation prints the
+prompt and denies without reading stdin, because a pipe is not a human, and the terminal prompter
+caps an answer at 64 bytes so an over-long answer denies rather than becoming a truncated `yes`.
+
+The decision matrix is total and per-invocation. `ALLOW` and `DENY` answer without a prompt or an
+audit event; `APPROVAL` accepts an exact `--allow-once <tool>` match or prompts; `EXPLICIT_APPROVAL`
+always prompts and ignores the flag. There is no blanket `--yes` and no session grant: a future
+session grant must be added to the broker deliberately, never inferred from a prior answer. Every
+prompt is recorded before it is shown and every decision after it is reached, so an interrupted
+prompt still leaves a trace. An audit sink that cannot record either event refuses the call with
+`PLG-010`; an approval that cannot be audited is not an approval.
+
+The audit event carries an `ApprovalSummary`, not the request: arguments become `sha256:<hex>` of
+their compact JSON and the free-form reason is omitted. The type makes the exclusion structural,
+since the summary has no field able to hold either value. The terminal prompter installs no signal
+handler and no wall-clock timer; it reports end of input and interrupted reads, and the broker maps
+every prompter error - including a reported timeout - to a denial. `TASK-074` still has to wire the
+broker and terminal into the single tool gateway and map a denial to exit 5; `TASK-075` still has to
+make the audit sink durable.
 
 ## Bugs encountered
 

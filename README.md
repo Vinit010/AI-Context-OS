@@ -68,10 +68,10 @@ tree.
 
 Every other command in the plan refuses to run and names the task that will build it. Phase 3 is
 complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
-adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has
-started with the plugin SDK and the pure permission resolver; the approval broker, plugin runtime,
-and audit log follow. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list
-of what is being built, in what order, and what "done" means for each item.
+adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has started with the
+plugin SDK, the pure permission resolver, and the approval broker; the plugin supervisor and audit
+log follow. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
+being built, in what order, and what "done" means for each item.
 
 ```sh
 cargo run -p aicontext-cli -- init --dry-run   # show the plan, write nothing
@@ -116,8 +116,8 @@ verification call before writing anything, and `agent run` is plan-only.
 Project knowledge is committed to the repository under `.ai/`. The CLI reads it, assembles a
 **context packet** for a specific task, and hands that packet to a model as *plan mode only*: the
 model proposes, the human approves, and only then does anything with write access run. The context
-engine, provider layer, and plan-mode agent loop exist today; the tool gateway and approval broker
-under the human-approval step are the next Phase 4 work.
+engine, provider layer, plan-mode agent loop, and the approval broker exist today; the tool gateway
+that wires the broker to a plugin is the next Phase 4 work.
 
 ```mermaid
 flowchart LR
@@ -195,21 +195,26 @@ flowchart TD
     SDK["aicontext-plugin-sdk<br/>manifest and protocol types for plugin authors"]
     PERM["aicontext-permissions<br/>policy model and pure resolver"]
     PROV["aicontext-providers<br/>AIProvider trait and adapters"]
+    RT["aicontext-plugin-runtime<br/>approval broker"]
     TK["aicontext-testkit<br/>fixtures and workspace boundary checks"]
 
     CLI --> CTX
     CLI --> GIT
     CLI --> CORE
     CLI --> PROV
+    CLI --> RT
     CTX --> CORE
     GIT --> CORE
     SDK --> CORE
     PERM --> CORE
+    RT --> CORE
 ```
 
 `aicontext-plugin-sdk` is a library for plugin authors and depends on `aicontext-core` only.
 `aicontext-permissions` is pure policy data and resolution: no loader, no prompt, no audit entry,
-and no I/O of any kind.
+and no I/O of any kind. `aicontext-plugin-runtime` owns the approval decision and its two seams, but
+it has no terminal, clock, or log of its own: the CLI supplies the only terminal, and the durable
+hash-chained log is `TASK-075`.
 
 `aicontext-providers` is wired to the CLI: `connect` uses it for one verification call, and
 `agent run` uses it to plan. `aicontext-testkit` has no internal crate dependency — it reads every
@@ -222,6 +227,7 @@ crates/
   aicontext-git            # thin wrapper over the git binary
   aicontext-permissions    # policy model and pure permission resolver
   aicontext-plugin-sdk     # manifest and protocol types for plugin authors
+  aicontext-plugin-runtime # approval broker; process supervisor follows in TASK-073
   aicontext-providers      # AIProvider trait, neutral types, and the registry
   aicontext-cli            # the `aicontext` binary
   aicontext-testkit        # test support: manifest reader, boundary policy
@@ -230,10 +236,9 @@ docs/                      # normative specifications
 .github/workflows/         # CI
 ```
 
-Two more crates are specified but do not exist yet: `aicontext-plugin-runtime` and
-`aicontext-audit`. They are added by the task that needs them, and never speculatively.
-`aicontext-plugin-sdk` and `aicontext-permissions` depend on `aicontext-core` only, so a plugin
-author never links the runtime or the CLI.
+One more crate is specified but does not exist yet: `aicontext-audit`, added by `TASK-075`. The
+plugin SDK and permissions crate depend on `aicontext-core` only, and the runtime is a library with
+no terminal or log of its own, so a plugin author never links the runtime or the CLI.
 
 The dependency graph is a DAG pointing inward toward `aicontext-core`, and it is checked by
 `crates/aicontext-testkit/tests/crate_boundaries.rs` on every CI run. Adding a workspace member

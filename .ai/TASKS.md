@@ -11,7 +11,7 @@ updated: 2026-10-26
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-072
+**Current task:** TASK-073
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1651,17 +1651,72 @@ done:
 ```yaml
 id: TASK-072
 title: Implement the approval broker
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-071]
 spec: docs/SECURITY.md
 touches: ["crates/aicontext-plugin-runtime/**", "crates/aicontext-cli/**"]
+scope_notes:
+  - 'Root Cargo.toml, Cargo.lock, crates/aicontext-core/src/error.rs, docs/SECURITY.md,
+    docs/PLUGIN_SPEC.md, docs/CLI_SPEC.md, README.md, and .ai/MEMORY.md are touched beside the
+    declared crates. A new workspace member needs the root member list and lockfile; PLG-010 belongs
+    in the one error catalogue; the prompt behaviour is specified in SECURITY 9 and PLUGIN_SPEC 6;
+    the global flag belongs in CLI_SPEC 2; the README must name the crate; and MEMORY records the
+    prompt mechanism and resolves Q-4.'
 acceptance:
   - A TTY prompt shows the tool, target, arguments, and reason, and requires an explicit answer
   - A non-interactive session denies rather than assuming consent
   - EXPLICIT_APPROVAL cannot be granted for a session; it is per invocation
   - Every prompt and every answer is audited
+done:
+  - '`crates/aicontext-plugin-runtime/` is a new workspace member with an `approval` module:
+    `request.rs`, `event.rs`, `prompt.rs`, `broker.rs`, `error.rs`, and `mod.rs`. Production
+    dependencies are `aicontext-core`, `serde_json`, `sha2`, and `thiserror`; `aicontext-permissions`
+    is dev-only so the I4 test starts at the resolver''s destructive floor. There is no terminal I/O,
+    file access, clock, randomness, environment read, process spawn, or audit log in the crate'
+  - '`ApprovalBroker` is total over the four modes: ALLOW and DENY answer with no prompt and no
+    event; APPROVAL accepts an exact `--allow-once` match or prompts; EXPLICIT_APPROVAL always
+    prompts and never consults the flag. Only the literal `yes` after trimming approves; Enter, `y`,
+    `YES`, and every other answer deny. Every prompt failure maps to its own `DenialReason`
+    (`NotInteractive`, `EndOfInput`, `Interrupted`, `TimedOut`, `AnswerTooLong`, `PromptFailed`), and
+    the mode/flag/answer matrix is exercised exhaustively'
+  - '`ApprovalEvent::Prompted` is recorded before the prompt is shown and `Decided` after the answer,
+    with a shared timeline test proving the order. An audit failure at either point returns
+    `ApprovalError::Audit` carrying `PLG-010` and refuses the call; the human is not asked when the
+    prompt cannot be recorded. Events carry `ApprovalSummary`, which stores `sha256:<hex>` of the
+    compact JSON arguments and has no field for the raw arguments or the reason'
+  - 'The prompt is plain text on stderr with the fields in PLUGIN_SPEC 6 order: tool, plugin, target,
+    arguments, reason, mode. Text fields are JSON-quoted and escaped, including `\uNNNN` for control
+    characters, so a newline or ANSI escape cannot forge a line; arguments are compact JSON and the
+    mode is the fixed vocabulary word. The layout has nine newlines regardless of field content'
+  - '`crates/aicontext-cli/src/approval.rs` adds `TerminalPrompter`, the only terminal: it writes the
+    prompt to stderr, refuses without reading stdin when stdin and stderr are not both terminals,
+    distinguishes EOF, interrupted reads, I/O failures, and answers over 64 bytes. Tests drive the
+    exact bytes a human would type and see. `--allow-once <tool>` joins the global flags as a
+    repeatable, exact-match value with parse and help-text tests; it is not wired into a gateway yet'
+  - '`ErrorCode::PLG_010` is added to `aicontext-core` and the documented catalogue test now requires
+    30 distinct codes. The PLG-010 documentation says a denial is an expected outcome and this code
+    is the broker failure that makes a decision unavailable'
+  - 'Tests: 29 runtime unit tests and 1 doctest, 6 `TerminalPrompter` tests, and 1 `--allow-once`
+    parse test. The suite is 1031 passed, 0 failed (was 994); the acceptance names
+    `non_interactive_denies_by_default` (I9) and `destructive_requires_explicit_approval_each_call`
+    (I4) are both present'
+  - 'Docs: SECURITY 9 states the prompt, the literal-answer rule, the 64-byte cap, the absence of a
+    terminal timer, and the audit refusal; PLUGIN_SPEC 6 states the per-invocation matrix; CLI_SPEC 2
+    lists `--allow-once` and the `init` Q-4 sentence now points at the broker prompt instead of an
+    undecided mechanism; README adds the crate to the graph and layout and leaves only
+    `aicontext-audit` uncreated; MEMORY adds MEM-039 and resolves Q-4'
+  - 'Gates: `cargo fmt --all --check`; `cargo check --workspace --all-targets --locked`; `cargo
+    clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`
+    (1031 passed, 0 failed); `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`;
+    `aicontext doctor` (exit 0, only the pre-existing CTX-012 warning about no `.ai/schemas` copies);
+    and `git diff --check`. No `unwrap` or `expect` outside tests, no `unsafe` outside the `forbid`
+    attribute, and no secret value in the crate, tests, or docs'
+  - 'Deliberately not done: no session grant, no tool gateway or CLI exit-code wiring (TASK-074), no
+    durable hash-chained log (TASK-075), no full-screen TUI, no SIGINT handler, no wall-clock timeout
+    in the terminal prompter, and no policy-file loader. A session grant must be added to the broker
+    deliberately rather than inferred from a previous answer'
 ```
 
 ### TASK-073 — Implement the plugin runtime supervisor

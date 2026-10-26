@@ -185,15 +185,31 @@ unconditionally.
 
 ## 9. Non-interactive behaviour
 
+The approval prompt is line-based plain text on stderr, never a full-screen TUI (`Q-4`, `MEM-039`).
+It shows the tool, plugin, target, compact-JSON arguments, the caller's reason, and the permission
+mode, in that order; every caller-controlled field is escaped so it cannot forge a prompt line. Only
+the literal `yes`, after surrounding whitespace is trimmed, approves. Enter (an empty line), `y`,
+`YES`, and every other word deny.
+
 | Situation | Behaviour |
 |-----------|-----------|
 | Approval required, no TTY | **Deny**, exit 5, with the prompt text printed to stderr |
-| `--allow-once <tool>` given | That single tool is approved for that single call |
-| `EXPLICIT_APPROVAL` required | Always denied; the flag cannot satisfy it |
+| `--allow-once <tool>` given | That exact tool is approved for that single call; no effect on `EXPLICIT_APPROVAL` |
+| `EXPLICIT_APPROVAL` required | Always prompts per invocation; the flag cannot satisfy it |
 | Timeout on prompt | Deny |
 | EOF / Ctrl-C on prompt | Deny |
+| Answer other than literal `yes` | Deny |
+| Prompt or decision cannot be audited | **Deny** with `PLG-010`; the call is refused |
 
-Absence of a human is a deny. It is never an inferred consent.
+Absence of a human is a deny. It is never an inferred consent. A non-interactive invocation prints
+the prompt and denies without reading stdin, because a pipe is not a human. The terminal prompter
+itself has no wall-clock timeout and no signal handler: it reports end of input and interrupted
+reads, and the broker maps a prompter-reported timeout to a denial. Answers are capped at 64 bytes,
+and an over-long answer is a denial rather than a truncated `yes`.
+
+A prompt is recorded before it is shown and the decision after it is reached, so an interrupted
+prompt still leaves a trace. A sink that cannot record either event refuses the call; an approval
+that cannot be audited is not an approval (§8).
 
 ---
 

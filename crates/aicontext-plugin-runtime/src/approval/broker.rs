@@ -103,13 +103,13 @@ impl<P: Prompter, A: ApprovalAudit> ApprovalBroker<P, A> {
             let outcome = ApprovalOutcome::Allowed {
                 grant: ApprovalGrant::AllowOnce,
             };
-            self.record(ApprovalEvent::Decided { summary, outcome })?;
+            self.record(&ApprovalEvent::Decided { summary, outcome })?;
             return Ok(outcome);
         }
 
         let prompt = render_prompt(request);
         // Record before showing: a prompt the human saw is a fact even if the answer never arrives.
-        self.record(ApprovalEvent::Prompted {
+        self.record(&ApprovalEvent::Prompted {
             summary: summary.clone(),
         })?;
         let outcome = match self.prompter.ask(&prompt) {
@@ -138,14 +138,14 @@ impl<P: Prompter, A: ApprovalAudit> ApprovalBroker<P, A> {
                 reason: DenialReason::PromptFailed,
             },
         };
-        self.record(ApprovalEvent::Decided { summary, outcome })?;
+        self.record(&ApprovalEvent::Decided { summary, outcome })?;
         Ok(outcome)
     }
 
     /// Records one event or refuses the call.
-    fn record(&mut self, event: ApprovalEvent) -> Result<(), ApprovalError> {
+    fn record(&mut self, event: &ApprovalEvent) -> Result<(), ApprovalError> {
         self.audit
-            .record(&event)
+            .record(event)
             .map_err(|error| ApprovalError::Audit {
                 message: error.to_string(),
             })

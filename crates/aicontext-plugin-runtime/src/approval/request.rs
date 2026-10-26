@@ -179,7 +179,7 @@ fn arguments_digest(arguments: &Value) -> String {
 }
 
 /// Appends two lowercase hex digits, without a `hex` dependency or a fallible `write!`.
-pub(super) fn push_hex_byte(text: &mut String, byte: u8) {
+fn push_hex_byte(text: &mut String, byte: u8) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     text.push(char::from(HEX[usize::from(byte >> 4)]));
     text.push(char::from(HEX[usize::from(byte & 0x0f)]));

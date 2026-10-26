@@ -30,6 +30,7 @@ breaking change requiring a major version bump.
 | `--config <path>` | Use a specific config file |
 | `--offline` | Fail rather than make any network call |
 | `--yes` | Confirm non-destructive prompts only; never satisfies `EXPLICIT_APPROVAL` |
+| `--allow-once <tool>` | Approve one exact tool for this run without prompting; repeatable. Ignored for `EXPLICIT_APPROVAL` |
 | `--version` | Print version, plugin API version, and build profile |
 | `--help` | Usage, including what the command changes and what it requires |
 
@@ -95,8 +96,9 @@ Guarantees: idempotent; never overwrites an edited document without `--force`; n
 anything outside `.ai/` and `.gitignore`; validates its own output and reports the next commands.
 
 `--force` is deliberately not a second confirmation prompt. Approval requires a human, and a human
-who typed `--force` at a terminal is the approval; `Q-4` leaves the prompt *mechanism* undecided
-(`TASK-072`), so `init` does not invent one. `--yes` never satisfies this check.
+who typed `--force` at a terminal is the approval; the approval broker's line-based prompt
+(`SECURITY.md` §9) belongs to tool calls, so `init` does not invent its own. `--yes` never satisfies
+this check.
 
 Schemas are materialised into `.ai/schemas/` by `TASK-015`: all 20 files, copied from the `schemas/`
 source at compile time, so a scaffolded project receives exactly the bytes CI validated against the
