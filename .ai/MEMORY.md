@@ -1324,9 +1324,45 @@ every prompter error - including a reported timeout - to a denial. `TASK-074` st
 broker and terminal into the single tool gateway and map a denial to exit 5; `TASK-075` still has to
 make the audit sink durable.
 
+## MEM-040 — An MSRV is proved by building on 1.85, and nothing else proves it
+
+```yaml
+id: MEM-040
+category: bug
+scope: build
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [msrv, ci, dependencies, let-chains, resolver, BUG-006]
+```
+
+`BUG-006` is the eighth defect found before a consumer saw it. The `msrv (1.85)` job failed twice in
+sequence: first in `ignore` 0.4.30, whose new incremental walker uses a let-chain but whose manifest
+declares no `rust-version`, so the MSRV-aware resolver had nothing to reject it by; then in
+`wildcard_matches` in `aicontext-permissions`, written by `TASK-071` as a three-arm let-chain. Both
+constructs are accepted by the pinned 1.95 toolchain, so `verify`, `clippy`, and the ordinary test job
+were green. Only a build on 1.85 could see either failure.
+
+Two rules follow. While the MSRV is below 1.88, let-chains are forbidden in workspace code; use
+`let ... else` or nested matches, which express the same early return and compile on 1.85. A dependency
+that declares no `rust-version` must be exact-pinned when a release starts using newer language
+features, because "the newest release that keeps our floor" is a claim to prove by building with
+`cargo +1.85.0`, not to infer from published metadata.
+
+For every dependency update or language-level change, run the real floor before pushing:
+
+```
+cargo +1.85.0 build --workspace --all-targets --locked
+cargo +1.85.0 test --workspace --locked
+```
+
+The CI job is the detection; a local 1.85 run is the prevention. See
+`.ai/bugs/BUG-006-msrv-let-chain-break.md`.
+
 ## Bugs encountered
 
-None shipped. Seven defects were found before a consumer saw them. Two were found by running the
+None shipped. Eight defects were found before a consumer saw them. Two were found by running the
 binary against a scratch project before TASK-012 was closed and are recorded under `MEM-013`:
 reported paths carried the Windows verbatim `\\?\` prefix, and the counts line said `directorys`.
 Both are fixed and covered by tests. The third was found by the integration suite on its first run,
@@ -1349,7 +1385,12 @@ closing `TASK-051`, was the same private-link defect as the fifth in a second cr
 `aicontext-context`'s public `discovery` documents linked to two private constants, filed under
 `.ai/bugs/BUG-005-private-intra-doc-link-discovery.md`. Its lesson is that a guard written down is not
 yet a habit - the flag-carrying documentation command has to run over the whole workspace every time,
-because the defect surfaces in a crate the current task is not touching (`MEM-031`).
+because the defect surfaces in a crate the current task is not touching (`MEM-031`). The eighth, found
+by CI when `TASK-072` was pushed, was the 1.85 floor broken twice at once: `ignore` 0.4.30's new
+incremental walker and the permission resolver's `wildcard_matches` both used let-chains, which the
+pinned 1.95 toolchain accepts but 1.85 does not, filed under
+`.ai/bugs/BUG-006-msrv-let-chain-break.md`. Its lesson is that an ordinary build cannot prove an MSRV;
+only a build on the declared floor can (`MEM-040`).
 
 Record under `MEM-0NN` with `category: bug` when the next one appears, and always file the full
 root-cause analysis under `.ai/bugs/BUG-NNN.md`.

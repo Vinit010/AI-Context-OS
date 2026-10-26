@@ -213,13 +213,16 @@ fn rule_matches(rule: &Rule, tool: &str) -> bool {
 /// a [`Rule`] exists, but this function is total for any `&str` so a caller cannot construct a
 /// match by bypassing validation.
 fn wildcard_matches(pattern: &str, tool: &str) -> bool {
-    if let Some(prefix) = pattern.strip_suffix(".*")
-        && let Some(rest) = tool.strip_prefix(prefix)
-        && let Some(action) = rest.strip_prefix('.')
-    {
-        return !action.is_empty() && !action.contains('.');
-    }
-    false
+    let Some(prefix) = pattern.strip_suffix(".*") else {
+        return false;
+    };
+    let Some(rest) = tool.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some(action) = rest.strip_prefix('.') else {
+        return false;
+    };
+    !action.is_empty() && !action.contains('.')
 }
 
 #[cfg(test)]

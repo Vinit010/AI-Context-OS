@@ -1713,6 +1713,11 @@ done:
     `aicontext doctor` (exit 0, only the pre-existing CTX-012 warning about no `.ai/schemas` copies);
     and `git diff --check`. No `unwrap` or `expect` outside tests, no `unsafe` outside the `forbid`
     attribute, and no secret value in the crate, tests, or docs'
+  - 'The first push exposed `BUG-006` in the 1.85 job: `ignore` 0.4.30 and TASK-071''s resolver both
+    used let-chains, which the pinned 1.95 toolchain accepts and 1.85 rejects. The dependency is
+    pinned to `=0.4.29`, `wildcard_matches` uses `let ... else`, and both `cargo +1.85.0 build
+    --workspace --all-targets --locked` and `cargo +1.85.0 test --workspace --locked` pass with 1031
+    tests. The analysis is in `.ai/bugs/BUG-006-msrv-let-chain-break.md` and `MEM-040`'
   - 'Deliberately not done: no session grant, no tool gateway or CLI exit-code wiring (TASK-074), no
     durable hash-chained log (TASK-075), no full-screen TUI, no SIGINT handler, no wall-clock timeout
     in the terminal prompter, and no policy-file loader. A session grant must be added to the broker

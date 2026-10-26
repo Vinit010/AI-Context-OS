@@ -80,10 +80,12 @@ module_name_repetitions = "allow"
 #   ignore     - file discovery that respects `.gitignore`, so the index sees exactly the documents a
 #                human would, and a local scratch file in `.ai/` stays out of it without a second
 #                ignore format of our own. Pre-justified in ARCHITECTURE.md 2.2 ("walking .ai/ while
-#                respecting ignore files"). Pinned to 0.4: 0.4.30 is the newest release that keeps our
-#                1.85 floor (0.4.33 wants 1.88), and hand-rolling the precedence rules between
-#                .gitignore, .git/info/exclude and the global file is exactly the kind of correctness
-#                that is cheaper to depend on than to re-derive. TASK-031.
+#                respecting ignore files"). Pinned exactly to 0.4.29: 0.4.30 added an incremental
+#                walker that uses let-chains (Rust 1.88) and declares no `rust-version` for the
+#                MSRV-aware resolver to see; 0.4.29 is the newest release that builds on the 1.85
+#                floor. Hand-rolling the precedence rules between .gitignore, .git/info/exclude and
+#                the global file is exactly the kind of correctness that is cheaper to depend on
+#                than to re-derive. TASK-031.
 #   async-trait - the AIProvider trait is `async` and dyn-compatible (the registry holds
 #                `Box<dyn AIProvider>`), and a native async fn in a trait is neither dyn-compatible
 #                nor object-safe. This is the macro docs/AI_PROVIDER_SPEC.md 2 names. TASK-050.
@@ -127,7 +129,7 @@ serde_json = "1"
 tempfile = "3"
 jsonschema = { version = "0.58", default-features = false }
 sha2 = "0.10"
-ignore = "0.4"
+ignore = "=0.4.29"
 async-trait = "0.1"
 futures-core = "0.3"
 futures-executor = "0.3"
