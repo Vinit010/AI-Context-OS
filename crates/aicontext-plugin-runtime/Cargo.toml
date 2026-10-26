@@ -1,0 +1,35 @@
+[package]
+name = "aicontext-plugin-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Approval broker and plugin runtime supervisor for AI Context OS"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The permission vocabulary is defined once in core (`PermissionMode`), and the plugin error family
+# is defined there too. The boundary test in aicontext-testkit permits this crate to depend on
+# core, permissions, SDK, and audit. Only core is needed by the approval broker; the other edges
+# arrive with TASK-073 and TASK-074 rather than speculatively. TASK-072.
+aicontext-core = { path = "../aicontext-core" }
+# Arguments arrive as the parsed JSON value the plugin protocol carries, and the prompt renders them
+# as compact JSON so a newline or an ANSI escape in an argument cannot forge a prompt line. Already
+# in the lockfile through the SDK and the CLI. TASK-072.
+serde_json = { workspace = true }
+# The audit record stores `sha256:<hex>` of the arguments rather than the arguments themselves.
+# Pre-justified in ARCHITECTURE.md 2.2 ("content hashing - index invalidation, audit chain,
+# argument digests"); already in the lockfile through `aicontext export`. TASK-072.
+sha2 = { workspace = true }
+# Error enums derive thiserror::Error per RULES.md 4.2. Already in the lockfile. TASK-072.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The I4 test starts at the resolver's destructive floor and then proves the broker prompts on
+# every call, so the two crates are tested together rather than through a hand-made mode. This is
+# also the edge TASK-074 will use in production. TASK-072.
+aicontext-permissions = { path = "../aicontext-permissions" }
