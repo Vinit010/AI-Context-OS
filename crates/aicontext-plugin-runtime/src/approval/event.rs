@@ -128,6 +128,23 @@ pub enum DenialReason {
     AnswerTooLong,
 }
 
+impl std::fmt::Display for DenialReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Policy => "the permission policy denies the capability",
+            Self::NotInteractive => {
+                "approval was required but no interactive terminal was available"
+            }
+            Self::Declined => "the human declined the call",
+            Self::EndOfInput => "the approval prompt reached end of input",
+            Self::Interrupted => "the approval prompt was interrupted",
+            Self::TimedOut => "the approval prompt timed out",
+            Self::PromptFailed => "the approval prompt could not be read or written",
+            Self::AnswerTooLong => "the approval answer was too long",
+        })
+    }
+}
+
 /// Where the broker records every prompt and every decision.
 ///
 /// The error type is the sink's own, so `aicontext-audit` can return its typed chain error without

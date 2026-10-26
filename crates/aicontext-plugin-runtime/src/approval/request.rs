@@ -9,7 +9,8 @@
 
 use aicontext_core::PermissionMode;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+
+use crate::hash::json_digest;
 
 /// One tool call waiting for an approval decision.
 ///
@@ -104,7 +105,7 @@ impl ApprovalRequest {
             plugin: self.plugin.clone(),
             target: self.target.clone(),
             mode: self.mode,
-            arguments_digest: arguments_digest(&self.arguments),
+            arguments_digest: json_digest(&self.arguments),
         }
     }
 }
@@ -162,27 +163,6 @@ impl From<&ApprovalRequest> for ApprovalSummary {
     fn from(request: &ApprovalRequest) -> Self {
         request.summary()
     }
-}
-
-/// The digest stored in place of the arguments.
-fn arguments_digest(arguments: &Value) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(arguments.to_string().as_bytes());
-    let digest = hasher.finalize();
-
-    let mut rendered = String::with_capacity("sha256:".len() + digest.len() * 2);
-    rendered.push_str("sha256:");
-    for byte in digest {
-        push_hex_byte(&mut rendered, byte);
-    }
-    rendered
-}
-
-/// Appends two lowercase hex digits, without a `hex` dependency or a fallible `write!`.
-fn push_hex_byte(text: &mut String, byte: u8) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    text.push(char::from(HEX[usize::from(byte >> 4)]));
-    text.push(char::from(HEX[usize::from(byte & 0x0f)]));
 }
 
 #[cfg(test)]

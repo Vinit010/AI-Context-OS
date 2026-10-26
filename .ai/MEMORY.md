@@ -1401,6 +1401,57 @@ working directory, environment, filesystem, and network controls; the supervisor
 spawns with the host environment and expects the sandbox to narrow it first. The code uses
 `let ... else` rather than let-chains and both 1.85 gates pass (`MEM-040`).
 
+## MEM-042 — The tool gateway is one funnel, and every gate is structural rather than advisory
+
+```yaml
+id: MEM-042
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-26
+supersedes: null
+tags: [plugin-system, gateway, json-schema, untrusted-data, audit, task-074]
+```
+
+`TASK-074` turns the pieces into the one path `docs/PLUGIN_SPEC.md` §1 requires: a `ToolGateway`
+owns the manifest, the policy, the prompter, the audit sink, the `--allow-once` set, and the single
+`PluginProcess`. `ToolGateway::call` validates the arguments against the tool's `input_schema`,
+resolves the policy, asks the broker, records `Executing`, dispatches exactly once, normalises the
+result, and records `Completed`. `PluginProcess::call_tool` stays public because the supervisor is a
+library of its own, but a production source scan asserts that `.call_tool(` occurs once, in
+`gateway/mod.rs`. A second caller would fail the test before review could miss it.
+
+The manifest is checked against `tools/list` before the first call: an undeclared, missing,
+duplicate, or effect/destructive-mismatched descriptor is refused. The resolver receives the
+manifest's destructive flag, not the descriptor's, so a plugin cannot lower the `I4` floor it
+advertised. `--allow-once` remains exact-match and cannot satisfy `EXPLICIT_APPROVAL`; that is now
+proved through the gateway as well as the broker.
+
+Argument validation is a closed subset of Draft 2020-12, not a best effort. Unknown keywords such as
+`oneOf` and `$ref` are refused with `PLG-012`, because a constraint the host silently ignored would
+be worse than a missing one. The subset supports one type (or a union carrying only `enum`/`const`),
+`properties`/`required`/`additionalProperties: false`, arrays, string lengths and patterns, numeric
+bounds, `enum`, and `const`. The 32-level depth cap and 64 KiB size caps bound both the schema and
+the arguments. A dev-only `jsonschema` test cross-checks every supported keyword against a real
+Draft 2020-12 validator, so the subset cannot drift without a failure; the production dependency
+stays hand-rolled (`R-2`).
+
+A result becomes `UntrustedToolResult` and nothing else. It carries the literal `trust: untrusted`
+marker, sanitised content and extra fields, `is_error` as data, and host-recorded `request_id` and
+`duration_ms`; plugin-supplied metadata is dropped. ANSI escapes and control, bidi, and zero-width
+characters are replaced rather than concatenating the words around them, and two keys that collide
+after sanitising refuse the result instead of silently merging. The envelope is measured after
+serialisation against `limits.max_output_bytes`, so host metadata can push a raw frame that fit over
+the cap and the call is then `PLG-006`.
+
+Audit is a seam rather than a side effect. Broker events are forwarded through `ApprovalBridge` to
+the gateway's `GatewayAudit`, so one sink sees `Prompted`, `Decided`, `Executing`, and `Completed` in
+order; a sink failure refuses the call with `PLG-010` before dispatch, or withholds a result already
+produced. A policy denial or a human "no" is `GatewayOutcome::Refused`, not an error, but it is still
+recorded. The durable hash chain is `TASK-075`; the sandbox is `TASK-076`; and the CLI still has no
+plugin execution command, so the gateway is a library edge until `TASK-077` and the Phase 5 loop.
+
 ## Bugs encountered
 
 None shipped. Eight defects were found before a consumer saw them. Two were found by running the

@@ -14,13 +14,19 @@ workspace = true
 [dependencies]
 # The permission vocabulary is defined once in core (`PermissionMode`), and the plugin error family
 # is defined there too. The boundary test in aicontext-testkit permits this crate to depend on
-# core, permissions, SDK, and audit. Only core is needed by the approval broker; the other edges
-# arrive with TASK-073 and TASK-074 rather than speculatively. TASK-072.
+# core, permissions, SDK, and audit. TASK-072.
 aicontext-core = { path = "../aicontext-core" }
+# The gateway resolves each capability with the same resolver the rest of the product uses, so the
+# permission matrix is not re-described here. The boundary test permits this edge. TASK-074.
+aicontext-permissions = { path = "../aicontext-permissions" }
 # The supervisor speaks the published wire protocol through the SDK's `Request`, `Response`,
 # `FrameCodec`, `ApiVersion`, and error types rather than re-describing them. The boundary test in
 # aicontext-testkit permits this edge. TASK-073.
 aicontext-plugin-sdk = { path = "../aicontext-plugin-sdk" }
+# `input_schema` patterns are compiled once when the plugin is started. The schema subset is
+# hand-rolled; `regex` is the only matcher it needs. Pre-justified in ARCHITECTURE.md 2.2 and
+# already in the lockfile through `ignore`. TASK-074.
+regex = { workspace = true }
 # `exchange` is generic over the request params and the result type; the bounds are `serde`'s
 # `Serialize` and `DeserializeOwned`. serde is already in the lockfile through the SDK and is
 # pre-justified in ARCHITECTURE.md 2.2. TASK-073.
@@ -37,10 +43,10 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-# The I4 test starts at the resolver's destructive floor and then proves the broker prompts on
-# every call, so the two crates are tested together rather than through a hand-made mode. This is
-# also the edge TASK-074 will use in production. TASK-072.
-aicontext-permissions = { path = "../aicontext-permissions" }
+# The gateway's schema subset is cross-checked against a real Draft 2020-12 validator on every
+# fixture, the same drift net `crates/aicontext-cli/src/agent/proposal.rs` uses. It is a
+# dev-dependency only: the runtime does not carry a schema engine. TASK-074.
+jsonschema = { workspace = true }
 
 # A deliberately misbehaving plugin for tests/supervisor.rs. It lives outside src/ so the library
 # does not expose it, and Cargo gives integration tests its path as

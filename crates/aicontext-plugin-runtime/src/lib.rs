@@ -19,15 +19,20 @@
 //!   plugin API version.
 //! - [`PluginProcess`]: the one live pipe to that plugin. `list_tools` and `call_tool` are bounded
 //!   by the manifest's timeout and output cap; any failure kills the process and poisons the pipe.
+//! - [`ToolGateway`]: the one path from a proposed call to a plugin. It validates the arguments,
+//!   resolves the policy, asks the broker, dispatches once, normalises the result, and audits every
+//!   stage.
+//! - [`UntrustedToolResult`]: the only form of a plugin result the gateway returns: sanitised data
+//!   marked `trust: "untrusted"`, with host-recorded metadata and plugin metadata dropped.
 //!
 //! # What this crate is not
 //!
 //! The approval broker has no terminal I/O, file access, or clock: the prompt is rendered as a
 //! `String`, but writing it belongs to the CLI, and the audit event is described, but storing it
 //! belongs to `aicontext-audit`. Those boundaries are what let the approval matrix be tested with
-//! no terminal and no temporary file. The supervisor owns the process and the deadline, but not
-//! the sandbox (`TASK-076`), argument schema validation, or the untrusted-result envelope
-//! (`TASK-074`).
+//! no terminal and no temporary file. The supervisor owns the process and the deadline; the
+//! gateway owns argument validation and the untrusted-result envelope. The sandbox is still
+//! `TASK-076`, and the durable log is still `TASK-075`.
 //!
 //! # Default deny
 //!
@@ -39,11 +44,20 @@
 #![forbid(unsafe_code)]
 
 pub mod approval;
+pub mod gateway;
 pub mod supervisor;
+
+mod hash;
+mod json;
 
 pub use approval::{
     APPROVAL_ANSWER, ApprovalAudit, ApprovalBroker, ApprovalError, ApprovalEvent, ApprovalGrant,
     ApprovalOutcome, ApprovalRequest, ApprovalSummary, DenialReason, PromptError, Prompter,
     render_prompt,
+};
+pub use gateway::{
+    CallSummary, EnvelopeError, GatewayAudit, GatewayError, GatewayEvent, GatewayOutcome, HostMeta,
+    Refusal, RefusalStage, ResultSummary, TRUST_UNTRUSTED, ToolCall, ToolGateway,
+    UntrustedToolResult,
 };
 pub use supervisor::{MAX_RESULT_DEPTH, PluginLog, PluginProcess, SupervisorError, start_plugin};

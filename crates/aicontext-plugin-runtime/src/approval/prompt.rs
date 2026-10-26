@@ -29,6 +29,12 @@ pub trait Prompter {
     fn ask(&mut self, prompt: &str) -> Result<String, PromptError>;
 }
 
+impl<P: Prompter + ?Sized> Prompter for &mut P {
+    fn ask(&mut self, prompt: &str) -> Result<String, PromptError> {
+        (**self).ask(prompt)
+    }
+}
+
 /// Why a prompt produced no usable answer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]

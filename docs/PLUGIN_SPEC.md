@@ -95,6 +95,14 @@ There is exactly one path from an action to a plugin. There is no second, faster
 
 - `input_schema` is Draft 2020-12 and is **enforced by the gateway before the call**, not only by
   the plugin. Unknown properties are rejected (`additionalProperties: false` is required).
+- The gateway enforces a closed subset: `type` (one name, or a union carrying only `enum`/`const`),
+  `enum`, `const`, `properties`, `required`, `additionalProperties: false`, `items`, `minItems`,
+  `maxItems`, `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum`. The annotations
+  `$schema`, `$id`, `$comment`, `title`, `description`, `default`, `examples`, `deprecated`,
+  `readOnly`, and `writeOnly` are ignored. Any other keyword (`oneOf`, `$ref`, `format`, and so on)
+  is refused with `PLG-012` rather than silently ignored, and every object schema at every level
+  must state `additionalProperties: false`. A schema and its arguments are each capped at 64 KiB and
+  32 levels; `pattern` is compiled once with the linear-time `regex` engine under a 1 MiB size cap.
 - `summary` is shown verbatim in the approval prompt. It is a safety surface, not decoration.
 - MCP-compatible annotations are carried through unchanged.
 
@@ -131,16 +139,22 @@ relays it to stderr.
 **Result handling.** Every result is untrusted data. The runtime:
 
 - parses it into a bounded structure (max depth 32, max `max_output_bytes`),
-- strips ANSI escapes and control characters,
-- records `request_id` and `duration_ms`,
-- attaches `trust: "untrusted"` to the envelope (`CONTEXT_SPEC.md` §7.6),
+- strips ANSI escapes and control characters, replaces bidi and zero-width format controls, and
+  refuses the result if two keys become identical after sanitising,
+- records `request_id` and `duration_ms` itself and drops any `meta` the plugin supplied,
+- wraps the content and unknown fields in `{ trust: "untrusted", tool, plugin, content, extra,
+  is_error, meta }` (`CONTEXT_SPEC.md` §7.6),
+- carries a plugin's `is_error: true` as data, not as a runtime error to retry,
+- measures the serialised envelope against `max_output_bytes` and returns `PLG-006` if the envelope
+  is larger than the raw frame the supervisor already admitted,
 - never passes it to a shell, an evaluator, or a template engine with code execution.
 
 **Errors.** A plugin error is a typed runtime error with a code, never a raw string that the CLI
 reformats optimistically. Codes: `PLG-001` spawn failure, `PLG-002` handshake failure, `PLG-003`
 timeout, `PLG-004` API version mismatch, `PLG-005` invalid frame, `PLG-006` output limit exceeded,
 `PLG-007` process exited unexpectedly, `PLG-008` capability not declared, `PLG-009` sandbox
-violation, `PLG-010` approval required but unavailable, `PLG-011` invalid manifest.
+violation, `PLG-010` approval required but unavailable, `PLG-011` invalid manifest, `PLG-012`
+invalid tool arguments or an unenforceable input schema.
 
 ---
 

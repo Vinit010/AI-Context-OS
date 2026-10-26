@@ -140,8 +140,9 @@ the index cache. It exits 0 for a report and 3 when the tree carries an error-le
 metric that cannot be computed is printed as `n/a` with its reason rather than as a zero that would
 read as "nothing wrong" — documentation freshness, for example, is unavailable outside a Git
 repository. The two remaining §9 metrics, stale memory and plugin health, are not reported: the first
-has no memory check to count and the second has no plugin runtime, so a number for either would be
-invented.
+has no memory check to count and the second has no CLI path that executes a plugin — the plugin
+runtime library exists, but plugin execution is not wired to a command — so a number for either would
+be invented.
 
 ### `aicontext context`
 

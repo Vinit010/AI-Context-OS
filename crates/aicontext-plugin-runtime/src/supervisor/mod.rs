@@ -14,8 +14,8 @@
 //!
 //! The SDK describes the frames and the version; this module owns the process, the clock, the byte
 //! caps, and the decision to stop trusting a stream. It intentionally has no permission logic and
-//! no approval prompt: those are `TASK-071`/`TASK-072`, and `TASK-074` will put them in front of
-//! every call.
+//! no approval prompt: those are `TASK-071`/`TASK-072`, and `TASK-074`'s gateway puts them in front
+//! of every call.
 //!
 //! # What is deliberately not here
 //!

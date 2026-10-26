@@ -12,6 +12,7 @@
 //! - `hang`: stop answering during `tools/call`.
 //! - `hang-handshake`: stop answering during `initialize`.
 //! - `flood`: write one 64 KiB result frame, over any test manifest's cap.
+//! - `flood-result`: list normally, then write one 64 KiB result frame during `tools/call`.
 //! - `flood-logs`: write 500 log notifications and never answer the call.
 //! - `deep`: return a result nested 40 levels deep.
 //! - `bad-version`: report plugin API version 2.
@@ -21,6 +22,15 @@
 //! - `bad-result`: answer `tools/call` with the wrong result shape.
 //! - `wrong-id`: answer `tools/call` with a mismatched id.
 //! - `no-shutdown`: answer every call but ignore `shutdown`.
+//! - `extra-tool`: list a tool the manifest does not declare.
+//! - `missing-tool`: list no tools, though the manifest declares one.
+//! - `duplicate-tool`: list the same tool twice.
+//! - `bad-schema`: advertise a schema with an unsupported keyword.
+//! - `descriptor-mismatch`: advertise `read` for a manifest `write` capability.
+//! - `destructive`: advertise and answer a destructive capability.
+//! - `is-error`: answer `tools/call` with `is_error: true`.
+//! - `ansi`: return ANSI escapes and control characters in its content.
+//! - `key-collision`: return two keys that collide after control-character stripping.
 
 #![forbid(unsafe_code)]
 
@@ -107,21 +117,46 @@ fn tools_list(mode: &str, id: &Value, stdout: &mut impl Write) -> io::Result<()>
     if mode == "flood" {
         return flood_frame(stdout, id);
     }
-    let result = json!({
-        "tools": [{
-            "tool": TOOL,
-            "summary": "Echo the text back",
-            "effect": "write",
-            "destructive": false,
-            "input_schema": {
+    // `flood-result` lists normally and floods only during `tools/call`.
+
+    let mut tool = tool_definition(TOOL);
+    match mode {
+        "descriptor-mismatch" => tool["effect"] = json!("read"),
+        "destructive" => tool["destructive"] = json!(true),
+        "bad-schema" => {
+            tool["input_schema"] = json!({
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["text"],
-                "properties": {"text": {"type": "string"}}
-            }
-        }]
-    });
-    write_result(stdout, id, &result)
+                "properties": {
+                    "text": {"type": "string", "oneOf": [{"const": "x"}]}
+                }
+            });
+        }
+        _ => {}
+    }
+
+    let tools = match mode {
+        "missing-tool" => json!([]),
+        "duplicate-tool" => json!([tool, tool]),
+        "extra-tool" => json!([tool, tool_definition("fixture.extra.run")]),
+        _ => json!([tool]),
+    };
+    write_result(stdout, id, &json!({"tools": tools}))
+}
+
+fn tool_definition(tool: &str) -> Value {
+    json!({
+        "tool": tool,
+        "summary": "Echo the text back",
+        "effect": "write",
+        "destructive": false,
+        "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "properties": {"text": {"type": "string"}}
+        }
+    })
 }
 
 fn tools_call(mode: &str, request: &Value, id: &Value, stdout: &mut impl Write) -> io::Result<()> {
@@ -134,7 +169,7 @@ fn tools_call(mode: &str, request: &Value, id: &Value, stdout: &mut impl Write) 
             thread::sleep(Duration::from_secs(60));
             Ok(())
         }
-        "flood" => flood_frame(stdout, id),
+        "flood" | "flood-result" => flood_frame(stdout, id),
         "flood-logs" => flood_logs(stdout),
         "deep" => deep_result(stdout, id),
         "tool-error" => tool_error(stdout, id),
@@ -142,6 +177,34 @@ fn tools_call(mode: &str, request: &Value, id: &Value, stdout: &mut impl Write) 
             let result = json!({"content": "not an array"});
             write_result(stdout, id, &result)
         }
+        "is-error" => write_result(
+            stdout,
+            id,
+            &json!({
+                "content": [{"type": "text", "text": "the fixture refused the call"}],
+                "is_error": true
+            }),
+        ),
+        "ansi" => write_result(
+            stdout,
+            id,
+            &json!({
+                "content": [{
+                    "type": "text",
+                    "text": "safe\u{1b}[31mred\u{1b}[0m\nnext\u{7}line"
+                }],
+                "extra\u{1b}[0m": {"value": "kept\u{1b}[0m"}
+            }),
+        ),
+        "key-collision" => write_result(
+            stdout,
+            id,
+            &json!({
+                "content": [],
+                "a\u{7}": 1,
+                "a\u{8}": 2
+            }),
+        ),
         "wrong-id" => wrong_id(stdout),
         _ => echo_text(request, id, stdout),
     }

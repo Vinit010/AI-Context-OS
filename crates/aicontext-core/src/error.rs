@@ -208,11 +208,11 @@ impl ErrorCode {
     pub const GIT_006: Self = Self::git(6);
 
     // The PLG family, introduced by TASK-070. `docs/PLUGIN_SPEC.md` 4 documents the full
-    // PLG-001 to PLG-011 catalogue; only the codes a crate can actually return are constants here.
+    // PLG-001 to PLG-012 catalogue; only the codes a crate can actually return are constants here.
     // TASK-072 adds PLG-010 for the approval broker; TASK-073 adds the process-supervision codes
-    // (spawn, handshake, timeout, output limit, unexpected exit) with the crate that can return
-    // them, so core never names a failure no code path can reach. PLG-008 (capability not declared)
-    // and PLG-009 (sandbox violation) belong to TASK-074 and TASK-076.
+    // (spawn, handshake, timeout, output limit, unexpected exit); TASK-074 adds PLG-008 and PLG-012
+    // for the gateway. They live here with the crate that can return them, so core never names a
+    // failure no code path can reach. PLG-009 (sandbox violation) belongs to TASK-076.
     /// A code in the `PLG` family, the plugin manifest and protocol failure modes.
     ///
     /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
@@ -262,6 +262,12 @@ impl ErrorCode {
     /// frame that is well-formed JSON but not a shape this protocol allows, because both mean the
     /// same thing to the host: the bytes on the pipe cannot be trusted.
     pub const PLG_005: Self = Self::plugin(5);
+    /// A tool the manifest does not declare, or a declared capability the plugin does not expose.
+    ///
+    /// Added by `TASK-074` for the tool gateway. The manifest is the authority: a tool absent from
+    /// `capabilities` can never be called, and a manifest capability the plugin's `tools/list` does
+    /// not return cannot be served. Both are refused before a call is dispatched.
+    pub const PLG_008: Self = Self::plugin(8);
     /// Approval was required but could not be obtained, recorded, or shown.
     ///
     /// Added by `TASK-072` for the approval broker. A denial with a human-readable reason is an
@@ -274,6 +280,14 @@ impl ErrorCode {
     /// Added by `TASK-070` as an additive code (`ARCHITECTURE.md` 9). `TASK-077` reports it from
     /// `plugin install`; the SDK returns it from `PluginManifest::from_json`.
     pub const PLG_011: Self = Self::plugin(11);
+    /// Tool arguments do not satisfy the tool's `input_schema`, or that schema is outside the
+    /// subset the gateway can enforce.
+    ///
+    /// Added by `TASK-074`. The gateway validates before permission resolution, so an invalid
+    /// argument set never reaches a prompt or a plugin. A schema that uses an unsupported keyword
+    /// is refused rather than silently ignored, because an unenforced constraint would be worse
+    /// than a missing one.
+    pub const PLG_012: Self = Self::plugin(12);
 }
 
 impl fmt::Display for ErrorCode {
@@ -536,9 +550,10 @@ mod tests {
     #[test]
     fn the_plugin_codes_render_in_the_documented_format_and_carry_their_own_family() {
         // TASK-070 added the PLG family for the manifest and protocol failures the SDK can return.
-        // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure, and TASK-073
-        // adds the process-supervision codes. A caller branching on the family must not confuse a
-        // plugin failure with a context finding or a git failure.
+        // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure; TASK-073 adds
+        // the process-supervision codes; TASK-074 adds PLG-008 and PLG-012 for the gateway. A
+        // caller branching on the family must not confuse a plugin failure with a context finding
+        // or a git failure.
         for (code, expected) in [
             (ErrorCode::PLG_001, "PLG-001"),
             (ErrorCode::PLG_002, "PLG-002"),
@@ -547,8 +562,10 @@ mod tests {
             (ErrorCode::PLG_005, "PLG-005"),
             (ErrorCode::PLG_006, "PLG-006"),
             (ErrorCode::PLG_007, "PLG-007"),
+            (ErrorCode::PLG_008, "PLG-008"),
             (ErrorCode::PLG_010, "PLG-010"),
             (ErrorCode::PLG_011, "PLG-011"),
+            (ErrorCode::PLG_012, "PLG-012"),
         ] {
             assert_eq!(code.to_string(), expected);
             assert_eq!(code.family(), ErrorFamily::Plugin);
@@ -568,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_thirty_five_distinct_codes() {
+    fn the_documented_catalogue_has_thirty_seven_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -603,8 +620,10 @@ mod tests {
             ErrorCode::PLG_005,
             ErrorCode::PLG_006,
             ErrorCode::PLG_007,
+            ErrorCode::PLG_008,
             ErrorCode::PLG_010,
             ErrorCode::PLG_011,
+            ErrorCode::PLG_012,
         ];
         let unique: std::collections::BTreeSet<String> =
             catalogue.iter().map(ErrorCode::to_string).collect();

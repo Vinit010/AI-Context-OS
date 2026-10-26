@@ -11,7 +11,7 @@ updated: 2026-10-26
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-074
+**Current task:** TASK-075
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1810,7 +1810,7 @@ done:
 ```yaml
 id: TASK-074
 title: Implement the tool gateway
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-071, TASK-072, TASK-073]
@@ -1821,6 +1821,57 @@ acceptance:
   - There is exactly one code path from a tool call to a plugin, enforced by review and tests
   - Responses are normalised into an untrusted data envelope with size and time caps
   - No shell execution path exists
+done:
+  - '`crates/aicontext-plugin-runtime/src/gateway/` adds `mod.rs`, `schema.rs`, `envelope.rs`, and
+    `audit.rs`. `ToolGateway` owns one manifest, policy, prompter, audit sink, `--allow-once` set,
+    and `PluginProcess`; every `call` validates arguments, resolves the policy, authorizes through
+    the existing broker, audits `Executing`, dispatches once, normalises the result, and audits
+    `Completed`. A refusal before dispatch is still `Completed { Refused }`'
+  - 'The manifest is the authority at start: a descriptor the manifest does not declare, a declared
+    capability the plugin does not list, a duplicate tool, or a descriptor whose `effect` or
+    `destructive` disagrees with the manifest is refused before the first call. The manifest flag
+    is what the resolver receives, so a descriptor cannot lower the destructive floor'
+  - 'Argument validation is a closed JSON Schema subset compiled once: `type`, `enum`, `const`,
+    `properties`, `required`, `additionalProperties: false`, `items`, `minItems`, `maxItems`,
+    `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum`, plus non-constraining
+    annotations. Unsupported keywords such as `oneOf`, `$ref`, and `format` are refused with
+    `PLG-012` rather than silently ignored. Schemas and arguments are capped at 64 KiB and 32
+    levels; `pattern` uses the linear-time `regex` engine with a 1 MiB compiled-size cap'
+  - '`UntrustedToolResult` is the only form of a plugin result the gateway returns. It carries
+    `trust: "untrusted"`, the tool and plugin, sanitised content and extra fields, the plugin''s
+    `is_error` as data, and host-recorded `request_id` and `duration_ms`; plugin-supplied `meta` is
+    dropped. ANSI escapes and control/bidi/zero-width characters are replaced, keys that collide
+    after sanitising are refused with `PLG-005`, and the serialised envelope is refused with
+    `PLG-006` when it exceeds `limits.max_output_bytes` even though the raw frame fit'
+  - '`GatewayAudit`/`GatewayEvent` are the audit seam, and broker events are forwarded through an
+    `ApprovalBridge` so one sink sees `Prompted`, `Decided`, `Executing`, and `Completed` in call
+    order. A sink failure refuses the call with `PLG-010` before dispatch or withholds the result
+    after dispatch. The durable hash-chained log remains `TASK-075`'
+  - '`ErrorCode` gains `PLG_008` (capability not declared) and `PLG_012` (invalid arguments or an
+    unenforceable schema); the documented-catalogue test now requires 37 distinct codes. The
+    runtime gains `aicontext-permissions` and `regex` as production dependencies and `jsonschema`
+    as a dev-dependency only'
+  - '`tests/gateway.rs` has 23 integration tests covering the full call path, policy and prompt
+    denials, `--allow-once`, the destructive floor, undeclared tools, argument and schema failures,
+    descriptor mismatches, audit failures before and after dispatch, timeout, output and envelope
+    caps, `is_error`, ANSI stripping, and key collisions. Two source scans enforce the structural
+    invariants: `.call_tool(` appears once in production, in `gateway/mod.rs`, and the gateway names
+    no process command. The fixture gains `extra-tool`, `missing-tool`, `duplicate-tool`,
+    `bad-schema`, `descriptor-mismatch`, `destructive`, `is-error`, `ansi`, `key-collision`, and
+    `flood-result` modes'
+  - 'Tests: 30 new unit tests (25 in the gateway module and 5 for the shared hash and JSON helpers) and
+    23 integration tests; the workspace suite is 1111 passed,
+    0 failed across 44 suites (was 1061 across 43). Gates: `cargo fmt --all`; `cargo clippy
+    --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace`;
+    `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`; `cargo +1.85.0 build --workspace`;
+    `cargo +1.85.0 test --workspace`; `aicontext doctor` (exit 0, only the pre-existing CTX-012
+    warning); `git diff --check`; and `cargo audit` (clean). No `unwrap` or `expect` outside tests,
+    no `unsafe`, and no secret in the crate, tests, or fixture'
+  - 'Deliberately not done: no CLI `plugin` execution command and no agent-loop wiring; the gateway
+    is a library (`TASK-077` and the Phase 5 loop own that edge). No sandbox working directory,
+    environment, filesystem, or network policy (`TASK-076`), and no durable audit log
+    (`TASK-075`). The gateway does not retry a failed plugin process, pool processes, or accept a
+    per-call timeout from the command line'
 ```
 
 ### TASK-075 — Implement the hash-chained audit log

@@ -32,6 +32,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::json::{MAX_JSON_DEPTH, json_depth};
+
 use super::error::SupervisorError;
 use super::transport::{Incoming, StderrHandle, spawn_reader, spawn_stderr, spawn_writer};
 
@@ -41,7 +43,7 @@ use super::transport::{Incoming, StderrHandle, spawn_reader, spawn_stderr, spawn
 /// at 1, an object's members at 2, and so on. A result deeper than this is treated as an output
 /// limit rather than a parse error: the bytes were readable, but the shape is more than the host
 /// agreed to carry.
-pub const MAX_RESULT_DEPTH: usize = 32;
+pub const MAX_RESULT_DEPTH: usize = MAX_JSON_DEPTH;
 
 /// How many log entries are retained between calls.
 const MAX_LOGS: usize = 64;
@@ -252,10 +254,12 @@ impl PluginProcess {
 
     /// Call one tool with already-validated arguments.
     ///
-    /// Argument validation against `input_schema` is the gateway's job (`TASK-074`); this method
-    /// checks only that the plugin answered, within its timeout and output limits, with the shape
-    /// the protocol requires. A tool that reports `is_error: true` is a successful call whose
-    /// result carries the failure, not a [`SupervisorError`].
+    /// Argument validation against `input_schema` is the gateway's job; this method checks only
+    /// that the plugin answered, within its timeout and output limits, with the shape the protocol
+    /// requires. A tool that reports `is_error: true` is a successful call whose result carries the
+    /// failure, not a [`SupervisorError`]. The method is public because the supervisor is a library
+    /// of its own, but [`ToolGateway`](crate::ToolGateway) is the only production caller;
+    /// `no_bypass_path_to_plugin` enforces that invariant with a source scan.
     ///
     /// # Errors
     ///
@@ -664,64 +668,9 @@ fn truncate_message(message: &str) -> String {
     truncated
 }
 
-/// The depth of a JSON value, with the root at 1.
-fn json_depth(value: &Value) -> usize {
-    let mut deepest = 0;
-    let mut stack = vec![(value, 1_usize)];
-    while let Some((value, depth)) = stack.pop() {
-        if depth > deepest {
-            deepest = depth;
-        }
-        match value {
-            Value::Array(items) => {
-                for item in items {
-                    stack.push((item, depth.saturating_add(1)));
-                }
-            }
-            Value::Object(members) => {
-                for item in members.values() {
-                    stack.push((item, depth.saturating_add(1)));
-                }
-            }
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-        }
-    }
-    deepest
-}
-
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
-    use super::{MAX_RESULT_DEPTH, json_depth, truncate_message};
-
-    #[test]
-    fn a_scalar_is_one_level_and_an_object_holding_it_is_two() {
-        assert_eq!(json_depth(&json!(1)), 1);
-        assert_eq!(json_depth(&json!({"value": 1})), 2);
-        assert_eq!(json_depth(&json!({"value": [1]})), 3);
-    }
-
-    #[test]
-    fn the_depth_is_the_deepest_branch_not_the_first() {
-        let value = json!({
-            "shallow": 1,
-            "branch": {"first": 2, "second": {"deep": 3}}
-        });
-        assert_eq!(json_depth(&value), 4);
-    }
-
-    #[test]
-    fn the_cap_is_the_documented_thirty_two_levels() {
-        let mut value = json!("bottom");
-        for _ in 0..MAX_RESULT_DEPTH - 1 {
-            value = json!({ "nested": value });
-        }
-        assert_eq!(json_depth(&value), MAX_RESULT_DEPTH);
-
-        value = json!({ "nested": value });
-        assert_eq!(json_depth(&value), MAX_RESULT_DEPTH + 1);
-    }
+    use super::{MAX_RESULT_DEPTH, truncate_message};
 
     #[test]
     fn a_long_log_message_is_truncated_on_a_character_boundary() {

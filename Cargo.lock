@@ -94,6 +94,8 @@ dependencies = [
  "aicontext-core",
  "aicontext-permissions",
  "aicontext-plugin-sdk",
+ "jsonschema",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

@@ -69,13 +69,14 @@ list for Phase 1–2:
 | `clap` (derive) | CLI parsing, completions | De-facto standard; hand-rolling is a bad use of effort |
 | `serde`, `serde_json` | Wire + file formats | Ubiquitous; schema-first serialisation is required anyway |
 | `yaml_serde` (0.10) | Front matter | Required by the storage contract, and it is the only maintained crate that is published by a steward rather than an individual. Pinned in `ADR-007`; reached through the internal `YamlCodec` trait, so a swap is contained. `TASK-053` adds the one other direct reader: `.ai/ai.yaml` is a fixed-path *config* file the context engine does not parse (`CONTEXT_SPEC.md` §1), so it cannot go through `YamlCodec`, and reaching through another crate's internal trait would break rule 6 in §3.2 |
-| `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2**. In `TASK-015` it is a **dev-dependency only**, with `default-features = false`, used by the CI meta-schema check and, from `TASK-053`, by `crates/aicontext-cli/tests/connect.rs` to validate the `.ai/ai.yaml` `connect` wrote against the schema; the runtime dependency decision is deferred to `TASK-014` |
+| `jsonschema` (Draft 2020-12) | Schema validation | Required by the machine-readable metadata requirement. Wrapped behind an internal trait so it can be replaced — **RISK R-2**. In `TASK-015` it is a **dev-dependency only**, with `default-features = false`, used by the CI meta-schema check and, from `TASK-053`, by `crates/aicontext-cli/tests/connect.rs` to validate the `.ai/ai.yaml` `connect` wrote against the schema; the runtime dependency decision is deferred to `TASK-014`. `TASK-074` keeps it dev-only in `aicontext-plugin-runtime`: the gateway's closed schema subset is hand-rolled and refuses unsupported keywords, and a dev-only test cross-checks every supported keyword against this engine so the two readings cannot drift |
 | `thiserror` | Error types | Removes boilerplate; errors must be typed (RULES §5) |
 | `anyhow` | CLI boundary only | Contextual error chaining at the top, nowhere else |
 | `tokio` | Async runtime | Provider HTTP and plugin process supervision are I/O-bound. Added by `TASK-051`, the first crate to make a network call; features are per use (`rt`, `time`, `sync`, `macros`). `TASK-053` adds `net` to `aicontext-cli` only: `connect` builds a current-thread runtime of its own and `enable_all()` needs the TCP driver, and the providers crate has no business asking for a driver it does not own |
 | `reqwest` + `rustls` | HTTP | Provider calls and plugin transports. `rustls` avoids a system OpenSSL dependency. Added by `TASK-051` with `default-features = false` so `native-tls` cannot arrive, and only the `rustls-tls` and `stream` features. The `rustls-tls` feature resolves to `rustls` with the `ring` provider, which compiles C through `cc` at **build time** — the one recorded deviation from `RULES.md` §6, scoped in `ADR-009`: `ring` needs a C toolchain to build but adds no system library and no runtime-or-network prerequisite |
 | `keyring` (3.6) | OS keychain | Credential storage without writing secrets to disk in our own format. Added by `TASK-052`; each backend is the OS credential store alone — Windows Credential Manager, macOS Keychain, Linux kernel keyring — so no C compiler and no third-party system library, and `RULES.md` §6 holds without a deviation. Pinned below 4.x, which raises the MSRV above our 1.85 floor |
 | `sha2` | Content hashing | Index invalidation, audit chain, argument digests. Widely audited |
+| `regex` | Tool-schema `pattern` matching | Linear-time matcher used by the gateway's closed JSON Schema subset. Patterns are plugin-supplied, so a backtracking engine is not acceptable; patterns are capped at 4 KiB and compiled with a 1 MiB size limit. Already in the tree through `ignore`; `TASK-074` makes the edge direct |
 | `ignore` / `walkdir` | File discovery | Respects `.gitignore`; avoids walking `target/` and `node_modules/`. `ignore` is pinned exactly to `0.4.29`: `0.4.30` added an incremental walker that uses let-chains (Rust 1.88) and declares no `rust-version`, so MSRV-aware resolution cannot reject it. See `BUG-006` |
 | `async-trait` | Async methods on a dyn-safe trait | The provider interface is `async` and the registry holds `Box<dyn AIProvider>`, which a native `async fn` in a trait cannot satisfy; this is the macro `docs/AI_PROVIDER_SPEC.md` §2 names. Added by `TASK-050` |
 | `futures-core` | `Stream` / `BoxStream` | The minimal, runtime-agnostic home of the stream trait `AIProvider::stream` returns — no executor, no reactor, so no network stack enters the workspace before an adapter needs one. Added by `TASK-050` |
@@ -85,7 +86,9 @@ Dev-only: `tempfile`, `assert_cmd`, `predicates`, `insta` (snapshot tests for CL
 `proptest` (parsers and the permission resolver), `futures-executor` (`block_on` drives the async
 provider tests without pulling an async runtime into the workspace; added by `TASK-050`). `TASK-051`
 adds no dev-dependency: its contract tests drive the adapter against a `std`-only fake HTTP server in
-`crates/aicontext-providers/tests/support`.
+`crates/aicontext-providers/tests/support`. `TASK-074` adds `jsonschema` as a dev-dependency of
+`aicontext-plugin-runtime`, solely to cross-check the gateway's hand-rolled schema subset against a
+real Draft 2020-12 engine.
 
 Explicitly rejected for the MVP: a vector database, an ORM, a web framework, a state-machine or
 workflow-orchestration library, a CLI framework beyond `clap`, and any telemetry SDK.
@@ -145,7 +148,7 @@ AI-Context-OS/
 │   ├── aicontext-permissions/    # Policy model + resolver (pure, fully tested)
 │   ├── aicontext-audit/          # Hash-chained append-only log
 │   ├── aicontext-plugin-sdk/     # Manifest + protocol types for plugin authors
-│   ├── aicontext-plugin-runtime/ # Process supervisor, jail, approval broker wiring
+│   ├── aicontext-plugin-runtime/ # Process supervisor, tool gateway, approval broker
 │   ├── aicontext-providers/      # AIProvider trait + adapters
 │   ├── aicontext-cli/            # The `aicontext` binary
 │   └── aicontext-testkit/        # Fixtures: temp repos, sample .ai trees, fake provider
@@ -263,10 +266,10 @@ Hard rules, checked in CI:
 | `context::ContextAssembler` | `Retriever`, `PriorityResolver`, `ContextBudget` | `fn assemble(&self, packet) -> AssembledContext` with full provenance |
 | `providers::ProviderRegistry` | `AIProvider` impls | `async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse>` |
 | `cli` (agent loop) | `ContextEngine`, `ProviderRegistry`, `ToolGateway` | The agent loop lives in the CLI/application layer, not in `core` |
-| `ToolGateway` | `permissions::Resolver`, `ApprovalBroker`, `plugin-runtime::Supervisor`, `audit::Log` | Single choke point; there is no second path to a plugin |
-| `plugin-runtime::Supervisor` | plugin process, `aiplugin-sdk` types | Spawn, handshake, health-check, timeout, kill, jail |
+| `plugin-runtime::ToolGateway` | `permissions::Policy`, `ApprovalBroker`, `PluginProcess`, `GatewayAudit` | Single choke point: validates arguments, resolves policy, brokers approval, dispatches once, returns an untrusted envelope. There is no second path to a plugin |
+| `plugin-runtime::Supervisor` | plugin process, `aiplugin-sdk` types | Spawn, handshake, health-check, timeout, kill, output caps; sandbox in `TASK-076` |
 | `git::Repository` | `git` CLI | Porcelain wrapper; no libgit2 in the MVP |
-| `audit::Log` | filesystem | Append-only JSONL, hash-chained |
+| `audit::Log` (via `GatewayAudit`) | filesystem | Append-only JSONL, hash-chained |
 
 ### 4.3 Primary flows
 
