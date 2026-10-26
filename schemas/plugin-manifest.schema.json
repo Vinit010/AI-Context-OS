@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vinit010/AI-Context-OS/schemas/plugin-manifest.schema.json",
+  "title": "Plugin manifest",
+  "description": "A plugin's committed declaration: what it is, what tools it exposes, and what it may touch. Validated before anything is executed, so an invalid manifest is never run (docs/PLUGIN_SPEC.md 2). An empty filesystem list means no access and an empty network egress list means no network; the manifest is the outer jail and the user's policy may narrow it but never widen it. plugin_api_version is a decimal string rather than a const so a plugin built for a newer API version reaches negotiation and receives PLG-004 naming both versions, instead of failing with a schema error that offers no alternative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "plugin_api_version",
+    "name",
+    "version",
+    "entry",
+    "capabilities",
+    "filesystem",
+    "network",
+    "limits"
+  ],
+  "properties": {
+    "manifest_version": {
+      "const": 1,
+      "description": "Manifest format version, not the plugin's version and not the plugin API version."
+    },
+    "plugin_api_version": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,4}$",
+      "maxLength": 5,
+      "description": "The plugin API version negotiated at handshake. A single decimal number; a valid but unsupported version is refused with PLG-004 rather than a schema failure."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Globally unique plugin name: two to sixty-four lowercase letters, digits, or hyphens, starting with a letter or digit."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$",
+      "maxLength": 256,
+      "description": "The plugin's own Semantic Version."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "One-line description shown by `plugin list` and in approval prompts."
+    },
+    "vendor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An SPDX license identifier."
+    },
+    "entry": { "$ref": "#/$defs/entry" },
+    "minimum_aicontext_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "A SemVer range of aicontext versions this plugin supports. Resolved at install; an unsatisfiable range is refused."
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/capability" },
+      "description": "The tools the plugin implements. A request for a tool not listed here is refused before the plugin is contacted. Tool names must be unique; that cross-field rule is enforced by the SDK and the installer because JSON Schema cannot key on a field."
+    },
+    "auth": { "$ref": "#/$defs/auth" },
+    "filesystem": { "$ref": "#/$defs/filesystem" },
+    "network": { "$ref": "#/$defs/network" },
+    "limits": { "$ref": "#/$defs/limits" }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "The executable the host runs. Never passed through a shell."
+        },
+        "args": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "type": "string", "maxLength": 4096 },
+          "description": "Arguments passed verbatim as an argv array."
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "effect"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*(\\.[a-z0-9][a-z0-9_-]*){2}$",
+          "description": "provider.service.action, exactly three lowercase dot-separated segments."
+        },
+        "effect": {
+          "enum": ["read", "write"]
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false,
+          "description": "True forces at least EXPLICIT_APPROVAL regardless of the policy file. A manifest cannot lower the floor its own flag sets."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["destructive"],
+            "properties": { "destructive": { "const": true } }
+          },
+          "then": {
+            "properties": { "effect": { "const": "write" } }
+          }
+        }
+      ]
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "references"],
+      "properties": {
+        "type": { "enum": ["env_or_credential_command"] },
+        "references": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/auth_reference" }
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Human guidance shown at install and in approval prompts. Never a credential value."
+        }
+      }
+    },
+    "auth_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "The environment variable or credential-command name. A name, never a value."
+        },
+        "source": {
+          "enum": ["env", "credential_command"]
+        }
+      }
+    },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write"],
+      "properties": {
+        "read": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "uniqueItems": true,
+          "description": "Paths the plugin may read. Empty means none."
+        },
+        "write": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "uniqueItems": true,
+          "description": "Paths the plugin may write. Empty means none; .ai/ is never implied."
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["egress"],
+      "properties": {
+        "egress": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 253 },
+          "uniqueItems": true,
+          "description": "Hosts the plugin may contact. Empty means no network."
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_timeout_ms", "max_output_bytes"],
+      "properties": {
+        "call_timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hard per-call timeout in milliseconds. The runtime may impose a lower cap and fails closed."
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cap on one result in bytes. The runtime kills the process if the cap is exceeded."
+        }
+      }
+    }
+  }
+}

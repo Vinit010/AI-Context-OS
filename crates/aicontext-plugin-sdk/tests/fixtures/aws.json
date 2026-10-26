@@ -1,0 +1,25 @@
+{
+  "manifest_version": 1,
+  "plugin_api_version": "1",
+  "name": "aws",
+  "version": "1.0.0",
+  "description": "Read-only AWS resource inspection",
+  "vendor": "aicontext",
+  "license": "Apache-2.0",
+  "entry": { "command": "aicontext-plugin-aws", "args": ["serve"] },
+  "minimum_aicontext_version": "0.5.0",
+  "capabilities": [
+    { "tool": "aws.ec2.describe", "effect": "read" },
+    { "tool": "aws.s3.list", "effect": "read" },
+    { "tool": "aws.ec2.start", "effect": "write", "destructive": false },
+    { "tool": "aws.ec2.terminate", "effect": "write", "destructive": true }
+  ],
+  "auth": {
+    "type": "env_or_credential_command",
+    "references": [{ "name": "AWS_PROFILE", "source": "env" }],
+    "instructions": "Use a read-only IAM policy. Never grant a wildcard resource."
+  },
+  "filesystem": { "read": [], "write": [] },
+  "network": { "egress": ["api.ec2.us-east-1.amazonaws.com"] },
+  "limits": { "call_timeout_ms": 15000, "max_output_bytes": 1048576 }
+}

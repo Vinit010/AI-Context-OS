@@ -204,6 +204,7 @@ crates/
   aicontext-core           # domain types and the error model. Depends on nothing internal.
   aicontext-context        # document discovery, parsing, retrieval, validation
   aicontext-git            # thin wrapper over the git binary
+  aicontext-plugin-sdk     # manifest and protocol types for plugin authors
   aicontext-providers      # AIProvider trait, neutral types, and the registry
   aicontext-cli            # the `aicontext` binary
   aicontext-testkit        # test support: manifest reader, boundary policy
@@ -212,9 +213,10 @@ docs/                      # normative specifications
 .github/workflows/         # CI
 ```
 
-Four more crates are specified but do not exist yet: `aicontext-plugin-sdk`,
-`aicontext-plugin-runtime`, `aicontext-permissions`, and `aicontext-audit`. They are added by the task
-that needs them, and never speculatively.
+Three more crates are specified but do not exist yet: `aicontext-plugin-runtime`,
+`aicontext-permissions`, and `aicontext-audit`. They are added by the task that needs them, and never
+speculatively. `aicontext-plugin-sdk` depends on `aicontext-core` only, so a plugin author never
+links the runtime or the CLI.
 
 The dependency graph is a DAG pointing inward toward `aicontext-core`, and it is checked by
 `crates/aicontext-testkit/tests/crate_boundaries.rs` on every CI run. Adding a workspace member

@@ -22,7 +22,9 @@ const DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-12/schema";
 ///
 /// A count would survive a schema being renamed and fail only when someone noticed the gap. The
 /// names are the contract: `CONTEXT_SPEC` 1 enumerates the document kinds and fixed-path configs,
-/// and a kind appearing in that table without appearing here is a missing schema.
+/// and `PLUGIN_SPEC` 2 adds the plugin manifest, which is a committed external contract rather
+/// than an `.ai/` document. A schema appearing in either specification without appearing here is
+/// a missing schema.
 const EXPECTED_SCHEMAS: &[&str] = &[
     "action-proposal.schema.json",
     "agent.schema.json",
@@ -37,6 +39,7 @@ const EXPECTED_SCHEMAS: &[&str] = &[
     "design.schema.json",
     "memory.schema.json",
     "permission-policy.schema.json",
+    "plugin-manifest.schema.json",
     "prd.schema.json",
     "project-profile.schema.json",
     "rules.schema.json",
@@ -114,7 +117,7 @@ fn schema_set_is_exactly_the_expected_files() {
 
     assert!(
         missing.is_empty(),
-        "schemas missing from the set, one per document kind or config file in CONTEXT_SPEC 1: {missing:?}"
+        "schemas missing from the set, one per document kind, config file, or published contract: {missing:?}"
     );
     assert!(
         unexpected.is_empty(),

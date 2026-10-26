@@ -45,6 +45,15 @@ pub enum ErrorFamily {
     /// would mean a caller branching on `CTX-003` cannot tell whether a schema failed to validate or
     /// git refused a command, and `docs/CLI_SPEC.md` §6 promises `findings[].code` is stable.
     Git,
+    /// A `PLG-NNN` plugin manifest or protocol failure, introduced by `TASK-070` in
+    /// `aicontext-plugin-sdk`.
+    ///
+    /// The family is shared with `aicontext-plugin-runtime`, which adds the codes for spawning,
+    /// timing out, and sandboxing a process when that crate lands (`TASK-073`). Only the codes the
+    /// SDK can produce are defined here now, so core never carries a code for a crate that does not
+    /// exist yet. A plugin failure is not a `CTX` finding and not a `GIT` failure, and a caller that
+    /// branches on the code must be able to tell the three apart.
+    Plugin,
 }
 
 impl ErrorFamily {
@@ -54,6 +63,7 @@ impl ErrorFamily {
         match self {
             Self::Context => "CTX",
             Self::Git => "GIT",
+            Self::Plugin => "PLG",
         }
     }
 }
@@ -196,6 +206,43 @@ impl ErrorCode {
     /// git changed it). Reporting a clean working tree on unrecognised output would be a lie, which
     /// `RULES.md` §4.8 rules out, so this is an error rather than an empty result.
     pub const GIT_006: Self = Self::git(6);
+
+    // The PLG family, introduced by TASK-070. `docs/PLUGIN_SPEC.md` 4 documents the full
+    // PLG-001 to PLG-011 catalogue; only the codes aicontext-plugin-sdk can produce are constants
+    // here. TASK-073 adds the process-supervision codes (spawn, handshake, timeout, output limit,
+    // unexpected exit, undeclared capability, sandbox violation, unavailable approval) with the
+    // crate that can actually return them, so core never names a failure no code path can reach.
+    /// A code in the `PLG` family, the plugin manifest and protocol failure modes.
+    ///
+    /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
+    /// rather than a code that silently matches nothing at runtime.
+    #[must_use]
+    pub const fn plugin(number: u16) -> Self {
+        debug_assert!(
+            number >= 1 && number <= 999,
+            "a plugin code is PLG-001 to PLG-999; add it to docs/PLUGIN_SPEC.md 4 if it is new"
+        );
+        Self {
+            family: ErrorFamily::Plugin,
+            number,
+        }
+    }
+
+    /// The plugin's `plugin_api_version` is not one this host supports (`docs/PLUGIN_SPEC.md` 2,
+    /// rule 8). The error message states both versions.
+    pub const PLG_004: Self = Self::plugin(4);
+    /// A JSON-RPC frame is not valid JSON-RPC 2.0, or names a method outside the protocol.
+    ///
+    /// The SDK uses this for a frame that cannot be decoded at all. The runtime reuses it for a
+    /// frame that is well-formed JSON but not a shape this protocol allows, because both mean the
+    /// same thing to the host: the bytes on the pipe cannot be trusted.
+    pub const PLG_005: Self = Self::plugin(5);
+    /// A plugin manifest does not satisfy `schemas/plugin-manifest.schema.json` or one of the
+    /// cross-field rules the schema cannot express, such as duplicate tool names.
+    ///
+    /// Added by `TASK-070` as an additive code (`ARCHITECTURE.md` 9). `TASK-077` reports it from
+    /// `plugin install`; the SDK returns it from `PluginManifest::from_json`.
+    pub const PLG_011: Self = Self::plugin(11);
 }
 
 impl fmt::Display for ErrorCode {
@@ -456,7 +503,34 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_twenty_six_distinct_codes() {
+    fn the_plugin_codes_render_in_the_documented_format_and_carry_their_own_family() {
+        // TASK-070 added the PLG family for the manifest and protocol failures the SDK can return.
+        // The runtime's codes join it in TASK-073; a caller branching on the family must not confuse
+        // a plugin failure with a context finding or a git failure.
+        for (code, expected) in [
+            (ErrorCode::PLG_004, "PLG-004"),
+            (ErrorCode::PLG_005, "PLG-005"),
+            (ErrorCode::PLG_011, "PLG-011"),
+        ] {
+            assert_eq!(code.to_string(), expected);
+            assert_eq!(code.family(), ErrorFamily::Plugin);
+            assert_eq!(code.family().prefix(), "PLG");
+        }
+    }
+
+    #[test]
+    fn the_plugin_family_does_not_reuse_a_context_number() {
+        // PLG-004 and CTX-004 both exist; what must not happen is one rendering with the other's
+        // prefix, because docs/CLI_SPEC.md 6 promises `code` is stable and safe to branch on.
+        assert_eq!(ErrorCode::plugin(4).number(), ErrorCode::CTX_004.number());
+        assert_ne!(
+            ErrorCode::plugin(4).to_string(),
+            ErrorCode::CTX_004.to_string()
+        );
+    }
+
+    #[test]
+    fn the_documented_catalogue_has_twenty_nine_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -484,6 +558,9 @@ mod tests {
             ErrorCode::GIT_004,
             ErrorCode::GIT_005,
             ErrorCode::GIT_006,
+            ErrorCode::PLG_004,
+            ErrorCode::PLG_005,
+            ErrorCode::PLG_011,
         ];
         let unique: std::collections::BTreeSet<String> =
             catalogue.iter().map(ErrorCode::to_string).collect();

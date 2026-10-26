@@ -78,6 +78,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicontext-plugin-sdk"
+version = "0.1.0"
+dependencies = [
+ "aicontext-core",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "aicontext-providers"
 version = "0.1.0"
 dependencies = [

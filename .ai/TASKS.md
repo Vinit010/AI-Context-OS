@@ -1497,12 +1497,20 @@ call appears in a verifiable audit chain.
 ```yaml
 id: TASK-070
 title: Define the plugin SDK manifest and protocol types
-status: TODO
+status: IN_PROGRESS
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-011]
 spec: docs/PLUGIN_SPEC.md
 touches: ["crates/aicontext-plugin-sdk/**", "schemas/plugin-manifest.schema.json"]
+scope_notes:
+  - 'A workspace member cannot exist without a line in the root `Cargo.toml`, and the schema-set
+    test in `crates/aicontext-cli/tests/schemas.rs` asserts the exact contents of `schemas/`, so
+    both are extended. The plugin error family (`ErrorFamily::Plugin`, `PLG-004`, `PLG-005`, and a
+    new `PLG-011` invalid manifest) is added to `crates/aicontext-core/src/error.rs`, because
+    `RULES.md` 4.3 requires every error to carry a stable code and core is the common denominator.
+    `PLG-011` is documented in `docs/PLUGIN_SPEC.md` 4 and `README.md` moves the SDK out of the
+    not-yet-created crate list. Approved by the user before implementation'
 acceptance:
   - Manifest validates against a Draft 2020-12 schema and declares plugin_api_version
   - Protocol types are JSON-RPC 2.0 and MCP-compatible

@@ -1,0 +1,29 @@
+[package]
+name = "aicontext-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Manifest and JSON-RPC protocol types for AI Context OS plugin authors"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The SDK may depend on core and nothing else internal. The boundary test in aicontext-testkit
+# enforces that rule; TASK-073's runtime and the CLI are not plugin-authoring dependencies.
+aicontext-core = { path = "../aicontext-core" }
+# serde/serde_json describe the wire formats. Both are pre-justified in ARCHITECTURE.md 2.2 and
+# already in the lockfile; the SDK adds no external crate to the tree.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Error enums derive thiserror::Error per RULES.md 4.2.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Dev-only, already in the lockfile through aicontext-cli's tests. The manifest schema is the
+# published contract, so the canonical fixture is validated against it, not only deserialized by
+# serde. The SDK deliberately carries no runtime JSON Schema engine; the host validates at install.
+jsonschema = { workspace = true }

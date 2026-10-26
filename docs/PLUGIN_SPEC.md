@@ -140,7 +140,7 @@ relays it to stderr.
 reformats optimistically. Codes: `PLG-001` spawn failure, `PLG-002` handshake failure, `PLG-003`
 timeout, `PLG-004` API version mismatch, `PLG-005` invalid frame, `PLG-006` output limit exceeded,
 `PLG-007` process exited unexpectedly, `PLG-008` capability not declared, `PLG-009` sandbox
-violation, `PLG-010` approval required but unavailable.
+violation, `PLG-010` approval required but unavailable, `PLG-011` invalid manifest.
 
 ---
 
