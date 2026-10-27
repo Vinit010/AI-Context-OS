@@ -53,8 +53,8 @@ and portable between machines and between AI tools.
 | 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**Ten commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, `import`,
-`connect`, `disconnect`, and `agent run`.**
+**Eleven commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, `import`,
+`connect`, `disconnect`, `agent run`, and `audit`.**
 
 `init` creates the `.ai` skeleton, `status` reports where the project and its task register stand,
 `doctor` validates the `.ai/` tree and explains what is wrong with it, `health` reports transparent
@@ -64,14 +64,17 @@ restores it without ever overwriting a file without `--force`. `connect` proves 
 and records only the credential's source — the value goes to the OS keychain, never to `.ai/`;
 `disconnect` removes that reference. `agent run --task <id>` assembles context, asks the configured
 provider for a plan, and writes it under `.aicontext/plans/`; it modifies nothing in the working
-tree.
+tree. `audit show|verify|tail` reads the hash-chained log: every record is verified from genesis
+before it is rendered, a break is reported with the verified prefix, and `verify` prints the head
+digest a reviewer can witness.
 
 Every other command in the plan refuses to run and names the task that will build it. Phase 3 is
 complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
 adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has started with the
-plugin SDK, the pure permission resolver, the approval broker, the plugin supervisor, and the tool
-gateway; the durable audit log follows. The gateway is a library edge: the CLI does not yet execute
-plugins. The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
+plugin SDK, the pure permission resolver, the approval broker, the plugin supervisor, the tool
+gateway, and the hash-chained audit log. The gateway is a library edge and nothing appends to the
+audit log yet: the CLI reads it, and the first command that executes a plugin becomes its writer.
+The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
 being built, in what order, and what "done" means for each item.
 
 ```sh
@@ -198,6 +201,7 @@ flowchart TD
     PERM["aicontext-permissions<br/>policy model and pure resolver"]
     PROV["aicontext-providers<br/>AIProvider trait and adapters"]
     RT["aicontext-plugin-runtime<br/>approval broker, supervisor, tool gateway"]
+    AUD["aicontext-audit<br/>hash-chained append-only log"]
     TK["aicontext-testkit<br/>fixtures and workspace boundary checks"]
 
     CLI --> CTX
@@ -205,6 +209,7 @@ flowchart TD
     CLI --> CORE
     CLI --> PROV
     CLI --> RT
+    CLI --> AUD
     CTX --> CORE
     GIT --> CORE
     SDK --> CORE
@@ -212,6 +217,7 @@ flowchart TD
     RT --> CORE
     RT --> PERM
     RT --> SDK
+    AUD --> CORE
 ```
 
 `aicontext-plugin-sdk` is a library for plugin authors and depends on `aicontext-core` only.

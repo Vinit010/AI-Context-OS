@@ -238,30 +238,37 @@ impl AuditLog {
 
     /// Reads and verifies the file, keeping the verified prefix on failure.
     fn scan(&self) -> Scan {
+        let text = match self.read_bounded() {
+            Ok(text) => text,
+            Err(problem) => return Scan::failed(problem),
+        };
+        Self::verify_lines(&text)
+    }
+
+    /// Reads the whole file under [`MAX_LOG_BYTES`].
+    ///
+    /// A missing file is an empty log, not a failure: no record has been written is not the same as
+    /// a damaged one. Every other read failure is returned, never reported as emptiness.
+    fn read_bounded(&self) -> Result<String, AuditError> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Scan::empty();
+                return Ok(String::new());
             }
             Err(source) => {
-                return Scan::failed(AuditError::Read {
+                return Err(AuditError::Read {
                     path: self.display_path(),
                     source,
                 });
             }
         };
 
-        let metadata = match file.metadata() {
-            Ok(metadata) => metadata,
-            Err(source) => {
-                return Scan::failed(AuditError::Read {
-                    path: self.display_path(),
-                    source,
-                });
-            }
-        };
+        let metadata = file.metadata().map_err(|source| AuditError::Read {
+            path: self.display_path(),
+            source,
+        })?;
         if metadata.len() > MAX_LOG_BYTES {
-            return Scan::failed(AuditError::TooLarge {
+            return Err(AuditError::TooLarge {
                 path: self.display_path(),
                 size: metadata.len(),
                 limit: MAX_LOG_BYTES,
@@ -270,8 +277,8 @@ impl AuditLog {
 
         let mut text = String::new();
         let mut limited = Read::by_ref(&mut file).take(MAX_LOG_BYTES + 1);
-        if let Err(error) = limited.read_to_string(&mut text) {
-            return Scan::failed(if error.kind() == std::io::ErrorKind::InvalidData {
+        limited.read_to_string(&mut text).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidData {
                 AuditError::Invalid {
                     line: None,
                     message: format!(
@@ -284,97 +291,30 @@ impl AuditLog {
                     path: self.display_path(),
                     source: error,
                 }
-            });
-        }
+            }
+        })?;
         if u64::try_from(text.len()).unwrap_or(u64::MAX) > MAX_LOG_BYTES {
             // The file can grow between the metadata check and the read. The cap is a bound on what
             // this process parses, not a promise about the directory entry.
-            return Scan::failed(AuditError::TooLarge {
+            return Err(AuditError::TooLarge {
                 path: self.display_path(),
                 size: u64::try_from(text.len()).unwrap_or(u64::MAX),
                 limit: MAX_LOG_BYTES,
             });
         }
+        Ok(text)
+    }
 
+    /// Verifies every non-blank line as one link in the chain.
+    fn verify_lines(text: &str) -> Scan {
         let mut records = Vec::new();
         for (index, line) in text.lines().enumerate() {
-            let line_number = index + 1;
             if line.trim().is_empty() {
                 continue;
             }
-            let record = match serde_json::from_str::<AuditRecord>(line) {
-                Ok(record) => record,
-                Err(source) => {
-                    return Scan::partial(
-                        records,
-                        AuditError::Malformed {
-                            line: line_number,
-                            source,
-                        },
-                    );
-                }
-            };
-            if let Err(message) = validate(&record) {
-                return Scan::partial(
-                    records,
-                    AuditError::Invalid {
-                        line: Some(line_number),
-                        message: format!(
-                            "line {line_number} is not a valid audit record: {message}"
-                        ),
-                    },
-                );
+            if let Err(problem) = Self::verify_line(index + 1, line, &mut records) {
+                return Scan::partial(records, problem);
             }
-
-            let expected_seq = match u64::try_from(records.len()) {
-                Ok(count) => count.saturating_add(1),
-                Err(_) => u64::MAX,
-            };
-            if record.seq() != expected_seq {
-                return Scan::partial(
-                    records,
-                    AuditError::Broken {
-                        line: line_number,
-                        message: format!(
-                            "seq is {} but the next record must be {expected_seq}",
-                            record.seq()
-                        ),
-                    },
-                );
-            }
-            let expected_prev = records
-                .last()
-                .map_or(GENESIS, AuditRecord::digest)
-                .to_string();
-            if record.prev() != expected_prev {
-                return Scan::partial(
-                    records,
-                    AuditError::Broken {
-                        line: line_number,
-                        message: format!(
-                            "prev is {} but the previous record's self is {expected_prev}",
-                            record.prev()
-                        ),
-                    },
-                );
-            }
-            let expected_digest = match record_digest(&record) {
-                Ok(digest) => digest,
-                Err(error) => return Scan::partial(records, error),
-            };
-            if record.digest() != expected_digest {
-                return Scan::partial(
-                    records,
-                    AuditError::Broken {
-                        line: line_number,
-                        message: format!(
-                            "self is {} but the record's contents digest to {expected_digest}",
-                            record.digest()
-                        ),
-                    },
-                );
-            }
-            records.push(record);
         }
 
         let head = records
@@ -386,6 +326,62 @@ impl AuditLog {
             head,
             problem: None,
         }
+    }
+
+    /// Parses and links one line, pushing it when every check passes.
+    fn verify_line(
+        line_number: usize,
+        line: &str,
+        records: &mut Vec<AuditRecord>,
+    ) -> Result<(), AuditError> {
+        let record =
+            serde_json::from_str::<AuditRecord>(line).map_err(|source| AuditError::Malformed {
+                line: line_number,
+                source,
+            })?;
+        if let Err(message) = validate(&record) {
+            return Err(AuditError::Invalid {
+                line: Some(line_number),
+                message: format!("line {line_number} is not a valid audit record: {message}"),
+            });
+        }
+
+        let expected_seq =
+            u64::try_from(records.len()).map_or(u64::MAX, |count| count.saturating_add(1));
+        if record.seq() != expected_seq {
+            return Err(AuditError::Broken {
+                line: line_number,
+                message: format!(
+                    "seq is {} but the next record must be {expected_seq}",
+                    record.seq()
+                ),
+            });
+        }
+        let expected_prev = records
+            .last()
+            .map_or(GENESIS, AuditRecord::digest)
+            .to_string();
+        if record.prev() != expected_prev {
+            return Err(AuditError::Broken {
+                line: line_number,
+                message: format!(
+                    "prev is {} but the previous record's self is {expected_prev}",
+                    record.prev()
+                ),
+            });
+        }
+        let expected_digest = record_digest(&record)?;
+        if record.digest() != expected_digest {
+            return Err(AuditError::Broken {
+                line: line_number,
+                message: format!(
+                    "self is {} but the record's contents digest to {expected_digest}",
+                    record.digest()
+                ),
+            });
+        }
+        records.push(record);
+        Ok(())
     }
 
     /// The path as a human reads it, with native separators removed from the message only.
@@ -402,14 +398,6 @@ struct Scan {
 }
 
 impl Scan {
-    fn empty() -> Self {
-        Self {
-            records: Vec::new(),
-            head: GENESIS.to_string(),
-            problem: None,
-        }
-    }
-
     fn failed(problem: AuditError) -> Self {
         Self {
             records: Vec::new(),

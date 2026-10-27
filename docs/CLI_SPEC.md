@@ -299,6 +299,45 @@ Guarantees:
 `config_path`. `keychain_stored` and `keychain_deleted` say whether an entry was actually touched, so
 a script can tell "there was nothing there" from "it worked".
 
+### `aicontext audit show|verify|tail`
+
+Reads the hash-chained log at `.aicontext/audit.jsonl` (`SECURITY.md` §8). No view writes, repairs,
+or truncates the log; the first command that executes a plugin becomes the writer.
+
+| View | Effect |
+|------|--------|
+| `show` | Render every verified record as a timeline |
+| `verify` | Report whether the chain links and print the head digest for an external witness |
+| `tail --limit <N>` | Render the newest N verified records; the default is 20, and zero is a usage error |
+
+Guarantees:
+
+- **Every view verifies the whole chain first.** A record is shown only when it and every record
+  before it link from genesis. On a break, every view reports the verified prefix, the first bad
+  line, and `AUD-002`/`AUD-003`, and exits 3.
+- **A missing log is an empty valid chain.** "Nothing has been audited yet" is not a damaged log;
+  it exits 0 and creates nothing.
+- **`verify` is the witness.** The human report prints the head digest and the JSON `head` is the same
+  value, so a reviewer can record it somewhere the project cannot write. A later rewrite then
+  disagrees with it.
+- **Reads are bounded.** A log above 64 MiB is refused rather than parsed (`AUD-004`), and an
+  unreadable file is `AUD-001` (exit 1), never an empty log.
+- **Display is sanitised.** Control and bidi/zero-width characters in `resource` are replaced before
+  a terminal sees them; `--json` publishes the record exactly as stored.
+
+The `--json` payload has the same shape for all three views: `view` (`show`, `verify`, or `tail`),
+`log` (`.aicontext/audit.jsonl`), `chain_valid`, `verified_records`, `returned_records`, `head`,
+`limit` (the requested tail limit, or null), `records` (what the view returned; empty for `verify`
+and the verified prefix on a break), and `problem` (`code`, `line`, `message`, `remediation`, or
+null). A break also adds one error finding with the same code.
+
+| Outcome | Exit |
+|---------|------|
+| Valid chain, including an absent log | 0 |
+| Chain does not verify (`AUD-002`, `AUD-003`, `AUD-004`) | 3 |
+| Log cannot be read (`AUD-001`) | 1 |
+| Bad view, non-positive `--limit`, or an unusable root (`PROJ-001`) | 2 |
+
 ---
 
 ## 5. Exit codes
@@ -308,7 +347,7 @@ a script can tell "there was nothing there" from "it worked".
 | 0 | `OK` | Success |
 | 1 | `GENERAL` | Unclassified failure |
 | 2 | `USAGE` | Bad arguments, unknown command, or not yet implemented |
-| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding, or a command's request cannot be satisfied (`context` names `CTX-030` when tiers 1–5 do not fit the budget; `agent run` names `AGENT-011`/`AGENT-012` before a call, or `AGENT-013` after one that exceeded the configured ceiling) |
+| 3 | `VALIDATION` | `doctor`/`health` found at least one error-level finding, or a command's request cannot be satisfied (`context` names `CTX-030` when tiers 1–5 do not fit the budget; `agent run` names `AGENT-011`/`AGENT-012` before a call, or `AGENT-013` after one that exceeded the configured ceiling; `audit` names `AUD-002`/`AUD-003`/`AUD-004` when the log does not verify) |
 | 4 | `PERMISSION_DENIED` | The permission resolver denied the action |
 | 5 | `APPROVAL_REQUIRED` | Approval was required and not granted (including every non-interactive case) |
 | 6 | `PROVIDER_ERROR` | The AI provider failed, timed out, or was unreachable |
@@ -346,6 +385,10 @@ wherever honest.
 `schema_version` increments on any breaking change to the shape; a snapshot test fails CI otherwise.
 `findings[].code` is stable and safe to branch on. `message` is for humans and may be reworded;
 `code` and `path` are not.
+
+`data` is command-specific. A command with subcommands that read the same subject (`audit`)
+publishes one shape across all of them, so a script reads `data.view` rather than assuming which
+subcommand produced the report.
 
 ---
 

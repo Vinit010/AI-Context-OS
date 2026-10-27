@@ -152,12 +152,16 @@ Implemented per `ADR-002` and `PLUGIN_SPEC.md` §7.
 
 ## 8. Audit log
 
-Append-only JSONL, one record per event, each containing the digest of the previous record.
+Implemented by `aicontext-audit`; read by `aicontext audit show|verify|tail`.
+
+Append-only JSONL at `.aicontext/audit.jsonl` — git-ignored local state — one record per event,
+each containing the digest of the record before it. `seq` starts at 1.
 
 ```json
 {
   "seq": 1042,
   "ts": "2026-09-27T14:53:06.412Z",
+  "event": "completed",
   "actor": {"kind": "agent", "id": "developer", "provider": "openai-compatible", "model": "…"},
   "action": {"tool": "aws.ec2.stop", "plugin": "aws", "effect": "write"},
   "resource": "i-0abc1234",
@@ -168,6 +172,40 @@ Append-only JSONL, one record per event, each containing the digest of the previ
   "self": "sha256:…"
 }
 ```
+
+`event` is `prompted`, `decided`, `executing`, or `completed`; a prompt is recorded before it is
+shown and the decision after it is reached (§9). `ts` is RFC 3339 UTC with exactly three fractional
+digits; no other spelling is accepted on read.
+
+**Construction.** `self` is SHA-256 over the compact JSON of the record with object keys sorted and
+`self` removed. `prev` is the previous record's `self`; the first record's `prev` is the `sha256:`
+prefix followed by 64 zeroes. Because `self` covers `prev`, changing any byte of any record breaks
+the link at or after it.
+
+**Verification and appends.** Every read verifies the whole chain before returning a record: the
+record shape, `seq` contiguity from 1, the `prev` link, the recomputed `self`, and the timestamp
+spelling. There is no unverified fast path. A damaged log is reported with its verified prefix and
+the first line that does not link; no command repairs or truncates it. An append verifies the
+existing log first and refuses with `AUD-005`, writing nothing, when it does not verify. An
+acknowledged append is `sync_data`'d before the call is reported complete. Appends assume one writer
+per project; the project lock owns concurrent writers once commands begin to append.
+
+Reads are capped at 64 MiB (`AUD-004`). Argument values are never stored: `arguments_digest` is the
+SHA-256 of the canonical argument JSON. Result bodies are not stored either; `result.digest` is the
+digest of the untrusted result envelope (§6).
+
+| Code | Meaning |
+|------|---------|
+| `AUD-001` | The log could not be read or written |
+| `AUD-002` | A line is not JSON, or is JSON but not a record this version accepts |
+| `AUD-003` | The chain does not link: a `seq` gap, a `prev` mismatch, or a `self` mismatch |
+| `AUD-004` | The log is larger than the 64 MiB read cap |
+| `AUD-005` | An append was refused because the existing chain did not verify; nothing was written |
+
+`aicontext audit show|verify|tail` only reads. A valid chain — including an absent log, which means
+no record has been written — exits 0. A chain that does not verify exits 3 and still renders the
+verified prefix. A log that cannot be read at all exits 1. `verify` prints the head so it can be
+recorded as an external witness.
 
 **Guarantee, stated precisely.** A hash chain resists *accidental* modification and *partial*
 alteration. It does **not** resist an attacker with write access to the machine, who can rewrite

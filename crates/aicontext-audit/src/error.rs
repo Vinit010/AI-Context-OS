@@ -112,10 +112,12 @@ impl AuditError {
         match self {
             Self::Malformed { line, .. } | Self::Broken { line, .. } => Some(*line),
             Self::Invalid { line, .. } => *line,
-            Self::Read { .. } | Self::Write { .. } | Self::TooLarge { .. } => None,
-            // The refusal is about the existing log as a whole; its cause carries the line when
-            // there is one.
-            Self::AppendRefused { .. } => None,
+            // A refusal is about the existing log as a whole; its cause carries the line when there
+            // is one. A read, write, or too-large failure names no line at all.
+            Self::Read { .. }
+            | Self::Write { .. }
+            | Self::TooLarge { .. }
+            | Self::AppendRefused { .. } => None,
         }
     }
 

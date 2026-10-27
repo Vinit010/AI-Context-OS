@@ -49,6 +49,7 @@
 //! `2026-09-27T14:53:06.412Z`. Wall-clock time is supplied by the caller through [`AuditLog::append`]
 //! (or a fixed value through [`AuditLog::append_at`]), so a test can produce the same record twice.
 
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 mod error;

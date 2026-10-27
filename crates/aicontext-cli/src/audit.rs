@@ -336,17 +336,22 @@ fn timeline(record: &AuditRecord) -> String {
     if let Some(approval) = record.approval() {
         let mut line = format!("approval {}", safe_text(approval.required()));
         if let Some(granted_by) = approval.granted_by() {
-            line.push_str(&format!(" by {}", safe_text(granted_by)));
+            line.push_str(" by ");
+            line.push_str(&safe_text(granted_by));
         }
         if let Some(mode) = approval.mode() {
-            line.push_str(&format!(" ({})", safe_text(mode)));
+            line.push_str(" (");
+            line.push_str(&safe_text(mode));
+            line.push(')');
         }
         parts.push(line);
     }
     if let Some(result) = record.result() {
         let mut line = format!("result {}", safe_text(result.status()));
         if let Some(duration_ms) = result.duration_ms() {
-            line.push_str(&format!(" in {duration_ms} ms"));
+            line.push_str(" in ");
+            line.push_str(&duration_ms.to_string());
+            line.push_str(" ms");
         }
         parts.push(line);
     }
