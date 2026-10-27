@@ -219,8 +219,8 @@ impl ErrorCode {
     // PLG-001 to PLG-012 catalogue; only the codes a crate can actually return are constants here.
     // TASK-072 adds PLG-010 for the approval broker; TASK-073 adds the process-supervision codes
     // (spawn, handshake, timeout, output limit, unexpected exit); TASK-074 adds PLG-008 and PLG-012
-    // for the gateway. They live here with the crate that can return them, so core never names a
-    // failure no code path can reach. PLG-009 (sandbox violation) belongs to TASK-076.
+    // for the gateway; TASK-076 adds PLG-009 for the sandbox. They live here with the crate that can
+    // return them, so core never names a failure no code path can reach.
     /// A code in the `PLG` family, the plugin manifest and protocol failure modes.
     ///
     /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
@@ -276,6 +276,13 @@ impl ErrorCode {
     /// `capabilities` can never be called, and a manifest capability the plugin's `tools/list` does
     /// not return cannot be served. Both are refused before a call is dispatched.
     pub const PLG_008: Self = Self::plugin(8);
+    /// The plugin left, or tried to leave, the sandbox its manifest declared.
+    ///
+    /// Added by `TASK-076`. The sandbox reports this for a declared path that escapes the project
+    /// root, a path or host outside the allowlist, and a sandbox root that cannot be prepared. The
+    /// error names the plugin, the control, and the value that was refused; it never contains a
+    /// credential. The OS-level boundary is platform-dependent (`docs/SECURITY.md` 12, R-3).
+    pub const PLG_009: Self = Self::plugin(9);
     /// Approval was required but could not be obtained, recorded, or shown.
     ///
     /// Added by `TASK-072` for the approval broker. A denial with a human-readable reason is an
@@ -605,9 +612,9 @@ mod tests {
     fn the_plugin_codes_render_in_the_documented_format_and_carry_their_own_family() {
         // TASK-070 added the PLG family for the manifest and protocol failures the SDK can return.
         // TASK-072 adds PLG-010, the approval broker's unavailable-approval failure; TASK-073 adds
-        // the process-supervision codes; TASK-074 adds PLG-008 and PLG-012 for the gateway. A
-        // caller branching on the family must not confuse a plugin failure with a context finding
-        // or a git failure.
+        // the process-supervision codes; TASK-074 adds PLG-008 and PLG-012 for the gateway; TASK-076
+        // adds PLG-009 for the sandbox. A caller branching on the family must not confuse a plugin
+        // failure with a context finding or a git failure.
         for (code, expected) in [
             (ErrorCode::PLG_001, "PLG-001"),
             (ErrorCode::PLG_002, "PLG-002"),
@@ -617,6 +624,7 @@ mod tests {
             (ErrorCode::PLG_006, "PLG-006"),
             (ErrorCode::PLG_007, "PLG-007"),
             (ErrorCode::PLG_008, "PLG-008"),
+            (ErrorCode::PLG_009, "PLG-009"),
             (ErrorCode::PLG_010, "PLG-010"),
             (ErrorCode::PLG_011, "PLG-011"),
             (ErrorCode::PLG_012, "PLG-012"),
@@ -657,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_forty_two_distinct_codes() {
+    fn the_documented_catalogue_has_forty_three_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -693,6 +701,7 @@ mod tests {
             ErrorCode::PLG_006,
             ErrorCode::PLG_007,
             ErrorCode::PLG_008,
+            ErrorCode::PLG_009,
             ErrorCode::PLG_010,
             ErrorCode::PLG_011,
             ErrorCode::PLG_012,
