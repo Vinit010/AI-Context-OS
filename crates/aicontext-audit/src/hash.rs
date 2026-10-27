@@ -56,8 +56,9 @@ pub(crate) fn is_digest(text: &str) -> bool {
 /// digest must not change with it: a chain that seals a feature flag is a chain that breaks when
 /// the feature set changes.
 pub(crate) fn record_digest(record: &AuditRecord) -> Result<String, AuditError> {
-    let value = serde_json::to_value(record)
-        .map_err(|error| AuditError::invalid_record(format!("the record cannot be rendered: {error}")))?;
+    let value = serde_json::to_value(record).map_err(|error| {
+        AuditError::invalid_record(format!("the record cannot be rendered: {error}"))
+    })?;
     let Value::Object(members) = value else {
         return Err(AuditError::invalid_record(
             "the record did not render as a JSON object",
@@ -127,7 +128,10 @@ mod tests {
         let third = record(1, GENESIS, "aws.ec2.start");
 
         let first_digest = super::record_digest(&first).expect("renders");
-        assert_ne!(first_digest, super::record_digest(&second).expect("renders"));
+        assert_ne!(
+            first_digest,
+            super::record_digest(&second).expect("renders")
+        );
         assert_ne!(
             first_digest,
             super::record_digest(&third).expect("renders"),

@@ -81,15 +81,7 @@ pub(crate) fn run(args: &AuditArgs, global: &GlobalArgs, terminal: &mut Terminal
             return Exit::General;
         }
     } else {
-        print_human(
-            &name,
-            &root,
-            view,
-            &verification,
-            records,
-            limit,
-            terminal,
-        );
+        print_human(&name, &root, view, &verification, records, limit, terminal);
     }
     exit
 }
@@ -283,16 +275,13 @@ fn print_verify(verification: &Verification, terminal: &mut Terminal) {
     }
     terminal.row(&terminal.mark_info(), "head", verification.head());
     if verification.problem().is_none() {
-        terminal.say("       record this digest somewhere the project cannot write; a later rewrite");
+        terminal
+            .say("       record this digest somewhere the project cannot write; a later rewrite");
         terminal.say("       will then disagree with it (docs/SECURITY.md section 8).");
     }
 }
 
-fn print_timeline(
-    verification: &Verification,
-    records: &[AuditRecord],
-    terminal: &mut Terminal,
-) {
+fn print_timeline(verification: &Verification, records: &[AuditRecord], terminal: &mut Terminal) {
     if records.is_empty() {
         if verification.is_valid() {
             terminal.row(
@@ -405,7 +394,7 @@ mod tests {
     use super::{safe_text, summary_of, timeline, view_of};
     use crate::args::AuditCommand;
     use aicontext_audit::{
-        Action, Actor, AuditEntry, AuditLog, AuditRecord, ResultSummary, Timestamp, GENESIS,
+        Action, Actor, AuditEntry, AuditLog, AuditRecord, ResultSummary, Timestamp,
     };
     use tempfile::TempDir;
 
@@ -469,7 +458,9 @@ mod tests {
         assert_eq!(view_of(&AuditCommand::Show), "show");
         assert_eq!(view_of(&AuditCommand::Verify), "verify");
         assert_eq!(
-            view_of(&AuditCommand::Tail(crate::args::AuditTailArgs { limit: 20 })),
+            view_of(&AuditCommand::Tail(crate::args::AuditTailArgs {
+                limit: 20
+            })),
             "tail"
         );
     }

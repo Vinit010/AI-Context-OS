@@ -664,8 +664,8 @@ Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentCommand, AuditCommand, AuditTailArgs, Cli, ColorChoice, Command, ContextArgs, DoctorArgs,
-        GlobalArgs, OutputFormat, code_or_prefix, first_command_word, pending,
+        AgentCommand, AuditCommand, AuditTailArgs, Cli, ColorChoice, Command, ContextArgs,
+        DoctorArgs, GlobalArgs, OutputFormat, code_or_prefix, first_command_word, pending,
     };
     use clap::Parser;
 

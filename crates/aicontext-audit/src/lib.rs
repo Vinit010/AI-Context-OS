@@ -59,6 +59,6 @@ mod timestamp;
 
 pub use error::{AuditError, AuditProblem};
 pub use hash::GENESIS;
-pub use log::{AuditLog, Chain, Verification, DEFAULT_DIR, DEFAULT_FILE, MAX_LOG_BYTES};
+pub use log::{AuditLog, Chain, DEFAULT_DIR, DEFAULT_FILE, MAX_LOG_BYTES, Verification};
 pub use record::{Action, Actor, Approval, AuditEntry, AuditRecord, ResultSummary};
 pub use timestamp::{InvalidTimestamp, Timestamp};

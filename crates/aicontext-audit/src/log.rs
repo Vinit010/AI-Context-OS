@@ -319,7 +319,9 @@ impl AuditLog {
                     records,
                     AuditError::Invalid {
                         line: Some(line_number),
-                        message: format!("line {line_number} is not a valid audit record: {message}"),
+                        message: format!(
+                            "line {line_number} is not a valid audit record: {message}"
+                        ),
                     },
                 );
             }
@@ -375,7 +377,10 @@ impl AuditLog {
             records.push(record);
         }
 
-        let head = records.last().map_or(GENESIS, AuditRecord::digest).to_string();
+        let head = records
+            .last()
+            .map_or(GENESIS, AuditRecord::digest)
+            .to_string();
         Scan {
             records,
             head,
@@ -414,7 +419,10 @@ impl Scan {
     }
 
     fn partial(records: Vec<AuditRecord>, problem: AuditError) -> Self {
-        let head = records.last().map_or(GENESIS, AuditRecord::digest).to_string();
+        let head = records
+            .last()
+            .map_or(GENESIS, AuditRecord::digest)
+            .to_string();
         Self {
             records,
             head,
@@ -499,7 +507,9 @@ mod tests {
     #[test]
     fn append_writes_the_first_record_at_seq_one_after_genesis() {
         let (_directory, log) = log();
-        let record = log.append_at(&entry("aws.ec2.stop"), at(0)).expect("appends");
+        let record = log
+            .append_at(&entry("aws.ec2.stop"), at(0))
+            .expect("appends");
         assert_eq!(record.seq(), 1);
         assert_eq!(record.prev(), GENESIS);
         assert!(record.digest().starts_with("sha256:"));
@@ -514,8 +524,12 @@ mod tests {
     fn append_links_each_record_to_the_one_before_it() {
         let (_directory, log) = log();
         let first = log.append_at(&entry("aws.ec2.stop"), at(0)).expect("first");
-        let second = log.append_at(&entry("aws.ec2.start"), at(1)).expect("second");
-        let third = log.append_at(&entry("aws.ec2.describe"), at(2)).expect("third");
+        let second = log
+            .append_at(&entry("aws.ec2.start"), at(1))
+            .expect("second");
+        let third = log
+            .append_at(&entry("aws.ec2.describe"), at(2))
+            .expect("third");
 
         assert_eq!(second.seq(), 2);
         assert_eq!(second.prev(), first.digest());
@@ -527,7 +541,8 @@ mod tests {
     #[test]
     fn the_file_is_one_json_object_per_line_ending_with_a_newline() {
         let (_directory, log) = log();
-        log.append_at(&entry("aws.ec2.stop"), at(0)).expect("append");
+        log.append_at(&entry("aws.ec2.stop"), at(0))
+            .expect("append");
         let text = read_file(&log);
         assert!(text.ends_with('\n'));
         assert_eq!(text.lines().count(), 1);
@@ -559,21 +574,25 @@ mod tests {
         // The digest is over sorted canonical JSON, not over the bytes of the line, so a reader that
         // re-renders the same values in a different order must not be told the chain is broken.
         let (_directory, log) = log();
-        log.append_at(&entry("aws.ec2.stop"), at(0)).expect("append");
+        log.append_at(&entry("aws.ec2.stop"), at(0))
+            .expect("append");
         let line = lines(&log)[0].clone();
         let value: Value = serde_json::from_str(&line).expect("object");
         let reordered = serde_json::to_string(&value).expect("renders");
         assert_ne!(line, reordered, "the rendered order is sorted and differs");
         write_file(&log, &format!("{reordered}\n"));
-        assert!(log.verify().is_valid(), "key order is not part of the digest");
+        assert!(
+            log.verify().is_valid(),
+            "key order is not part of the digest"
+        );
     }
 
     #[test]
     fn changing_a_value_breaks_the_self_digest() {
         let (_directory, log) = log();
-        log.append_at(&entry("aws.ec2.stop"), at(0)).expect("append");
-        let mut value: Value =
-            serde_json::from_str(lines(&log)[0].as_str()).expect("object");
+        log.append_at(&entry("aws.ec2.stop"), at(0))
+            .expect("append");
+        let mut value: Value = serde_json::from_str(lines(&log)[0].as_str()).expect("object");
         value["action"]["tool"] = Value::String("aws.ec2.terminate".to_string());
         write_file(&log, &format!("{value}\n"));
 
@@ -591,15 +610,19 @@ mod tests {
     fn changing_a_value_and_recomputing_self_breaks_the_next_prev_link() {
         let (_directory, log) = log();
         let first = log.append_at(&entry("aws.ec2.stop"), at(0)).expect("first");
-        log.append_at(&entry("aws.ec2.start"), at(1)).expect("second");
+        log.append_at(&entry("aws.ec2.start"), at(1))
+            .expect("second");
 
-        let mut first_value: Value =
-            serde_json::from_str(lines(&log)[0].as_str()).expect("object");
+        let mut first_value: Value = serde_json::from_str(lines(&log)[0].as_str()).expect("object");
         first_value["action"]["tool"] = Value::String("aws.ec2.terminate".to_string());
         let tampered: crate::AuditRecord =
             serde_json::from_value(first_value).expect("still a record shape");
         let recomputed = super::super::hash::record_digest(&tampered).expect("digest");
-        assert_ne!(recomputed, first.digest(), "the tamper changed the record's self");
+        assert_ne!(
+            recomputed,
+            first.digest(),
+            "the tamper changed the record's self"
+        );
         let mut sealed = serde_json::to_value(tampered).expect("renders");
         sealed["self"] = Value::String(recomputed.clone());
         let second_line = lines(&log)[1].clone();
@@ -613,7 +636,11 @@ mod tests {
 
         let verification = log.verify();
         assert!(!verification.is_valid());
-        assert_eq!(verification.records().len(), 1, "the first record still verifies");
+        assert_eq!(
+            verification.records().len(),
+            1,
+            "the first record still verifies"
+        );
         assert_eq!(verification.records()[0].digest(), recomputed);
         let problem = verification.problem().expect("problem");
         assert_eq!(problem.line(), Some(2));
@@ -647,7 +674,11 @@ mod tests {
         second["seq"] = Value::from(1);
         write_file(
             &log,
-            &format!("{}\n{}\n", all[0], serde_json::to_string(&second).expect("renders")),
+            &format!(
+                "{}\n{}\n",
+                all[0],
+                serde_json::to_string(&second).expect("renders")
+            ),
         );
         let verification = log.verify();
         assert!(!verification.is_valid());
@@ -664,7 +695,13 @@ mod tests {
         let verification = log.verify();
         assert!(!verification.is_valid());
         assert!(verification.records().is_empty());
-        assert!(verification.problem().expect("problem").message().contains("seq is 2"));
+        assert!(
+            verification
+                .problem()
+                .expect("problem")
+                .message()
+                .contains("seq is 2")
+        );
     }
 
     #[test]
@@ -721,7 +758,8 @@ mod tests {
     #[test]
     fn appending_to_a_broken_chain_is_refused_and_writes_nothing() {
         let (_directory, log) = log();
-        log.append_at(&entry("aws.ec2.stop"), at(0)).expect("append");
+        log.append_at(&entry("aws.ec2.stop"), at(0))
+            .expect("append");
         let mut value: Value = serde_json::from_str(lines(&log)[0].as_str()).expect("object");
         value["action"]["tool"] = Value::String("aws.ec2.terminate".to_string());
         let broken = format!("{value}\n");

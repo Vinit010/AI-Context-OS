@@ -630,7 +630,7 @@ mod tests {
     use aicontext_core::PermissionMode;
 
     use super::{
-        Actor, Approval, AuditEntry, AuditRecord, ResultSummary, validate, GENESIS, Timestamp,
+        Actor, Approval, AuditEntry, AuditRecord, GENESIS, ResultSummary, Timestamp, validate,
     };
     use crate::Action;
 
@@ -649,14 +649,21 @@ mod tests {
                 .with_granted_by("developer")
                 .with_mode("interactive"),
         )
-        .with_result(ResultSummary::new("success").with_duration_ms(412).with_digest(
-            super::super::hash::sha256(b"{\"status\":\"stopped\"}"),
-        ))
+        .with_result(
+            ResultSummary::new("success")
+                .with_duration_ms(412)
+                .with_digest(super::super::hash::sha256(b"{\"status\":\"stopped\"}")),
+        )
     }
 
     fn record() -> AuditRecord {
-        AuditRecord::seal(1, Timestamp::from_unix_millis(1_790_000_000_000), &entry(), GENESIS)
-            .expect("a valid record")
+        AuditRecord::seal(
+            1,
+            Timestamp::from_unix_millis(1_790_000_000_000),
+            &entry(),
+            GENESIS,
+        )
+        .expect("a valid record")
     }
 
     #[test]
@@ -673,7 +680,11 @@ mod tests {
         assert_eq!(record.action().plugin(), "aws");
         assert_eq!(record.action().effect(), "write");
         assert_eq!(record.resource(), Some("i-0abc1234"));
-        assert!(record.arguments_digest().is_some_and(|digest| digest.starts_with("sha256:")));
+        assert!(
+            record
+                .arguments_digest()
+                .is_some_and(|digest| digest.starts_with("sha256:"))
+        );
         let approval = record.approval().expect("approval");
         assert_eq!(approval.required(), "approval");
         assert_eq!(approval.granted_by(), Some("developer"));

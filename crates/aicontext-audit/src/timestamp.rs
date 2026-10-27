@@ -73,8 +73,15 @@ impl Timestamp {
                 "expected exactly YYYY-MM-DDTHH:MM:SS.mmmZ",
             ));
         }
-        for (index, expected) in [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'.'), (23, b'Z')]
-        {
+        for (index, expected) in [
+            (4, b'-'),
+            (7, b'-'),
+            (10, b'T'),
+            (13, b':'),
+            (16, b':'),
+            (19, b'.'),
+            (23, b'Z'),
+        ] {
             if bytes[index] != expected {
                 return Err(InvalidTimestamp::new(
                     text,
@@ -96,7 +103,15 @@ impl Timestamp {
             }
         };
 
-        let (Some(year), Some(month), Some(day), Some(hour), Some(minute), Some(second), Some(millis)) = (
+        let (
+            Some(year),
+            Some(month),
+            Some(day),
+            Some(hour),
+            Some(minute),
+            Some(second),
+            Some(millis),
+        ) = (
             digits(0, 4),
             digits(5, 7),
             digits(8, 10),
@@ -104,7 +119,8 @@ impl Timestamp {
             digits(14, 16),
             digits(17, 19),
             digits(20, 23),
-        ) else {
+        )
+        else {
             return Err(InvalidTimestamp::new(
                 text,
                 "every field must be digits in the documented positions",
@@ -317,6 +333,9 @@ mod tests {
         assert!(text.ends_with('Z'));
 
         let error: InvalidTimestamp = Timestamp::parse("1999-01-01").expect_err("short");
-        assert_eq!(error.to_string().split(':').next(), Some("`1999-01-01` is not an audit timestamp"));
+        assert_eq!(
+            error.to_string().split(':').next(),
+            Some("`1999-01-01` is not an audit timestamp")
+        );
     }
 }
