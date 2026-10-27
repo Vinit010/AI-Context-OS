@@ -23,6 +23,7 @@ mod agent;
 mod approval;
 mod archive;
 mod args;
+mod audit;
 mod connect;
 mod context;
 mod disconnect;
@@ -76,6 +77,7 @@ fn main() -> ExitCode {
         Command::Agent(agent_args) => match &agent_args.command {
             args::AgentCommand::Run(run_args) => agent::run(run_args, &cli.global, &mut terminal),
         },
+        Command::Audit(audit_args) => audit::run(audit_args, &cli.global, &mut terminal),
     };
 
     terminal.flush();
