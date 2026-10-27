@@ -1,0 +1,31 @@
+[package]
+name = "aicontext-audit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Hash-chained, append-only audit log for AI Context OS"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The permission modes and the AUD error codes are defined once in core, so the log cannot drift
+# from the policy it records. The boundary matrix permits this crate to depend on core and nothing
+# else internal. TASK-075.
+aicontext-core = { path = "../aicontext-core" }
+# Records are a published shape, so they are described by deriving rather than by hand-writing
+# braces. Already in the lockfile. TASK-075.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The chain is SHA-256, the same primitive the export manifest and the argument digests use.
+# Pre-justified in ARCHITECTURE.md 2.2 and already in the lockfile. TASK-075.
+sha2 = { workspace = true }
+# Error enums derive thiserror::Error per RULES.md 4.2. TASK-075.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Temporary log files, so no test writes into the developer's project (RULES.md 8).
+tempfile = { workspace = true }

@@ -54,6 +54,13 @@ pub enum ErrorFamily {
     /// exist yet. A plugin failure is not a `CTX` finding and not a `GIT` failure, and a caller that
     /// branches on the code must be able to tell the three apart.
     Plugin,
+    /// An `AUD-NNN` failure reading, verifying, or appending to the audit log, introduced by
+    /// `TASK-075` in `aicontext-audit`.
+    ///
+    /// Its own family because a damaged audit chain is neither a context finding nor a plugin
+    /// failure: a caller that sees `AUD-003` must be able to refuse an append without mistaking the
+    /// refusal for a plugin error.
+    Audit,
 }
 
 impl ErrorFamily {
@@ -64,6 +71,7 @@ impl ErrorFamily {
             Self::Context => "CTX",
             Self::Git => "GIT",
             Self::Plugin => "PLG",
+            Self::Audit => "AUD",
         }
     }
 }
@@ -288,6 +296,52 @@ impl ErrorCode {
     /// is refused rather than silently ignored, because an unenforced constraint would be worse
     /// than a missing one.
     pub const PLG_012: Self = Self::plugin(12);
+
+    // The AUD family, introduced by TASK-075. There is no external catalogue to transcribe: these
+    // are the failure modes of the append-only log, and the set is closed because the log offers no
+    // operation that can fail any other way.
+    /// A code in the `AUD` family, the audit log's failure modes.
+    ///
+    /// `number` is bounded to 1-999 like every other family so that a typo is a compile-time panic
+    /// rather than a code that silently matches nothing at runtime.
+    #[must_use]
+    pub const fn audit(number: u16) -> Self {
+        debug_assert!(
+            number >= 1 && number <= 999,
+            "an audit code is AUD-001 to AUD-999; add it to docs/SECURITY.md 8 if it is new"
+        );
+        Self {
+            family: ErrorFamily::Audit,
+            number,
+        }
+    }
+
+    /// The audit log could not be read or written.
+    ///
+    /// Added by `TASK-075`. The log is a real file under `.aicontext/`, so a permissions problem, a
+    /// full disk, or a path that is a directory is a failure of the log rather than an empty log.
+    pub const AUD_001: Self = Self::audit(1);
+    /// A record is not JSON, or is JSON but not a record this version accepts.
+    ///
+    /// Added by `TASK-075`. An unknown field, an out-of-range timestamp, and a digest in the wrong
+    /// spelling all mean the same thing to a reader: the bytes on that line cannot be trusted.
+    pub const AUD_002: Self = Self::audit(2);
+    /// The chain does not link: a `seq` gap, a `prev` mismatch, or a `self` digest that does not
+    /// match the record's contents.
+    ///
+    /// Added by `TASK-075`. This is the code a reader reports when the log is damaged, and the code
+    /// an append refuses on.
+    pub const AUD_003: Self = Self::audit(3);
+    /// The log is larger than the 64 MiB read cap.
+    ///
+    /// Added by `TASK-075`. The cap bounds how much a command parses; a file beyond it is refused
+    /// rather than read into memory.
+    pub const AUD_004: Self = Self::audit(4);
+    /// An append was refused because the existing chain did not verify.
+    ///
+    /// Added by `TASK-075`. Distinct from `AUD-003` so a caller knows no bytes were written because
+    /// of a pre-existing fault, rather than that a write itself failed.
+    pub const AUD_005: Self = Self::audit(5);
 }
 
 impl fmt::Display for ErrorCode {
@@ -585,7 +639,25 @@ mod tests {
     }
 
     #[test]
-    fn the_documented_catalogue_has_thirty_seven_distinct_codes() {
+    fn the_audit_codes_render_in_the_documented_format_and_carry_their_own_family() {
+        // TASK-075 added the AUD family for the hash-chained log. A caller branching on the family
+        // must not confuse a broken audit chain with a context finding, a git failure, or a plugin
+        // failure: refusing an append because the chain is broken is its own decision.
+        for (code, expected) in [
+            (ErrorCode::AUD_001, "AUD-001"),
+            (ErrorCode::AUD_002, "AUD-002"),
+            (ErrorCode::AUD_003, "AUD-003"),
+            (ErrorCode::AUD_004, "AUD-004"),
+            (ErrorCode::AUD_005, "AUD-005"),
+        ] {
+            assert_eq!(code.to_string(), expected);
+            assert_eq!(code.family(), ErrorFamily::Audit);
+            assert_eq!(code.family().prefix(), "AUD");
+        }
+    }
+
+    #[test]
+    fn the_documented_catalogue_has_forty_two_distinct_codes() {
         let catalogue = [
             ErrorCode::CTX_001,
             ErrorCode::CTX_002,
@@ -624,6 +696,11 @@ mod tests {
             ErrorCode::PLG_010,
             ErrorCode::PLG_011,
             ErrorCode::PLG_012,
+            ErrorCode::AUD_001,
+            ErrorCode::AUD_002,
+            ErrorCode::AUD_003,
+            ErrorCode::AUD_004,
+            ErrorCode::AUD_005,
         ];
         let unique: std::collections::BTreeSet<String> =
             catalogue.iter().map(ErrorCode::to_string).collect();

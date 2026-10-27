@@ -139,6 +139,8 @@ pub(crate) enum Command {
     /// Plan a task with the configured provider. Plan mode only: it modifies nothing outside
     /// `.aicontext/plans/`.
     Agent(AgentArgs),
+    /// Read the hash-chained audit log: render it, verify it, or show its newest records.
+    Audit(AuditArgs),
 }
 
 /// `aicontext status`.
@@ -376,6 +378,50 @@ fn required_value(text: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+/// `aicontext audit`.
+///
+/// The subcommand is required, so a bare `aicontext audit` is a usage error naming what exists
+/// rather than silently rendering nothing. Every view reads the same verified chain; `verify` is the
+/// one that exists to print the head a reviewer can witness (`docs/SECURITY.md` §8).
+#[derive(Debug, Args)]
+pub(crate) struct AuditArgs {
+    /// Which view to render.
+    #[command(subcommand)]
+    pub(crate) command: AuditCommand,
+}
+
+/// The three audit views in `docs/CLI_SPEC.md` §3.
+#[derive(Debug, Subcommand)]
+pub(crate) enum AuditCommand {
+    /// Render the whole verified log as a timeline.
+    Show,
+    /// Verify the chain and print its head.
+    Verify,
+    /// Render the most recent records of a verified log.
+    Tail(AuditTailArgs),
+}
+
+/// `aicontext audit tail`.
+#[derive(Debug, Args)]
+pub(crate) struct AuditTailArgs {
+    /// How many records to show, counting back from the newest. Must be at least 1.
+    #[arg(long, value_name = "N", default_value_t = 20, value_parser = positive_count)]
+    pub(crate) limit: usize,
+}
+
+/// Rejects zero at the parser: "the last zero records" is a question with no answer, and a tail that
+/// printed nothing would look like an empty log.
+fn positive_count(text: &str) -> Result<usize, String> {
+    let text = text.trim();
+    let value: usize = text
+        .parse()
+        .map_err(|_| "give a whole number of records, 1 or more".to_string())?;
+    if value == 0 {
+        return Err("give a whole number of records, 1 or more".to_string());
+    }
+    Ok(value)
+}
+
 /// `aicontext connect`.
 ///
 /// Describes one provider, proves it answers, and only then commits. The profile written to
@@ -447,10 +493,10 @@ pub(crate) struct PendingCommand {
 
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
-/// `init`, `status`, `doctor`, `health`, `context`, `export`, `import`, `connect`, and `disconnect`
-/// are implemented and must not appear here, or a working command would be refused by the pending
-/// check. A command here exits 2 with the code below and names its task, which §3 requires — it is
-/// never a silent no-op.
+/// `init`, `status`, `doctor`, `health`, `context`, `export`, `import`, `connect`, `disconnect`,
+/// `agent`, and `audit` are implemented and must not appear here, or a working command would be
+/// refused by the pending check. A command here exits 2 with the code below and names its task,
+/// which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
     PendingCommand {
         name: "plan",
@@ -496,11 +542,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         name: "plugin",
         task: Some("TASK-077"),
         summary: "Plugin management",
-    },
-    PendingCommand {
-        name: "audit",
-        task: Some("TASK-075"),
-        summary: "Audit log (show, verify, tail)",
     },
 ];
 
@@ -553,6 +594,7 @@ Commands:
   connect                  Prove a provider answers, then store it      available
   disconnect               Remove a stored provider reference           available
   agent run                Plan a task with the configured provider     available
+  audit show|verify|tail   Read the hash-chained audit log               available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   plan                     Produce an implementation plan for a task
@@ -560,7 +602,6 @@ Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
                            Project registers
   ai                       Provider configuration
   plugin                   Plugin management                                      TASK-077
-  audit                    Audit log (show, verify, tail)                         TASK-075
 
 Flags:
       --json               Single JSON object on stdout; human text to stderr
@@ -615,13 +656,16 @@ agent run flags:
       --task <ID>          The task in scope (required)
       --dry-run            Assemble and report; no call, nothing written
 
+audit tail flags:
+      --limit <N>          Show the last N records (default 20)
+
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentCommand, Cli, ColorChoice, Command, ContextArgs, DoctorArgs, GlobalArgs, OutputFormat,
-        code_or_prefix, first_command_word, pending,
+        AgentCommand, AuditCommand, AuditTailArgs, Cli, ColorChoice, Command, ContextArgs, DoctorArgs,
+        GlobalArgs, OutputFormat, code_or_prefix, first_command_word, pending,
     };
     use clap::Parser;
 
@@ -768,6 +812,14 @@ mod tests {
         assert!(
             pending("disconnect").is_none(),
             "disconnect is implemented, so it must not also be pending"
+        );
+        assert!(
+            pending("agent").is_none(),
+            "agent run is implemented, so it must not also be pending"
+        );
+        assert!(
+            pending("audit").is_none(),
+            "audit show/verify/tail are implemented, so audit must not also be pending"
         );
         assert!(pending("nonsense").is_none());
     }
@@ -1095,5 +1147,63 @@ mod tests {
             "surrounding whitespace is trimmed rather than treated as part of the code"
         );
         assert!(code_or_prefix(" ").is_err());
+    }
+
+    #[test]
+    fn audit_selects_a_view_and_tail_takes_a_positive_limit() {
+        let Cli {
+            command: Command::Audit(audit),
+            ..
+        } = Cli::try_parse_from(["aicontext", "audit", "show"]).expect("audit show parses")
+        else {
+            panic!("expected the audit command");
+        };
+        assert!(matches!(audit.command, AuditCommand::Show));
+
+        let Cli {
+            command: Command::Audit(audit),
+            ..
+        } = Cli::try_parse_from(["aicontext", "audit", "verify"]).expect("audit verify parses")
+        else {
+            panic!("expected the audit command");
+        };
+        assert!(matches!(audit.command, AuditCommand::Verify));
+
+        let Cli {
+            command: Command::Audit(audit),
+            ..
+        } = Cli::try_parse_from(["aicontext", "audit", "tail"]).expect("audit tail parses")
+        else {
+            panic!("expected the audit command");
+        };
+        let AuditCommand::Tail(AuditTailArgs { limit }) = audit.command else {
+            panic!("expected the tail view");
+        };
+        assert_eq!(limit, 20, "the documented default");
+
+        let Cli {
+            command: Command::Audit(audit),
+            ..
+        } = Cli::try_parse_from(["aicontext", "audit", "tail", "--limit", "3"])
+            .expect("--limit parses")
+        else {
+            panic!("expected the audit command");
+        };
+        let AuditCommand::Tail(AuditTailArgs { limit }) = audit.command else {
+            panic!("expected the tail view");
+        };
+        assert_eq!(limit, 3);
+
+        for args in [
+            vec!["aicontext", "audit"],
+            vec!["aicontext", "audit", "print"],
+            vec!["aicontext", "audit", "tail", "--limit", "0"],
+            vec!["aicontext", "audit", "tail", "--limit", "not-a-number"],
+        ] {
+            assert!(
+                Cli::try_parse_from(args.clone()).is_err(),
+                "{args:?} must be a usage error"
+            );
+        }
     }
 }

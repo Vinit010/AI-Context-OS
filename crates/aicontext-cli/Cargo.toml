@@ -16,6 +16,7 @@ name = "aicontext"
 path = "src/main.rs"
 
 [dependencies]
+aicontext-audit = { path = "../aicontext-audit" }
 aicontext-context = { path = "../aicontext-context" }
 aicontext-core = { path = "../aicontext-core" }
 aicontext-git = { path = "../aicontext-git" }

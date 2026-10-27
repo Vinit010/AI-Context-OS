@@ -26,9 +26,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicontext-audit"
+version = "0.1.0"
+dependencies = [
+ "aicontext-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "aicontext-cli"
 version = "0.1.0"
 dependencies = [
+ "aicontext-audit",
  "aicontext-context",
  "aicontext-core",
  "aicontext-git",
