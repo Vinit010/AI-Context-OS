@@ -223,10 +223,14 @@ flowchart TD
 `aicontext-plugin-sdk` is a library for plugin authors and depends on `aicontext-core` only.
 `aicontext-permissions` is pure policy data and resolution: no loader, no prompt, no audit entry,
 and no I/O of any kind. `aicontext-plugin-runtime` owns the approval decision, the plugin process,
-and the one gateway that reaches it. It has no terminal, no clock of its own, and no durable log:
-the CLI supplies the terminal when a command eventually wires it, and the hash-chained log is
-`TASK-075`. Source-scan tests enforce one production call site to the supervisor and no process
-construction in the gateway.
+and the one gateway that reaches it. It has no terminal and no clock of its own: the CLI supplies
+the terminal when a command eventually wires it. Source-scan tests enforce one production call site
+to the supervisor and no process construction in the gateway.
+
+`aicontext-audit` owns the durable log: the record shape, the SHA-256 chain, verification on every
+read, and refusal to append to a chain that does not verify. It depends on `aicontext-core` only,
+and the CLI is its sole reader today. The plugin runtime writes through a narrow audit sink and does
+not depend on the audit crate, so a plugin author never links the log.
 
 `aicontext-providers` is wired to the CLI: `connect` uses it for one verification call, and
 `agent run` uses it to plan. `aicontext-testkit` has no internal crate dependency — it reads every
@@ -238,6 +242,7 @@ crates/
   aicontext-context        # document discovery, parsing, retrieval, validation
   aicontext-git            # thin wrapper over the git binary
   aicontext-permissions    # policy model and pure permission resolver
+  aicontext-audit          # hash-chained, append-only audit log
   aicontext-plugin-sdk     # manifest and protocol types for plugin authors
   aicontext-plugin-runtime # approval broker, supervisor, tool gateway
   aicontext-providers      # AIProvider trait, neutral types, and the registry
@@ -248,10 +253,9 @@ docs/                      # normative specifications
 .github/workflows/         # CI
 ```
 
-One more crate is specified but does not exist yet: `aicontext-audit`, added by `TASK-075`. The
-plugin SDK and permissions crate depend on `aicontext-core` only; the runtime also uses the
-permissions resolver and the SDK, and remains a library with no terminal, no durable log, and no CLI
-wiring, so a plugin author never links the runtime or the CLI.
+The plugin SDK and permissions crate depend on `aicontext-core` only; the audit crate does too. The
+runtime also uses the permissions resolver and the SDK, and remains a library with no terminal, no
+durable log, and no CLI wiring, so a plugin author never links the runtime or the CLI.
 
 The dependency graph is a DAG pointing inward toward `aicontext-core`, and it is checked by
 `crates/aicontext-testkit/tests/crate_boundaries.rs` on every CI run. Adding a workspace member
@@ -317,10 +321,10 @@ aicontext
 ├─ export | import          portable .ai archives                            available
 ├─ connect | disconnect     configure or remove a provider                   available
 ├─ agent run                plan a task with the configured provider         available
+├─ audit                    read the hash-chained log (show, verify, tail)    available
 ├─ plan | task | memory | decision | bug | change | workflow                 planned
 ├─ ai                       provider configuration                           planned
-├─ plugin                   plugin management                                TASK-077
-└─ audit                    audit log (show, verify, tail)                   TASK-075
+└─ plugin                   plugin management                                TASK-077
 ```
 
 Global flags apply to every command: `--json`, `--quiet`, `-v`, `--color`, `--no-color`, `--cwd`,

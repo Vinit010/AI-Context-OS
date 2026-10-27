@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-075
+**Current task:** TASK-076
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1879,17 +1879,76 @@ done:
 ```yaml
 id: TASK-075
 title: Implement the hash-chained audit log
-status: TODO
+status: DONE
 priority: HIGH
 phase: 4
 depends_on: [TASK-073]
 spec: docs/SECURITY.md
-touches: ["crates/aicontext-audit/**"]
+touches:
+  - "crates/aicontext-audit/**"
+  - "crates/aicontext-cli/**"
+  - "crates/aicontext-core/src/error.rs"
+  - "docs/SECURITY.md"
+  - "docs/CLI_SPEC.md"
 acceptance:
   - Append-only JSONL where each record includes the digest of the previous record
   - Verifies the chain on read and refuses to append to a broken chain
   - Stores argument digests, never raw secret-bearing values
   - aicontext audit show renders a readable timeline and --json a stable shape
+done:
+  - '`crates/aicontext-audit/` adds `lib.rs`, `error.rs`, `hash.rs`, `timestamp.rs`, `record.rs`,
+    and `log.rs`. It depends only on `aicontext-core`, `serde`, `serde_json`, `sha2`, and
+    `thiserror`; no new external dependency was needed. The boundary matrix permits
+    `aicontext-core` and nothing else internal'
+  - 'The record is `seq`, `ts`, `event`, `actor`, `action`, `resource`, `arguments_digest`,
+    `approval`, `result`, `prev`, and `self`, as `docs/SECURITY.md` §8 documents, plus the `event`
+    word (`prompted`, `decided`, `executing`, `completed`). `AuditEntry` is what a caller builds and
+    `AuditRecord` is what the log seals, so `seq`, `prev`, and `self` cannot be chosen by a caller.
+    There is no field for raw arguments: `with_arguments_digest` is the only way to attach a call,
+    and `deny_unknown_fields` makes a hand-written `arguments` object malformed. Identifiers reject
+    control and bidi/zero-width characters; `resource` is free text and the CLI sanitises it for
+    display. Timestamps are RFC 3339 UTC with exactly three fractional digits'
+  - '`self` is SHA-256 over the record''s compact JSON with object keys sorted and `self` removed;
+    `prev` is the previous record''s `self`, and the first record follows a genesis sentinel of
+    `sha256:` plus 64 zeroes. A hardcoded-digest test pins the canonical form, so changing it is a
+    deliberate break rather than an accident. Every read verifies the record shape, `seq`
+    contiguity from 1, the `prev` link, the recomputed `self`, and the timestamp spelling; there is
+    no unverified fast path. `Verification` returns the verified prefix and the first bad line, so
+    `show` can render what did verify while the command exits 3'
+  - 'A missing file is an empty valid chain; an unreadable file is `AUD-001`, never emptiness.
+    Reads are capped at 64 MiB (`AUD-004`). `append` verifies the existing log first and refuses a
+    broken or malformed chain with `AUD-005`, writing nothing and preserving the cause; an
+    acknowledged append writes one line and calls `sync_data` before returning. Appends assume one
+    writer per project, documented as the project lock''s future concern rather than pretending a
+    lock exists'
+  - '`ErrorFamily::Audit`, `ErrorCode::audit`, and `AUD_001`–`AUD_005` are defined in
+    `aicontext-core` with the rest of the catalogue; the documented-catalogue test now requires 42
+    distinct codes. `AUD-001` is read/write, `AUD-002` malformed or wrong-shaped, `AUD-003` a broken
+    link, `AUD-004` over the cap, and `AUD-005` a refused append'
+  - 'The CLI adds `Command::Audit` with `show`, `verify`, and `tail --limit <N>` (default 20, zero a
+    usage error), removes `audit` from `PENDING`, and documents it in `--help`. The human view is a
+    sanitised timeline; `verify` prints the head digest as the external witness `SECURITY.md` §8
+    requires. All three views publish one JSON shape: `view`, `log`, `chain_valid`,
+    `verified_records`, `returned_records`, `head`, `limit`, `records`, and `problem`. A valid chain
+    (including an absent log) exits 0, a chain that does not verify exits 3 while rendering the
+    verified prefix, an unreadable log exits 1, and a bad root or bad view exits 2. The command is
+    read-only: it never appends, repairs, or truncates'
+  - 'Tests: 54 in `aicontext-audit` (timestamp calendar and parsing, record validation and
+    canonical shape, genesis and digest stability, and every log failure: tampering, seq gaps,
+    deleted records, malformed and unknown-field lines, invalid UTF-8, the read cap, blank and CRLF
+    lines, append refusal, determinism, and the directory layout), 5 CLI unit tests, and 10
+    integration tests in `crates/aicontext-cli/tests/audit.rs`. The workspace suite is 1182 passed,
+    0 failed across 47 suites (was 1111 across 44). Gates: `cargo fmt --all`; `cargo clippy
+    --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace`;
+    `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`; `cargo +1.85.0 build --workspace`;
+    `cargo +1.85.0 test --workspace`; `aicontext doctor` (exit 0, only the pre-existing CTX-012
+    warning); `git diff --check`; and `cargo audit` (clean). No `unwrap` or `expect` outside tests,
+    no `unsafe`, and no secret in the crate, tests, or fixture'
+  - 'Deliberately not done: no wiring of `aicontext-audit` into the gateway or the CLI write path, so
+    the log is read-only from the product and `AuditLog::append` is a public library entry point for
+    the first command that executes a plugin. No project lock for concurrent writers (the existing
+    `LOCKED` exit code owns that when writes land), no remote/OTel sink, and no git anchoring of the
+    chain head'
 ```
 
 ### TASK-076 — Implement the sandbox

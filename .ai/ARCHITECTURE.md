@@ -269,7 +269,7 @@ Hard rules, checked in CI:
 | `plugin-runtime::ToolGateway` | `permissions::Policy`, `ApprovalBroker`, `PluginProcess`, `GatewayAudit` | Single choke point: validates arguments, resolves policy, brokers approval, dispatches once, returns an untrusted envelope. There is no second path to a plugin |
 | `plugin-runtime::Supervisor` | plugin process, `aiplugin-sdk` types | Spawn, handshake, health-check, timeout, kill, output caps; sandbox in `TASK-076` |
 | `git::Repository` | `git` CLI | Porcelain wrapper; no libgit2 in the MVP |
-| `audit::Log` (via `GatewayAudit`) | filesystem | Append-only JSONL, hash-chained |
+| `audit::AuditLog` (via `GatewayAudit`) | filesystem | Append-only JSONL with a SHA-256 chain; verifies on every read and refuses to extend a chain that does not verify |
 
 ### 4.3 Primary flows
 
@@ -550,7 +550,7 @@ Present in the MVP, unused until later phases, so no later phase requires a brea
   ecosystem later.
 - `ContextBudget` — per-model cost control later.
 - `ApprovalBroker` trait — web dashboard approval, CI approval, and team workflows later.
-- `audit::Log` as a trait-backed sink — remote/OTel export later, opt-in only.
+- `audit::AuditLog` behind a `GatewayAudit` sink — remote/OTel export later, opt-in only.
 - `AgentProfile` documents — multi-agent orchestration later.
 
 Not reserved: no `dashboard/` crate, no `cloud/` crate, no plugin-authoring framework scaffolding.
@@ -566,7 +566,7 @@ Empty abstractions are worse than absent ones (RULES §2).
 | R-2 | **JSON Schema validator weight.** A Draft 2020-12 validator pulls a large transitive tree, against D8 | Build time, binary size, supply-chain surface | Medium | **Answered in `TASK-015`, by splitting the two claims**: CI validates the schemas with `jsonschema` 0.58.3 as a dev-dependency, which costs build time and nothing else — no shipped binary grows. The runtime `Validator` trait, and therefore the production dependency decision, is deferred to `TASK-014`, where a validator is first needed to validate a document rather than a schema. `default-features = false` is what keeps the network and TLS tree (`resolve-http`, `resolve-file`, `reqwest`, `rustls`, `aws-lc-rs`) out of the workspace entirely; every schema is self-contained, so none of those resolvers has anything to do. Residual risk is the runtime one: if `TASK-014` finds the tree too heavy behind the trait, the schemas themselves are unaffected | TASK-015 (CI), TASK-014 (runtime) |
 | R-3 | **Plugin sandbox strength is OS-dependent.** Path and network enforcement differs across Linux, macOS, and Windows | Weaker isolation than documented on some platforms | High | Declare the guarantee per platform; fail closed where it cannot be enforced; document the gap rather than imply parity | TASK-076 |
 | R-4 | **Context relevance without semantics.** Lexical retrieval will miss paraphrased intent | Agents re-read too much or miss the right document | Medium | Accept it in the MVP and measure: log which documents were retrieved vs. used, then let evidence pick the next retriever | TASK-033, TASK-038 |
-| R-5 | **Audit tamper-resistance is local.** A local hash chain resists accidental edit, not an attacker with write access to the machine | Weaker audit guarantee than "tamper-resistant" implies | High | State the guarantee precisely; offer optional anchoring to git; never overclaim | TASK-075 |
+| R-5 | **Audit tamper-resistance is local.** A local hash chain resists accidental edit, not an attacker with write access to the machine | Weaker audit guarantee than "tamper-resistant" implies | High | **Implemented in `TASK-075`**: the guarantee is stated precisely in `SECURITY.md` §8, `aicontext audit verify` prints the head for an external witness, every read verifies the whole chain, and an append refuses a broken chain. Optional git anchoring remains future work | TASK-075 |
 | R-6 | **The `.ai/` policy trust problem.** A cloned repo's `RULES.md` is attacker-controlled text shaped like policy | Agent may obey hostile rules | High | `MEM-003`; digest review in `doctor`; platform policy always outranks project policy | TASK-101 |
 | R-7 | **Static binary supply chain.** Rust's build pulls many crates | Compromised build | Low | `cargo audit` in CI, minimal and justified dependency set, lockfile committed, release artefacts checksummed | TASK-010 |
 | R-8 | **Approval fatigue.** Too many prompts train a developer to hit "yes" | The approval control degrades into theatre | High | Default most tools to read-only `ALLOW`; prompts only where the consequence is real; group related calls; measure prompt frequency | TASK-072 |

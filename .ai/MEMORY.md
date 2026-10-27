@@ -5,7 +5,7 @@ title: AI Context OS — Durable Memory
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # MEMORY
@@ -1451,6 +1451,48 @@ order; a sink failure refuses the call with `PLG-010` before dispatch, or withho
 produced. A policy denial or a human "no" is `GatewayOutcome::Refused`, not an error, but it is still
 recorded. The durable hash chain is `TASK-075`; the sandbox is `TASK-076`; and the CLI still has no
 plugin execution command, so the gateway is a library edge until `TASK-077` and the Phase 5 loop.
+
+## MEM-043 — The audit chain seals canonical JSON, verifies every read, and refuses to extend a broken log
+
+```yaml
+id: MEM-043
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-27
+supersedes: null
+tags: [audit, hash-chain, jsonl, canonical-json, task-075]
+```
+
+`TASK-075` adds `aicontext-audit`, which depends only on `aicontext-core`, `serde`, `serde_json`,
+`sha2`, and `thiserror`. The log is `.aicontext/audit.jsonl`, one JSON object per line, `seq` from 1.
+`self` is SHA-256 over the record's compact JSON with keys sorted and `self` removed, so key order
+and whitespace never change the digest. `prev` is the previous `self`; the first record follows the
+fixed genesis sentinel of `sha256:` plus 64 zeroes. A hardcoded digest test pins the canonical form,
+so a change to canonicalisation is a deliberate decision rather than a silent break of every
+existing log.
+
+Verification is not a mode. Every read checks the record shape, `seq` contiguity, `prev`, the
+recomputed `self`, and the timestamp spelling, and returns the verified prefix plus the first bad
+line when something fails. There is no trusted fast path. A missing file is an empty valid chain;
+an unreadable file is an error, never emptiness. Reads are capped at 64 MiB. Appends verify the
+existing log first and refuse with `AUD-005` without writing on any failure; an acknowledged append
+is `sync_data`'d. Appends assume one writer per project until the project lock owns concurrent
+writers.
+
+The record has no field for raw arguments: `AuditEntry` exposes `with_arguments_digest` and nothing
+that accepts an argument value, and `AuditRecord` denies unknown fields, so a hand-written
+`arguments` object is malformed. Identifiers reject control and bidi/zero-width characters;
+`resource` keeps them because it is free text and the CLI sanitises it for display. The event,
+actor kind, effect, approval mode, and result status are bounded words rather than free prose.
+
+`AUD-001`–`AUD-005` are defined in `aicontext-core` with the rest of the catalogue. The CLI's
+`audit show|verify|tail` is read-only, publishes one JSON shape across all three views, exits 3 for
+a chain that does not verify (rendering the verified prefix), 1 for an unreadable log, and 2 for a
+bad root. `verify` prints the head as the external witness `SECURITY.md` §8 requires. Nothing
+appends yet: the first command that executes a plugin becomes the writer, and gateway wiring is
+deliberately not part of `TASK-075`.
 
 ## Bugs encountered
 
