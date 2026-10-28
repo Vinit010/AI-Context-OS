@@ -1,9 +1,9 @@
 //! Argument parsing for the whole command tree (`docs/CLI_SPEC.md` §2 and §3).
 //!
 //! Only the commands that exist — `init`, `status`, `doctor`, `health`, `context`, `export`,
-//! `import`, `connect`, and `disconnect` — are declared to `clap`. The rest of the tree is listed in
-//! [`PENDING`] with the task
-//! that will provide it, so `--help` shows what exists and what does not, and an unimplemented
+//! `import`, `connect`, `disconnect`, `agent`, `audit`, and `plugin` — are declared to `clap`. The
+//! rest of the tree is listed in [`PENDING`] with the task that will provide it, so `--help` shows
+//! what exists and what does not, and an unimplemented
 //! command exits 2 naming its task instead of a usage error about an unknown word. Declaring the tree
 //! as stub subcommands would put a second copy of every command name in this file, and the two copies
 //! would drift.
@@ -141,6 +141,8 @@ pub(crate) enum Command {
     Agent(AgentArgs),
     /// Read the hash-chained audit log: render it, verify it, or show its newest records.
     Audit(AuditArgs),
+    /// Install, list, and remove local plugins and record the permissions they were granted.
+    Plugin(PluginArgs),
 }
 
 /// `aicontext status`.
@@ -480,6 +482,51 @@ pub(crate) struct DisconnectArgs {
     pub(crate) provider: String,
 }
 
+/// `aicontext plugin`.
+///
+/// The subcommand is required, so a bare `aicontext plugin` is a usage error naming what exists
+/// rather than a silent no-op. `list` reads the record, `install` validates and records a local
+/// manifest, and `remove` revokes one entry and deletes the state it owned (`docs/PLUGIN_SPEC.md`
+/// §8). The views named in the §3 tree that are not here (`info`, `enable`, `disable`, `permissions`)
+/// are deliberately absent until a task specifies them: a stub that printed nothing would look like
+/// a working command.
+#[derive(Debug, Args)]
+pub(crate) struct PluginArgs {
+    /// What to do with the installed-plugin record.
+    #[command(subcommand)]
+    pub(crate) command: PluginCommand,
+}
+
+/// The plugin subcommands that exist today.
+#[derive(Debug, Subcommand)]
+pub(crate) enum PluginCommand {
+    /// Show the installed plugins and the permissions each was granted.
+    List,
+    /// Validate a manifest, show the permission diff, confirm, then record the plugin.
+    Install(PluginInstallArgs),
+    /// Revoke a plugin's permissions and delete the local state it owned.
+    Remove(PluginRemoveArgs),
+}
+
+/// `aicontext plugin install`.
+#[derive(Debug, Args)]
+pub(crate) struct PluginInstallArgs {
+    /// A plugin directory containing `manifest.json`, or the path to a manifest file.
+    ///
+    /// A relative path resolves against the project root, matching `export` and `import`. This
+    /// build installs local paths only; a registry reference is refused by name.
+    #[arg(value_name = "path", value_parser = required_value)]
+    pub(crate) path: String,
+}
+
+/// `aicontext plugin remove`.
+#[derive(Debug, Args)]
+pub(crate) struct PluginRemoveArgs {
+    /// The plugin to remove, as `aicontext plugin list` spells it.
+    #[arg(value_name = "name", value_parser = required_value)]
+    pub(crate) name: String,
+}
+
 /// A command in the §3 tree that is specified but not built yet.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PendingCommand {
@@ -494,9 +541,9 @@ pub(crate) struct PendingCommand {
 /// Every command from `docs/CLI_SPEC.md` §3 that this binary does not implement yet.
 ///
 /// `init`, `status`, `doctor`, `health`, `context`, `export`, `import`, `connect`, `disconnect`,
-/// `agent`, and `audit` are implemented and must not appear here, or a working command would be
-/// refused by the pending check. A command here exits 2 with the code below and names its task,
-/// which §3 requires — it is never a silent no-op.
+/// `agent`, `audit`, and `plugin` are implemented and must not appear here, or a working command
+/// would be refused by the pending check. A command here exits 2 with the code below and names its
+/// task, which §3 requires — it is never a silent no-op.
 pub(crate) const PENDING: &[PendingCommand] = &[
     PendingCommand {
         name: "plan",
@@ -537,11 +584,6 @@ pub(crate) const PENDING: &[PendingCommand] = &[
         name: "ai",
         task: None,
         summary: "Provider configuration",
-    },
-    PendingCommand {
-        name: "plugin",
-        task: Some("TASK-077"),
-        summary: "Plugin management",
     },
 ];
 
@@ -595,13 +637,14 @@ Commands:
   disconnect               Remove a stored provider reference           available
   agent run                Plan a task with the configured provider     available
   audit show|verify|tail   Read the hash-chained audit log               available
+  plugin list|install|remove
+                           Install, list, and remove local plugins      available
 
 Planned, not yet built (each exits 2 naming its task in .ai/TASKS.md):
   plan                     Produce an implementation plan for a task
   task | memory | decision | bug | change | workflow
                            Project registers
   ai                       Provider configuration
-  plugin                   Plugin management                                      TASK-077
 
 Flags:
       --json               Single JSON object on stdout; human text to stderr
@@ -659,13 +702,19 @@ agent run flags:
 audit tail flags:
       --limit <N>          Show the last N records (default 20)
 
+plugin flags:
+      install <path>       Plugin directory or manifest.json; needs `yes` unless --yes
+      remove <name>        Revoke permissions and delete the plugin's local state
+      list                 Show installed plugins and their granted permissions
+
 Exit codes are documented in docs/CLI_SPEC.md section 5. A run always prints its exit code.";
 
 #[cfg(test)]
 mod tests {
     use super::{
         AgentCommand, AuditCommand, AuditTailArgs, Cli, ColorChoice, Command, ContextArgs,
-        DoctorArgs, GlobalArgs, OutputFormat, code_or_prefix, first_command_word, pending,
+        DoctorArgs, GlobalArgs, OutputFormat, PluginCommand, code_or_prefix, first_command_word,
+        pending,
     };
     use clap::Parser;
 
@@ -820,6 +869,10 @@ mod tests {
         assert!(
             pending("audit").is_none(),
             "audit show/verify/tail are implemented, so audit must not also be pending"
+        );
+        assert!(
+            pending("plugin").is_none(),
+            "plugin list/install/remove are implemented, so plugin must not also be pending"
         );
         assert!(pending("nonsense").is_none());
     }
@@ -1199,6 +1252,58 @@ mod tests {
             vec!["aicontext", "audit", "print"],
             vec!["aicontext", "audit", "tail", "--limit", "0"],
             vec!["aicontext", "audit", "tail", "--limit", "not-a-number"],
+        ] {
+            assert!(
+                Cli::try_parse_from(args.clone()).is_err(),
+                "{args:?} must be a usage error"
+            );
+        }
+    }
+
+    #[test]
+    fn plugin_parses_list_install_and_remove_and_refuses_a_blank_reference() {
+        let Cli {
+            command: Command::Plugin(plugin),
+            ..
+        } = Cli::try_parse_from(["aicontext", "plugin", "list"]).expect("plugin list parses")
+        else {
+            panic!("expected the plugin command");
+        };
+        assert!(matches!(plugin.command, PluginCommand::List));
+
+        let Cli {
+            command: Command::Plugin(plugin),
+            ..
+        } = Cli::try_parse_from(["aicontext", "plugin", "install", "plugins/demo"])
+            .expect("plugin install parses")
+        else {
+            panic!("expected the plugin command");
+        };
+        let PluginCommand::Install(install) = plugin.command else {
+            panic!("expected the install subcommand");
+        };
+        assert_eq!(install.path, "plugins/demo");
+
+        let Cli {
+            command: Command::Plugin(plugin),
+            ..
+        } = Cli::try_parse_from(["aicontext", "plugin", "remove", "demo"])
+            .expect("plugin remove parses")
+        else {
+            panic!("expected the plugin command");
+        };
+        let PluginCommand::Remove(remove) = plugin.command else {
+            panic!("expected the remove subcommand");
+        };
+        assert_eq!(remove.name, "demo");
+
+        // A blank path would resolve to the project root and a blank name to a plugin that cannot
+        // exist; both are refused at the parser, where the message is still about the question.
+        for args in [
+            vec!["aicontext", "plugin"],
+            vec!["aicontext", "plugin", "install", "  "],
+            vec!["aicontext", "plugin", "remove", "  "],
+            vec!["aicontext", "plugin", "info", "demo"],
         ] {
             assert!(
                 Cli::try_parse_from(args.clone()).is_err(),

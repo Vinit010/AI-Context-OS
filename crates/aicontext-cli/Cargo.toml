@@ -20,6 +20,10 @@ aicontext-audit = { path = "../aicontext-audit" }
 aicontext-context = { path = "../aicontext-context" }
 aicontext-core = { path = "../aicontext-core" }
 aicontext-git = { path = "../aicontext-git" }
+# `plugin install` validates a manifest with the same types a plugin author uses, so the CLI and
+# the author cannot disagree about what a valid declaration is. The edge is allowed by the matrix
+# in `aicontext-testkit/tests/crate_boundaries.rs` and justified in ARCHITECTURE.md 2.2. TASK-077.
+aicontext-plugin-sdk = { path = "../aicontext-plugin-sdk" }
 # The approval broker itself lives in the runtime crate; the CLI supplies the only terminal and
 # reads the answer. The dependency is present now so TASK-074 can wire the gateway without moving
 # the seam, and `src/approval.rs` is its terminal side. TASK-072.

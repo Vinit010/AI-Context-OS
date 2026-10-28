@@ -8,10 +8,11 @@
 //!
 //! `init` (`TASK-012`), `status` (`TASK-013`), `doctor` (`TASK-014`), `health` (`TASK-038`),
 //! `context` (`TASK-037`), `export` and `import` (`TASK-020`), `connect` and `disconnect`
-//! (`TASK-053`), and `agent run` in plan mode (`TASK-055`), plus the global flags. Every other
-//! command in the §3 tree is listed in
-//! [`args::PENDING`] and exits 2 naming the task that will build it, which is what §3 requires of a
-//! command that is not implemented yet — a named refusal rather than an unknown-word usage error.
+//! (`TASK-053`), `agent run` in plan mode (`TASK-055`), `audit show|verify|tail` (`TASK-075`), and
+//! `plugin list|install|remove` (`TASK-077`), plus the global flags. Every other command in the §3
+//! tree is listed in [`args::PENDING`] and exits 2 naming the task that will build it, which is what
+//! §3 requires of a command that is not implemented yet — a named refusal rather than an
+//! unknown-word usage error.
 //!
 //! The command word is read from the raw arguments *before* clap validates them, so
 //! `aicontext plan --json` reports "not implemented" rather than complaining about the flag: the
@@ -34,6 +35,7 @@ mod health;
 mod import;
 mod init;
 mod output;
+mod plugin;
 mod project;
 mod status;
 
@@ -78,6 +80,7 @@ fn main() -> ExitCode {
             args::AgentCommand::Run(run_args) => agent::run(run_args, &cli.global, &mut terminal),
         },
         Command::Audit(audit_args) => audit::run(audit_args, &cli.global, &mut terminal),
+        Command::Plugin(plugin_args) => plugin::run(plugin_args, &cli.global, &mut terminal),
     };
 
     terminal.flush();

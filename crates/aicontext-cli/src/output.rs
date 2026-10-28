@@ -166,6 +166,15 @@ impl Terminal {
         let _ = writeln!(self.stdout, "{line}");
     }
 
+    /// One line of human text on stderr.
+    ///
+    /// Used when stdout is reserved for a machine object but a human still needs to see the text:
+    /// `--json` keeps the pipe clean, and the install preview that a confirmation depends on still
+    /// reaches the person answering it.
+    pub(crate) fn note(&mut self, line: &str) {
+        let _ = writeln!(self.stderr, "{line}");
+    }
+
     /// The identity line, first on every run (`.ai/DESIGN.md` §6).
     pub(crate) fn identity(&mut self, product: &str, project: &str, vcs: &str) {
         let line = format!(
