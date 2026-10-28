@@ -46,6 +46,7 @@ dependencies = [
  "aicontext-core",
  "aicontext-git",
  "aicontext-plugin-runtime",
+ "aicontext-plugin-sdk",
  "aicontext-providers",
  "aicontext-testkit",
  "clap",
