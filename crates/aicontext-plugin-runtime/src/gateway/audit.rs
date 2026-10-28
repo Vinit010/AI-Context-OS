@@ -4,8 +4,10 @@
 //! cannot be recorded to be refused. The gateway therefore treats a sink failure as a refusal at
 //! every stage, not as a warning.
 //!
-//! There are three event kinds:
+//! There are four event kinds:
 //!
+//! - [`GatewayEvent::SandboxRefused`] is written before a plugin process exists, when the manifest
+//!   names a path, host, or environment variable the sandbox cannot accept.
 //! - [`GatewayEvent::Approval`] forwards the broker's own prompt and decision events through the
 //!   same sink, so an operator sees `Prompted`, `Decided`, `Executing`, and `Completed` in call
 //!   order rather than in two files.
@@ -185,6 +187,19 @@ impl RefusalStage {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum GatewayEvent {
+    /// The sandbox refused to prepare the plugin, before any process existed.
+    ///
+    /// `detail` is the sandbox error's message: it names the plugin, the control, and the refused
+    /// value, and never contains a credential. The event is written before the error is returned,
+    /// so an escape attempt is auditable even though no call happened.
+    SandboxRefused {
+        /// The plugin the manifest names.
+        plugin: String,
+        /// The stable `PLG` code for the refusal.
+        code: ErrorCode,
+        /// What was refused, without an environment value or raw arguments.
+        detail: String,
+    },
     /// A broker prompt or decision, forwarded unchanged so one sink sees one sequence.
     Approval(ApprovalEvent),
     /// Every check passed; the plugin call is about to start.
@@ -207,7 +222,7 @@ impl GatewayEvent {
     pub const fn call(&self) -> Option<&CallSummary> {
         match self {
             Self::Executing { call } | Self::Completed { call, .. } => Some(call),
-            Self::Approval(_) => None,
+            Self::SandboxRefused { .. } | Self::Approval(_) => None,
         }
     }
 
@@ -216,7 +231,7 @@ impl GatewayEvent {
     pub const fn approval(&self) -> Option<&ApprovalEvent> {
         match self {
             Self::Approval(event) => Some(event),
-            Self::Executing { .. } | Self::Completed { .. } => None,
+            Self::SandboxRefused { .. } | Self::Executing { .. } | Self::Completed { .. } => None,
         }
     }
 }

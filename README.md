@@ -72,8 +72,9 @@ Every other command in the plan refuses to run and names the task that will buil
 complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
 adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has started with the
 plugin SDK, the pure permission resolver, the approval broker, the plugin supervisor, the tool
-gateway, and the hash-chained audit log. The gateway is a library edge and nothing appends to the
-audit log yet: the CLI reads it, and the first command that executes a plugin becomes its writer.
+gateway, the plugin sandbox, and the hash-chained audit log. The gateway is a library edge and
+nothing appends to the audit log yet: the CLI reads it, and the first command that executes a plugin
+becomes its writer.
 The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
 being built, in what order, and what "done" means for each item.
 
@@ -120,9 +121,9 @@ verification call before writing anything, and `agent run` is plan-only.
 Project knowledge is committed to the repository under `.ai/`. The CLI reads it, assembles a
 **context packet** for a specific task, and hands that packet to a model as *plan mode only*: the
 model proposes, the human approves, and only then does anything with write access run. The context
-engine, provider layer, plan-mode agent loop, approval broker, plugin supervisor, and tool gateway
-exist today. The gateway is not yet wired to a CLI command, so no plugin can be executed from
-`aicontext` itself; that arrives with the plugin command and the Phase 5 loop.
+engine, provider layer, plan-mode agent loop, approval broker, plugin supervisor, tool gateway, and
+plugin sandbox exist today. The gateway is not yet wired to a CLI command, so no plugin can be
+executed from `aicontext` itself; that arrives with the plugin command and the Phase 5 loop.
 
 ```mermaid
 flowchart LR

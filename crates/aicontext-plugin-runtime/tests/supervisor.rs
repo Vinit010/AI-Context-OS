@@ -5,11 +5,15 @@
 //! version, or answers with the wrong shape must produce the documented `PLG` code and a dead
 //! process, which is exactly the contract `docs/PLUGIN_SPEC.md` §4 and §7 state.
 
+use std::fs;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use aicontext_core::ErrorCode;
-use aicontext_plugin_runtime::supervisor::{SupervisorError, start_plugin};
+use aicontext_plugin_runtime::supervisor::{PluginProcess, SupervisorError, start_plugin};
+use aicontext_plugin_runtime::{Sandbox, SandboxRoots};
 use aicontext_plugin_sdk::{
     Capability, Effect, EntryPoint, FilesystemScope, Limits, LogLevel, NetworkScope, PluginManifest,
 };
@@ -70,9 +74,31 @@ fn with_command(mut manifest: PluginManifest, command: &str) -> PluginManifest {
     manifest
 }
 
+/// A sandbox that outlives the test process: the fixture runs with this directory as its cwd.
+///
+/// One shared temporary root is removed when the test binary exits. Each call gets its own
+/// `case-N` subtree so tests running in parallel cannot share a plugin tree.
+fn sandbox(manifest: &PluginManifest) -> Sandbox {
+    static ROOT: OnceLock<tempfile::TempDir> = OnceLock::new();
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    let root = ROOT.get_or_init(|| tempfile::tempdir().expect("a temporary sandbox root"));
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    let directory = root.path().join(format!("case-{id}"));
+    let project = directory.join("project");
+    fs::create_dir_all(&project).expect("the project exists");
+    let roots = SandboxRoots::new(directory.join("state"), project);
+    Sandbox::prepare(manifest, &roots).expect("the sandbox is prepared")
+}
+
+fn start(manifest: &PluginManifest) -> Result<PluginProcess, SupervisorError> {
+    let sandbox = sandbox(manifest);
+    start_plugin(manifest, &sandbox)
+}
+
 #[test]
 fn a_well_behaved_plugin_is_started_listed_called_and_logged() {
-    let mut process = start_plugin(&manifest("ok")).expect("the fixture starts");
+    let mut process = start(&manifest("ok")).expect("the fixture starts");
 
     assert!(process.is_running());
     assert_eq!(process.capabilities().len(), 1);
@@ -102,7 +128,7 @@ fn a_well_behaved_plugin_is_started_listed_called_and_logged() {
 
 #[test]
 fn a_plugin_that_exits_during_a_call_is_plg_007_and_is_not_retried() {
-    let mut process = start_plugin(&manifest("crash")).expect("the fixture starts");
+    let mut process = start(&manifest("crash")).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -121,7 +147,7 @@ fn a_plugin_that_exits_during_a_call_is_plg_007_and_is_not_retried() {
 #[test]
 fn a_plugin_that_hangs_is_killed_at_the_per_call_timeout() {
     let mut process =
-        start_plugin(&with_limits(manifest("hang"), 200, 16 * 1024)).expect("the fixture starts");
+        start(&with_limits(manifest("hang"), 200, 16 * 1024)).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -143,7 +169,7 @@ fn a_plugin_that_hangs_is_killed_at_the_per_call_timeout() {
 #[test]
 fn a_plugin_that_floods_one_frame_is_plg_006_and_is_killed() {
     let mut process =
-        start_plugin(&with_limits(manifest("flood"), 2_000, 4_096)).expect("the fixture starts");
+        start(&with_limits(manifest("flood"), 2_000, 4_096)).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -158,8 +184,8 @@ fn a_plugin_that_floods_one_frame_is_plg_006_and_is_killed() {
 
 #[test]
 fn a_plugin_that_floods_log_notifications_is_plg_006_and_is_killed() {
-    let mut process = start_plugin(&with_limits(manifest("flood-logs"), 5_000, 4_096))
-        .expect("the fixture starts");
+    let mut process =
+        start(&with_limits(manifest("flood-logs"), 5_000, 4_096)).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -171,7 +197,7 @@ fn a_plugin_that_floods_log_notifications_is_plg_006_and_is_killed() {
 #[test]
 fn a_result_deeper_than_the_protocol_cap_is_plg_006() {
     let mut process =
-        start_plugin(&with_limits(manifest("deep"), 2_000, 16 * 1024)).expect("the fixture starts");
+        start(&with_limits(manifest("deep"), 2_000, 16 * 1024)).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -182,7 +208,7 @@ fn a_result_deeper_than_the_protocol_cap_is_plg_006() {
 
 #[test]
 fn a_handshake_that_reports_another_api_version_is_plg_004() {
-    let error = start_plugin(&manifest("bad-version")).expect_err("version 2 is not supported");
+    let error = start(&manifest("bad-version")).expect_err("version 2 is not supported");
 
     assert_eq!(error.code(), ErrorCode::PLG_004);
     assert!(
@@ -195,7 +221,7 @@ fn a_handshake_that_reports_another_api_version_is_plg_004() {
 fn a_manifest_for_another_api_version_is_refused_before_the_process_starts() {
     let manifest = with_command(with_version(manifest("ok"), "2"), MISSING_COMMAND);
 
-    let error = start_plugin(&manifest).expect_err("version 2 is not supported");
+    let error = start(&manifest).expect_err("version 2 is not supported");
     assert_eq!(error.code(), ErrorCode::PLG_004);
     assert!(
         matches!(error, SupervisorError::ApiVersion { .. }),
@@ -205,7 +231,7 @@ fn a_manifest_for_another_api_version_is_refused_before_the_process_starts() {
 
 #[test]
 fn a_handshake_error_response_is_plg_002() {
-    let error = start_plugin(&manifest("bad-handshake")).expect_err("the handshake is rejected");
+    let error = start(&manifest("bad-handshake")).expect_err("the handshake is rejected");
 
     assert_eq!(error.code(), ErrorCode::PLG_002);
     assert!(
@@ -216,7 +242,7 @@ fn a_handshake_error_response_is_plg_002() {
 
 #[test]
 fn a_non_json_frame_is_plg_005_and_is_killed() {
-    let mut process = start_plugin(&manifest("garbage")).expect("the fixture starts");
+    let mut process = start(&manifest("garbage")).expect("the fixture starts");
 
     let error = process.list_tools().expect_err("the frame is not JSON");
     assert_eq!(error.code(), ErrorCode::PLG_005);
@@ -226,7 +252,7 @@ fn a_non_json_frame_is_plg_005_and_is_killed() {
 
 #[test]
 fn a_tool_error_response_is_plg_005_rather_than_a_result() {
-    let mut process = start_plugin(&manifest("tool-error")).expect("the fixture starts");
+    let mut process = start(&manifest("tool-error")).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -237,7 +263,7 @@ fn a_tool_error_response_is_plg_005_rather_than_a_result() {
 
 #[test]
 fn a_result_with_the_wrong_shape_is_plg_005() {
-    let mut process = start_plugin(&manifest("bad-result")).expect("the fixture starts");
+    let mut process = start(&manifest("bad-result")).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -248,7 +274,7 @@ fn a_result_with_the_wrong_shape_is_plg_005() {
 
 #[test]
 fn a_response_with_the_wrong_id_is_plg_005() {
-    let mut process = start_plugin(&manifest("wrong-id")).expect("the fixture starts");
+    let mut process = start(&manifest("wrong-id")).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))
@@ -261,7 +287,7 @@ fn a_response_with_the_wrong_id_is_plg_005() {
 fn an_executable_that_does_not_exist_is_plg_001() {
     let manifest = with_command(manifest("ok"), MISSING_COMMAND);
 
-    let error = start_plugin(&manifest).expect_err("there is no such executable");
+    let error = start(&manifest).expect_err("there is no such executable");
     assert_eq!(error.code(), ErrorCode::PLG_001);
     assert!(
         matches!(error, SupervisorError::Spawn { ref program, .. } if program == MISSING_COMMAND),
@@ -271,7 +297,7 @@ fn an_executable_that_does_not_exist_is_plg_001() {
 
 #[test]
 fn a_plugin_that_never_answers_initialize_is_plg_003() {
-    let error = start_plugin(&with_limits(manifest("hang-handshake"), 200, 16 * 1024))
+    let error = start(&with_limits(manifest("hang-handshake"), 200, 16 * 1024))
         .expect_err("the handshake hangs");
 
     assert_eq!(error.code(), ErrorCode::PLG_003);
@@ -289,8 +315,8 @@ fn a_plugin_that_never_answers_initialize_is_plg_003() {
 
 #[test]
 fn a_plugin_that_ignores_shutdown_is_killed_and_reports_plg_003() {
-    let process = start_plugin(&with_limits(manifest("no-shutdown"), 200, 16 * 1024))
-        .expect("the fixture starts");
+    let process =
+        start(&with_limits(manifest("no-shutdown"), 200, 16 * 1024)).expect("the fixture starts");
 
     let error = process.shutdown().expect_err("shutdown times out");
     assert_eq!(error.code(), ErrorCode::PLG_003);
@@ -308,7 +334,7 @@ fn a_plugin_that_ignores_shutdown_is_killed_and_reports_plg_003() {
 
 #[test]
 fn a_crashing_plugin_keeps_its_stderr_for_diagnosis() {
-    let mut process = start_plugin(&manifest("crash")).expect("the fixture starts");
+    let mut process = start(&manifest("crash")).expect("the fixture starts");
 
     let error = process
         .call_tool(TOOL, json!({"text": "x"}))

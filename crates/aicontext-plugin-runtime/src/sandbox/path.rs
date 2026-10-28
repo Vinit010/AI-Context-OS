@@ -19,6 +19,7 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
+use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -70,7 +71,11 @@ impl FilesystemPolicy {
     /// [`SandboxError::Escape`] for a relative target that leaves the project or resolves outside
     /// it through a symlink, [`SandboxError::Denied`] for a target outside the allowlist, and
     /// [`SandboxError::Io`] if the existing prefix cannot be inspected.
-    pub fn check_read(&self, plugin: &str, target: impl AsRef<Path>) -> Result<PathBuf, SandboxError> {
+    pub fn check_read(
+        &self,
+        plugin: &str,
+        target: impl AsRef<Path>,
+    ) -> Result<PathBuf, SandboxError> {
         self.check(plugin, "read", &self.read, target.as_ref())
     }
 
@@ -124,12 +129,25 @@ fn resolve_declared(
         }
         let path = Path::new(raw);
         let relative = !path.is_absolute();
-        if relative && path.components().any(|part| matches!(part, Component::Prefix(_))) {
+        if relative
+            && path
+                .components()
+                .any(|part| matches!(part, Component::Prefix(_)))
+        {
             return Err(SandboxError::InvalidPath {
                 plugin: plugin.to_owned(),
                 operation,
-                detail: format!("`{raw}` is a drive-relative path; use an absolute path or one \
-                                 relative to the project root"),
+                detail: format!(
+                    "`{raw}` is a drive-relative path; use an absolute path or one \
+                                 relative to the project root"
+                ),
+            });
+        }
+        if let Err(detail) = validate_components(path) {
+            return Err(SandboxError::InvalidPath {
+                plugin: plugin.to_owned(),
+                operation,
+                detail: format!("`{raw}` {detail}"),
             });
         }
 
@@ -184,6 +202,13 @@ fn resolve_request(
             target: "<empty>".to_owned(),
         });
     }
+    if validate_components(target).is_err() {
+        return Err(SandboxError::Denied {
+            plugin: plugin.to_owned(),
+            operation,
+            target: display_path(target),
+        });
+    }
     let relative = !target.is_absolute();
     let absolute = if relative {
         project_root.join(target)
@@ -223,9 +248,7 @@ fn resolve_request(
 
 /// Resolve `..` and `.` without touching the filesystem.
 ///
-/// `..` may cancel a normal component, but it may not climb above the filesystem root. Each normal
-/// component is checked for the portable-name rules first, so a reserved name is refused even when
-/// the path would otherwise resolve cleanly.
+/// `..` may cancel a normal component, but it may not climb above the filesystem root.
 fn resolve_lexical(path: &Path) -> Result<PathBuf, String> {
     let mut resolved = PathBuf::new();
     let mut depth = 0_usize;
@@ -247,13 +270,25 @@ fn resolve_lexical(path: &Path) -> Result<PathBuf, String> {
                 depth -= 1;
             }
             Component::Normal(part) => {
-                validate_component(part)?;
                 resolved.push(part);
                 depth += 1;
             }
         }
     }
     Ok(resolved)
+}
+
+/// Check every normal component of a value the manifest supplied.
+///
+/// Only the declared value is checked, never the host-chosen project prefix, so a project living
+/// under an unusual directory name is not mistaken for an invalid declaration.
+fn validate_components(path: &Path) -> Result<(), String> {
+    for component in path.components() {
+        if let Component::Normal(part) = component {
+            validate_component(part)?;
+        }
+    }
+    Ok(())
 }
 
 /// Refuse a component that is not portable across the supported platforms.
@@ -315,6 +350,20 @@ fn canonicalize_with_missing(path: &Path) -> io::Result<PathBuf> {
                 return Ok(canonical);
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // A dangling symlink is not a path that is merely missing: its target can appear
+                // later and take the plugin outside the tree. Refuse it rather than caching the
+                // link name as if it were an ordinary component.
+                if fs::symlink_metadata(&current)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "`{}` is a symlink whose target does not exist",
+                            display_path(&current)
+                        ),
+                    ));
+                }
                 let Some(name) = current.file_name().map(OsStr::to_os_string) else {
                     return Err(error);
                 };
@@ -413,7 +462,9 @@ mod tests {
         let project = project();
         let root = fs::canonicalize(project.path()).expect("the project exists");
 
-        for bad in ["CON", "con.txt", "aux", "NUL", "COM1", "lpt9", "file.", "file ", "a:b"] {
+        for bad in [
+            "CON", "con.txt", "aux", "NUL", "COM1", "lpt9", "file.", "file ", "a:b",
+        ] {
             let error = FilesystemPolicy::build("fixture", &root, &[bad.to_owned()], &[])
                 .expect_err("the name is not portable");
             assert_eq!(
@@ -513,6 +564,21 @@ mod tests {
             .expect_err("the symlink leaves the project");
         assert_eq!(error.code(), aicontext_core::ErrorCode::PLG_009);
         assert!(matches!(error, SandboxError::Escape { .. }), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_is_refused_rather_than_treated_as_missing() {
+        let project = project();
+        let root = fs::canonicalize(project.path()).expect("the project exists");
+        let outside = tempfile::tempdir().expect("a directory outside the project");
+        std::os::unix::fs::symlink(outside.path().join("appears-later"), root.join("link"))
+            .expect("the symlink is created");
+
+        let error = FilesystemPolicy::build("fixture", &root, &["link".to_owned()], &[])
+            .expect_err("the target does not exist, so the link is refused");
+        assert_eq!(error.code(), aicontext_core::ErrorCode::PLG_009);
+        assert!(matches!(error, SandboxError::Io { .. }), "{error}");
     }
 
     #[test]

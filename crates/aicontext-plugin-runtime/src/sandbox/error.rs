@@ -191,6 +191,8 @@ impl From<SandboxError> for AicontextError {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use aicontext_core::ErrorCode;
 
     use super::SandboxError;

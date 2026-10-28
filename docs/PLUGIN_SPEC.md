@@ -260,18 +260,22 @@ call trains the developer to say yes, which is worse than no prompt at all.
 
 | Control | Behaviour |
 |---------|-----------|
-| Working directory | Set to a per-plugin empty directory; the repository is not the cwd |
-| Filesystem read | Only paths in `manifest.filesystem.read`, resolved and checked for symlink escape |
-| Filesystem write | Only paths in `manifest.filesystem.write`; never `.ai/` unless explicitly listed |
-| Network egress | Only hosts in `manifest.network.egress`; empty means no network |
-| Environment | Only variables the manifest declares, plus a minimal base set. `HOME` is not inherited |
+| Working directory | Set to a per-plugin empty `state/plugins/<name>/work`; the repository is not the cwd |
+| Filesystem read | Host-mediated reads only at or below `manifest.filesystem.read`; relative paths resolve against the project root, and `..`, symlink, dangling-symlink, and non-portable-name escapes are refused |
+| Filesystem write | Host-mediated writes only at or below `manifest.filesystem.write`; never `.ai/` unless explicitly listed |
+| Network egress | Host-mediated requests only to hosts in `manifest.network.egress`; empty means no network |
+| Environment | `env_clear()`, then a minimal base set plus `source: env` auth references. `HOME`, `USERPROFILE`, and the temporary variables point into the sandbox; a controlled name cannot be overridden |
 | Timeouts | Per call, from the manifest; hard kill on expiry |
 | Output | `max_output_bytes` cap; the process is killed if exceeded |
 | Process | One plugin process per session, reaped on exit; a crash is an error, not a silent no-op |
+| Refusal | Typed `PLG-009` or `PLG-011`; the gateway audits `SandboxRefused` before returning |
 
-Isolation strength is **OS-dependent** (risk R-3). Where a control cannot be enforced, the runtime
+The filesystem and network rows describe the **host-mediated** boundary: what the runtime checks
+when it performs an operation for the plugin. A plugin that opens a path or a socket directly is
+constrained by the operating system, not by these checks, and isolation strength is therefore
+**OS-dependent** (risk R-3). Where a control cannot be established structurally, the runtime
 **fails closed** and states which control is unavailable on this platform. It never claims a
-guarantee it does not provide.
+guarantee it does not provide, and it does not claim kernel-level parity across platforms.
 
 ---
 

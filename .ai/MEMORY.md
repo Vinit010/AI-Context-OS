@@ -1494,6 +1494,52 @@ bad root. `verify` prints the head as the external witness `SECURITY.md` §8 req
 appends yet: the first command that executes a plugin becomes the writer, and gateway wiring is
 deliberately not part of `TASK-075`.
 
+## MEM-044 — A sandbox is prepared before spawn, and its guarantee is host-mediated rather than kernel-level
+
+```yaml
+id: MEM-044
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-28
+supersedes: null
+tags: [plugin-system, sandbox, filesystem, network, environment, audit, task-076]
+```
+
+`TASK-076` adds `aicontext-plugin-runtime::sandbox`. A `Sandbox::prepare(manifest, &SandboxRoots)`
+is a policy object, not a wrapper around a process: it creates or reuses
+`state/plugins/<name>/{work,home,tmp}`, refuses a symlink where a directory is required, and checks
+after canonicalisation that `plugins` and the per-plugin root are still under the state root, so a
+junction cannot redirect the tree. On Unix every directory the plugin can use is mode `0700`. The
+supervisor receives the prepared object (`start_plugin(manifest, &sandbox)`), refuses a sandbox
+prepared for a different plugin with `PLG-009`, sets the cwd to `work`, and applies the filtered
+environment before spawn.
+
+The filesystem policy resolves relative declarations against the canonical project root and refuses
+`..`, a symlink that leaves the project, a dangling symlink whose target could appear later, and
+non-portable names (Windows reserved devices, alternate-data-stream colons, trailing dots or spaces,
+control characters) on every platform. The longest existing ancestor is canonicalised and the
+missing tail appended, so an output file that does not exist yet can be declared without disabling
+the symlink check. `check_read` and `check_write` are the host-mediated operations; they return the
+canonical path that was checked.
+
+The network policy accepts only bare lowercase DNS hostnames. An empty `egress` list is `DenyAll`;
+a declared host matches case-insensitively; a malformed declaration is `PLG-011`, and a host outside
+the list is `PLG-009`. The environment is structural rather than subtractive: the child starts with
+`env_clear()`, gets a fixed base set and only the manifest's `source: env` auth references, and a
+reference to a controlled name such as `HOME` or `PATH` is refused. `HOME`, `USERPROFILE`, and the
+temporary variables point into the sandbox; on Windows the verbatim `\\?\` prefix is stripped so the
+child sees ordinary paths.
+
+A refusal is typed (`PLG-009` for a sandbox escape or denial, `PLG-011` for an invalid declaration)
+and `ToolGateway::start` records `GatewayEvent::SandboxRefused` before returning it. There is no
+event on successful preparation, because existing gateway tests assert exact event counts. The
+guarantee is deliberately host-mediated: the runtime checks the operations it performs for the
+plugin, while the plugin's own syscalls are constrained only by the operating system. `SECURITY.md`
+§7/§12 and
+`PLUGIN_SPEC.md` §7 state that limit; kernel-level containment remains R-3.
+
 ## Bugs encountered
 
 None shipped. Eight defects were found before a consumer saw them. Two were found by running the

@@ -53,6 +53,7 @@ use serde_json::Value;
 
 use crate::approval::{ApprovalBroker, ApprovalError, ApprovalRequest, Prompter};
 use crate::hash::json_digest;
+use crate::sandbox::{Sandbox, SandboxError, SandboxRoots};
 use crate::supervisor::{PluginLog, PluginProcess, SupervisorError, start_plugin};
 
 pub use audit::{CallSummary, GatewayAudit, GatewayEvent, RefusalStage, ResultSummary};
@@ -242,6 +243,9 @@ pub enum GatewayError {
     /// The supervisor failed while starting, listing, calling, or stopping the plugin.
     #[error(transparent)]
     Supervisor(#[from] SupervisorError),
+    /// The sandbox refused to prepare the plugin, before a process existed.
+    #[error(transparent)]
+    Sandbox(#[from] SandboxError),
     /// The approval decision could not be made or audited.
     #[error(transparent)]
     Approval(#[from] ApprovalError),
@@ -265,6 +269,7 @@ impl GatewayError {
             Self::InvalidSchema { .. } | Self::InvalidArguments { .. } => ErrorCode::PLG_012,
             Self::Descriptor { .. } => ErrorCode::PLG_005,
             Self::Supervisor(error) => error.code(),
+            Self::Sandbox(error) => error.code(),
             Self::Approval(error) => error.code(),
             Self::Envelope(error) => error.code(),
             Self::Audit { .. } => ErrorCode::PLG_010,
@@ -294,6 +299,7 @@ impl GatewayError {
                     .to_owned()
             }
             Self::Supervisor(error) => error.remediation(),
+            Self::Sandbox(error) => error.remediation(),
             Self::Approval(error) => error.remediation().to_owned(),
             Self::Envelope(error) => match error.code() {
                 ErrorCode::PLG_006 => {
@@ -327,6 +333,7 @@ impl From<GatewayError> for AicontextError {
 #[derive(Debug)]
 pub struct ToolGateway<P, A> {
     manifest: PluginManifest,
+    sandbox: Sandbox,
     policy: Policy,
     prompter: P,
     audit: A,
@@ -346,24 +353,50 @@ struct GatewayTool {
 impl<P: Prompter, A: GatewayAudit> ToolGateway<P, A> {
     /// Start the plugin, list its tools, and validate every descriptor.
     ///
+    /// The sandbox is prepared first. A refusal is written to the audit sink as
+    /// [`GatewayEvent::SandboxRefused`] before it is returned, so a manifest that names a path,
+    /// host, or environment variable outside the sandbox cannot fail silently. A sink that also
+    /// refuses that record turns the failure into `PLG-010`: an unauditable refusal is not a
+    /// refusal the host may act on.
+    ///
     /// # Errors
     ///
-    /// A [`SupervisorError`] if the process cannot start or `tools/list` fails, and a
+    /// [`GatewayError::Sandbox`] (`PLG-009`/`PLG-011`) if the sandbox cannot be prepared, a
+    /// [`SupervisorError`] if the process cannot start or `tools/list` fails, and a
     /// [`GatewayError`] if the descriptors do not match the manifest or a schema is outside the
-    /// supported subset. In every failure case the process is killed before this function returns.
+    /// supported subset. In every failure case no plugin process is left running.
     pub fn start(
         manifest: PluginManifest,
+        roots: &SandboxRoots,
         policy: Policy,
         prompter: P,
-        audit: A,
+        mut audit: A,
         allow_once: impl IntoIterator<Item = String>,
     ) -> Result<Self, GatewayError> {
-        let mut process = start_plugin(&manifest)?;
+        let sandbox = match Sandbox::prepare(&manifest, roots) {
+            Ok(sandbox) => sandbox,
+            Err(error) => {
+                let event = GatewayEvent::SandboxRefused {
+                    plugin: manifest.name.clone(),
+                    code: error.code(),
+                    detail: error.to_string(),
+                };
+                return match audit.record(&event) {
+                    Ok(()) => Err(GatewayError::Sandbox(error)),
+                    Err(sink) => Err(GatewayError::Audit {
+                        message: format!("{sink}; the sandbox refusal was: {error}"),
+                    }),
+                };
+            }
+        };
+
+        let mut process = start_plugin(&manifest, &sandbox)?;
         let definitions = process.list_tools()?;
         let tools = build_tools(&manifest, definitions)?;
 
         Ok(Self {
             manifest,
+            sandbox,
             policy,
             prompter,
             audit,
@@ -378,6 +411,12 @@ impl<P: Prompter, A: GatewayAudit> ToolGateway<P, A> {
     #[must_use]
     pub const fn manifest(&self) -> &PluginManifest {
         &self.manifest
+    }
+
+    /// The sandbox the plugin process runs in.
+    #[must_use]
+    pub const fn sandbox(&self) -> &Sandbox {
+        &self.sandbox
     }
 
     /// The permission policy the gateway is using.

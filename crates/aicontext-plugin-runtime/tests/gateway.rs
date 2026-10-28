@@ -14,13 +14,15 @@ use std::collections::VecDeque;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use aicontext_core::{ErrorCode, PermissionMode};
 use aicontext_permissions::{Policy, Rule};
 use aicontext_plugin_runtime::{
     ApprovalEvent, ApprovalGrant, ApprovalOutcome, DenialReason, GatewayAudit, GatewayError,
-    GatewayEvent, PromptError, Prompter, RefusalStage, ResultSummary, TRUST_UNTRUSTED, ToolCall,
-    ToolGateway,
+    GatewayEvent, PromptError, Prompter, RefusalStage, ResultSummary, SandboxRoots,
+    TRUST_UNTRUSTED, ToolCall, ToolGateway,
 };
 use aicontext_plugin_sdk::{
     Capability, Effect, EntryPoint, FilesystemScope, Limits, NetworkScope, PluginManifest,
@@ -76,6 +78,22 @@ fn with_limits(
     manifest.limits.call_timeout_ms = timeout_ms;
     manifest.limits.max_output_bytes = max_output_bytes;
     manifest
+}
+
+/// A fresh state/project pair under one temporary root shared by the test binary.
+///
+/// The plugin's cwd must outlive the gateway that owns the process, so the root is removed only
+/// when the test binary exits rather than after each `start` call.
+fn sandbox_roots() -> SandboxRoots {
+    static ROOT: OnceLock<tempfile::TempDir> = OnceLock::new();
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    let root = ROOT.get_or_init(|| tempfile::tempdir().expect("a temporary sandbox root"));
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    let directory = root.path().join(format!("case-{id}"));
+    let project = directory.join("project");
+    fs::create_dir_all(&project).expect("the project exists");
+    SandboxRoots::new(directory.join("state"), project)
 }
 
 fn policy(mode: PermissionMode) -> Policy {
@@ -146,6 +164,22 @@ impl GatewayAudit for FailingAudit {
     }
 }
 
+/// A recorder whose events can be inspected after `ToolGateway::start` consumed the sink.
+#[derive(Clone, Debug, Default)]
+struct SharedRecorder(Arc<Mutex<Vec<GatewayEvent>>>);
+
+impl GatewayAudit for SharedRecorder {
+    type Error = std::convert::Infallible;
+
+    fn record(&mut self, event: &GatewayEvent) -> Result<(), Self::Error> {
+        self.0
+            .lock()
+            .expect("the test recorder is not poisoned")
+            .push(event.clone());
+        Ok(())
+    }
+}
+
 fn start_with<A: GatewayAudit>(
     manifest: PluginManifest,
     policy: Policy,
@@ -155,6 +189,7 @@ fn start_with<A: GatewayAudit>(
 ) -> ToolGateway<ScriptedPrompter, A> {
     ToolGateway::start(
         manifest,
+        &sandbox_roots(),
         policy,
         prompter,
         audit,
@@ -538,9 +573,45 @@ fn invalid_arguments_are_plg_012_before_a_prompt_or_dispatch() {
 }
 
 #[test]
+fn a_sandbox_refusal_is_audited_before_it_is_returned() {
+    let mut manifest = manifest("ok");
+    manifest.filesystem.read = vec!["../outside".to_owned()];
+    let audit = SharedRecorder::default();
+    let events = Arc::clone(&audit.0);
+
+    let error = ToolGateway::start(
+        manifest,
+        &sandbox_roots(),
+        policy(PermissionMode::Allow),
+        ScriptedPrompter::default(),
+        audit,
+        std::iter::empty::<String>(),
+    )
+    .expect_err("the declared read escapes the project");
+    assert_eq!(error.code(), ErrorCode::PLG_009);
+    assert!(matches!(error, GatewayError::Sandbox(_)), "{error}");
+
+    let events = events.lock().expect("the test recorder is not poisoned");
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        GatewayEvent::SandboxRefused {
+            plugin,
+            code,
+            detail,
+        } => {
+            assert_eq!(plugin, "fixture");
+            assert_eq!(*code, ErrorCode::PLG_009);
+            assert!(detail.contains("../outside"), "{detail}");
+        }
+        other => panic!("expected a sandbox refusal, found {other:?}"),
+    }
+}
+
+#[test]
 fn start_refuses_an_unenforceable_schema_with_plg_012() {
     let error = ToolGateway::start(
         manifest("bad-schema"),
+        &sandbox_roots(),
         policy(PermissionMode::Allow),
         ScriptedPrompter::default(),
         Recorder::default(),
@@ -554,6 +625,7 @@ fn start_refuses_an_unenforceable_schema_with_plg_012() {
 fn start_refuses_a_descriptor_that_disagrees_with_the_manifest_with_plg_005() {
     let error = ToolGateway::start(
         manifest("descriptor-mismatch"),
+        &sandbox_roots(),
         policy(PermissionMode::Allow),
         ScriptedPrompter::default(),
         Recorder::default(),
@@ -572,6 +644,7 @@ fn start_refuses_undeclared_missing_and_duplicate_tools() {
     ] {
         let error = ToolGateway::start(
             manifest(mode),
+            &sandbox_roots(),
             policy(PermissionMode::Allow),
             ScriptedPrompter::default(),
             Recorder::default(),
@@ -667,6 +740,7 @@ fn a_plugin_timeout_is_plg_003_and_the_process_is_dead() {
 fn a_tools_list_frame_over_the_manifest_cap_is_plg_006_at_start() {
     let error = ToolGateway::start(
         manifest("flood"),
+        &sandbox_roots(),
         policy(PermissionMode::Allow),
         ScriptedPrompter::default(),
         Recorder::default(),

@@ -5,11 +5,11 @@
 //! responsibility:
 //!
 //! ```text
-//! start_plugin(manifest) ── spawn ── initialize ── negotiate ──▶ PluginProcess
-//!                                                                    │
-//!                                       list_tools / call_tool ──────┤
-//!                                                                    │
-//!                                       shutdown (or Drop) ─────────┘
+//! start_plugin(manifest, sandbox) ── spawn ── initialize ── negotiate ──▶ PluginProcess
+//!                                                                             │
+//!                                            list_tools / call_tool ──────────┤
+//!                                                                             │
+//!                                            shutdown (or Drop) ─────────────┘
 //! ```
 //!
 //! The SDK describes the frames and the version; this module owns the process, the clock, the byte
@@ -19,11 +19,12 @@
 //!
 //! # What is deliberately not here
 //!
-//! The sandbox (`TASK-076`) owns the plugin's working directory, its environment, filesystem
-//! allowlist, and network policy. This supervisor spawns the executable with the host's environment
-//! and expects the sandbox to narrow it before a plugin is started. `TASK-074` owns argument schema
-//! validation and the untrusted-result envelope; the supervisor parses results into bounded SDK
-//! types but does not decide whether their content is safe to show a model.
+//! The sandbox (`TASK-076`) owns the plugin's working directory, environment, filesystem allowlist,
+//! and network policy. The supervisor applies the prepared sandbox to the spawn and refuses a
+//! sandbox prepared for a different plugin; it does not decide what the allowlists contain.
+//! `TASK-074` owns argument schema validation and the untrusted-result envelope; the supervisor
+//! parses results into bounded SDK types but does not decide whether their content is safe to show
+//! a model.
 
 mod error;
 mod process;

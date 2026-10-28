@@ -35,7 +35,6 @@ const CONTROLLED: &[&str] = &[
     "SYSTEMROOT",
     "SYSTEMDRIVE",
     "WINDIR",
-    "COMSPEC",
     "PATHEXT",
 ];
 
@@ -120,6 +119,8 @@ impl Environment {
 
 fn base_environment(home: &Path, temp: &Path) -> BTreeMap<String, OsString> {
     let mut variables = BTreeMap::new();
+    let home = path_value(home);
+    let temp = path_value(temp);
     for (name, value) in [
         ("HOME", home.as_os_str()),
         ("USERPROFILE", home.as_os_str()),
@@ -140,10 +141,6 @@ fn base_environment(home: &Path, temp: &Path) -> BTreeMap<String, OsString> {
             .next()
             .map_or_else(|| OsStr::new("C:"), |component| component.as_os_str());
         variables.insert("SYSTEMDRIVE".to_owned(), drive.to_os_string());
-        variables.insert(
-            "COMSPEC".to_owned(),
-            root.join("system32").join("cmd.exe").into_os_string(),
-        );
         variables.insert("PATHEXT".to_owned(), OsString::from(".COM;.EXE;.BAT;.CMD"));
         let path = std::env::join_paths([root.join("system32"), root])
             .unwrap_or_else(|_| OsString::from(r"C:\Windows\system32;C:\Windows"));
@@ -169,11 +166,35 @@ fn system_root() -> PathBuf {
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
 }
 
+/// A canonical host path rendered the way an ordinary Windows program expects it.
+///
+/// `fs::canonicalize` returns a verbatim path (`\\?\C:\...`) on Windows. Most programs understand
+/// it, but some older runtimes do not, so `HOME` and the temporary variables use the ordinary
+/// spelling. The verbatim prefix carries no security meaning here: the path has already been
+/// canonicalised and checked, and this only changes how it is written.
+fn path_value(path: &Path) -> OsString {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return OsString::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return OsString::from(rest);
+        }
+        path.as_os_str().to_os_string()
+    }
+    #[cfg(not(windows))]
+    {
+        path.as_os_str().to_os_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use aicontext_plugin_sdk::{
-        Auth, AuthKind, AuthReference, AuthSource, Capability, Effect, EntryPoint,
-        FilesystemScope, Limits, NetworkScope, PluginManifest,
+        Auth, AuthKind, AuthReference, AuthSource, Capability, Effect, EntryPoint, FilesystemScope,
+        Limits, NetworkScope, PluginManifest,
     };
 
     use super::Environment;
@@ -306,14 +327,35 @@ mod tests {
     fn the_environment_is_deterministic() {
         let home = std::path::Path::new("/sandbox/home");
         let temp = std::path::Path::new("/sandbox/tmp");
-        let first = Environment::build_with(&manifest(None), home, temp, |_| None)
-            .expect("base only");
-        let second = Environment::build_with(&manifest(None), home, temp, |_| None)
-            .expect("base only");
+        let first =
+            Environment::build_with(&manifest(None), home, temp, |_| None).expect("base only");
+        let second =
+            Environment::build_with(&manifest(None), home, temp, |_| None).expect("base only");
         assert_eq!(first, second);
         assert_eq!(
             first.iter().map(|(name, _)| name).collect::<Vec<_>>(),
             second.iter().map(|(name, _)| name).collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_are_rendered_without_the_verbatim_prefix() {
+        use std::path::Path;
+
+        use super::path_value;
+
+        assert_eq!(
+            path_value(Path::new(r"\\?\C:\sandbox\home")),
+            std::ffi::OsString::from(r"C:\sandbox\home")
+        );
+        assert_eq!(
+            path_value(Path::new(r"\\?\UNC\server\share\sandbox")),
+            std::ffi::OsString::from(r"\\server\share\sandbox")
+        );
+        assert_eq!(
+            path_value(Path::new(r"C:\sandbox\home")),
+            std::ffi::OsString::from(r"C:\sandbox\home")
         );
     }
 }

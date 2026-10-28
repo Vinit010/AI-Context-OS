@@ -46,11 +46,13 @@ impl NetworkPolicy {
 
     /// The declared hosts, in order. Empty for [`NetworkPolicy::DenyAll`].
     pub fn hosts(&self) -> impl Iterator<Item = &str> {
-        let hosts: &BTreeSet<String> = match self {
-            Self::DenyAll => return [].iter().map(String::as_str),
-            Self::Allow(hosts) => hosts,
+        let hosts = match self {
+            Self::DenyAll => None,
+            Self::Allow(hosts) => Some(hosts),
         };
-        hosts.iter().map(String::as_str)
+        hosts
+            .into_iter()
+            .flat_map(|hosts| hosts.iter().map(String::as_str))
     }
 
     /// Refuse `host` unless it is one of the declared hosts.
@@ -70,13 +72,8 @@ impl NetworkPolicy {
             target: sanitize(host),
         })?;
         match self {
-            Self::DenyAll => Err(SandboxError::Denied {
-                plugin: plugin.to_owned(),
-                operation: "network",
-                target: normalized,
-            }),
             Self::Allow(hosts) if hosts.contains(&normalized) => Ok(()),
-            Self::Allow(_) => Err(SandboxError::Denied {
+            Self::DenyAll | Self::Allow(_) => Err(SandboxError::Denied {
                 plugin: plugin.to_owned(),
                 operation: "network",
                 target: normalized,
@@ -174,10 +171,10 @@ mod tests {
     fn only_declared_hosts_are_allowed_and_case_does_not_matter() {
         let policy = policy(&["API.Example.com", "api.example.com", "s3.example.com"]);
         assert!(!policy.is_deny_all());
-        assert_eq!(policy.hosts().collect::<Vec<_>>(), [
-            "api.example.com",
-            "s3.example.com"
-        ]);
+        assert_eq!(
+            policy.hosts().collect::<Vec<_>>(),
+            ["api.example.com", "s3.example.com"]
+        );
         assert!(policy.allows("api.example.com"));
         assert!(policy.allows("API.EXAMPLE.COM"));
         assert!(!policy.allows("evil.example.com"));
@@ -230,11 +227,7 @@ mod tests {
     fn an_invalid_declared_host_is_a_manifest_error() {
         let error = NetworkPolicy::build("fixture", &["https://api.example.com".to_owned()])
             .expect_err("a URL is not a host");
-        assert_eq!(
-            error.code(),
-            aicontext_core::ErrorCode::PLG_011,
-            "{error}"
-        );
+        assert_eq!(error.code(), aicontext_core::ErrorCode::PLG_011, "{error}");
         assert!(error.to_string().contains("fixture"));
     }
 

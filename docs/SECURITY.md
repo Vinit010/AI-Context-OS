@@ -141,12 +141,27 @@ Implemented per `ADR-005`.
 Implemented per `ADR-002` and `PLUGIN_SPEC.md` §7.
 
 - Separate process, versioned JSON-RPC, no shared memory.
-- Working directory is not the repository.
-- Filesystem and network allowlists, both declared in the manifest and narrowable by policy.
-- Minimal environment; `HOME` is not inherited.
+- Per-plugin tree at `state/plugins/<name>/{work,home,tmp}`; the working directory is `work`, never
+  the repository, and on Unix the directories are mode `0700`.
+- Filesystem read and write allowlists, both declared in the manifest and narrowable by policy.
+  Relative declarations resolve against the project root. `..`, a symlink that leaves the project,
+  a dangling symlink, and a non-portable name are refused before the process starts.
+- Network egress allowlist of bare hostnames; an empty list is `DenyAll`, and a host outside the
+  list is refused.
+- Minimal environment: the child starts with `env_clear()`. Only a fixed base set and the manifest's
+  `source: env` auth references are set; `HOME`, `USERPROFILE`, and the temporary variables point
+  into the sandbox, and a manifest cannot override a controlled name.
 - Per-call timeout, output cap, guaranteed kill.
 - One path to execution, enforced by review and by `no_bypass_path_to_plugin`.
-- Where a control cannot be enforced on a platform, the runtime fails closed and says so.
+- A refusal is a typed `PLG-009` (sandbox) or `PLG-011` (invalid declaration) error. The gateway
+  records `SandboxRefused` before returning it, so an escape attempt is audited even when no process
+  was started.
+
+The filesystem and network checks are **host-mediated**: they decide the reads, writes, and hosts
+the runtime performs on the plugin's behalf. They do not intercept a plugin's own syscalls. That
+boundary is the operating system's, and its strength differs across Linux, macOS, and Windows
+(§12, risk R-3). Where the host cannot establish a control structurally, the runtime fails closed
+and names the control rather than claiming a guarantee it does not provide.
 
 ---
 
@@ -278,7 +293,11 @@ Stated plainly, because a security document that claims completeness is not trus
 
 1. Prompt injection is mitigated, not solved (§5).
 2. The audit chain is not tamper-proof against a local attacker (§8).
-3. Sandbox strength is OS-dependent and weaker on some platforms (risk R-3).
+3. The sandbox is a host-mediated policy, not a kernel boundary. The runtime establishes the
+   working directory, the filtered environment, and the filesystem and network allowlists for the
+   operations it mediates, and refuses an escape with a typed, audited error. A plugin's own
+   syscalls are constrained only by the operating system, and that strength differs across Linux,
+   macOS, and Windows (risk R-3). Kernel-level containment is not claimed.
 4. A developer who approves every prompt has defeated the approval system. This is a human factor,
    and it is the most likely way the product's central control fails in practice.
 5. We do not defend against a compromised dependency at build time beyond auditing and pinning.

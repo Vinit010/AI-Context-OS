@@ -108,6 +108,25 @@ impl Sandbox {
         let plugins = create_directory(&plugin, &state.join("plugins"))?;
         let root = create_directory(&plugin, &plugins.join(&plugin))?;
 
+        // A canonicalised path is the path the host will actually use. If a filesystem object
+        // between the state root and the plugin tree redirected it (a junction, for example),
+        // the canonical path leaves the root and the sandbox is refused rather than used.
+        for (name, path, parent) in [
+            ("plugins", &plugins, &state),
+            ("plugin root", &root, &plugins),
+        ] {
+            if !path.starts_with(parent) {
+                return Err(SandboxError::Root {
+                    plugin: plugin.clone(),
+                    detail: format!(
+                        "the {name} `{}` is not inside `{}`",
+                        path.display(),
+                        parent.display()
+                    ),
+                });
+            }
+        }
+
         let work = create_directory(&plugin, &root.join("work"))?;
         let home = create_directory(&plugin, &root.join("home"))?;
         let temp = create_directory(&plugin, &root.join("tmp"))?;
@@ -287,6 +306,7 @@ fn create_directory(plugin: &str, path: &Path) -> Result<PathBuf, SandboxError> 
             detail: format!("`{}` is not a directory", display_path(path)),
         });
     }
+    #[cfg(unix)]
     restrict_permissions(plugin, path)?;
     fs::canonicalize(path).map_err(|source| SandboxError::Io {
         plugin: plugin.to_owned(),
@@ -306,11 +326,6 @@ fn restrict_permissions(plugin: &str, path: &Path) -> Result<(), SandboxError> {
             source,
         }
     })
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_plugin: &str, _path: &Path) -> Result<(), SandboxError> {
-    Ok(())
 }
 
 fn display_path(path: &Path) -> String {
@@ -386,18 +401,23 @@ mod tests {
         assert_eq!(sandbox.plugin(), "fixture");
         let state = fs::canonicalize(roots.state()).expect("the state root exists");
         assert!(sandbox.root().starts_with(&state));
-        assert_eq!(sandbox.root().file_name().and_then(std::ffi::OsStr::to_str), Some("fixture"));
+        assert_eq!(
+            sandbox.root().file_name().and_then(std::ffi::OsStr::to_str),
+            Some("fixture")
+        );
         assert!(sandbox.work().is_dir());
         assert!(sandbox.home().is_dir());
         assert!(sandbox.temp().is_dir());
         assert_ne!(sandbox.work(), roots.project());
+        let home = sandbox.environment().get_str("HOME").expect("HOME is set");
+        assert_eq!(fs::canonicalize(home).expect("HOME exists"), sandbox.home());
+        let temp = sandbox
+            .environment()
+            .get_str("TMPDIR")
+            .expect("TMPDIR is set");
         assert_eq!(
-            sandbox.environment().get_str("HOME"),
-            sandbox.home().to_str()
-        );
-        assert_eq!(
-            sandbox.environment().get_str("TMPDIR"),
-            sandbox.temp().to_str()
+            fs::canonicalize(temp).expect("TMPDIR exists"),
+            sandbox.temp()
         );
     }
 
@@ -415,7 +435,10 @@ mod tests {
             sandbox.home(),
             sandbox.temp(),
         ] {
-            let mode = fs::metadata(path).expect("the directory exists").permissions().mode();
+            let mode = fs::metadata(path)
+                .expect("the directory exists")
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o777, 0o700, "{}", path.display());
         }
     }

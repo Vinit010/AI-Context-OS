@@ -31,6 +31,7 @@
 //! - `is-error`: answer `tools/call` with `is_error: true`.
 //! - `ansi`: return ANSI escapes and control characters in its content.
 //! - `key-collision`: return two keys that collide after control-character stripping.
+//! - `stats`: report its working directory and the sandbox environment it received.
 
 #![forbid(unsafe_code)]
 
@@ -205,6 +206,7 @@ fn tools_call(mode: &str, request: &Value, id: &Value, stdout: &mut impl Write) 
                 "a\u{8}": 2
             }),
         ),
+        "stats" => stats_result(stdout, id),
         "wrong-id" => wrong_id(stdout),
         _ => echo_text(request, id, stdout),
     }
@@ -280,6 +282,30 @@ fn deep_result(stdout: &mut impl Write, id: &Value) -> io::Result<()> {
         "nested": nested
     });
     write_result(stdout, id, &result)
+}
+
+fn stats_result(stdout: &mut impl Write, id: &Value) -> io::Result<()> {
+    let cwd = std::env::current_dir().map(|path| path.to_string_lossy().into_owned());
+    let entries = std::fs::read_dir(".").map_or(usize::MAX, Iterator::count);
+    let probe = json!({
+        "cwd": cwd.ok(),
+        "cwd_entries": entries,
+        "home": std::env::var("HOME").ok(),
+        "userprofile": std::env::var("USERPROFILE").ok(),
+        "tmpdir": std::env::var("TMPDIR").ok(),
+        "tmp": std::env::var("TMP").ok(),
+        "temp": std::env::var("TEMP").ok(),
+        "path_present": std::env::var_os("PATH").is_some(),
+        "ambient_present": std::env::var_os("AICONTEXT_SANDBOX_AMBIENT_PROBE").is_some(),
+    });
+    write_result(
+        stdout,
+        id,
+        &json!({
+            "content": [{"type": "text", "text": serde_json::to_string(&probe).map_err(io::Error::other)?}],
+            "is_error": false
+        }),
+    )
 }
 
 fn tool_error(stdout: &mut impl Write, id: &Value) -> io::Result<()> {
