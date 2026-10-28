@@ -35,6 +35,26 @@ tools:
   force_push:
     mode: explicit_approval
 
+  # GitHub plugin (crates/aicontext-plugin-github). All seven tools are read-only, but none is
+  # granted until a rule below is uncommented. Grant only what a task needs: a grant for one tool
+  # does not grant another, and issue and PR bodies are untrusted data even after a grant.
+  # github.repo.read:
+  #   mode: allow
+  # github.issue.list:
+  #   mode: allow
+  # github.issue.read:
+  #   mode: allow
+  # github.pr.read:
+  #   mode: allow
+  # github.branch.list:
+  #   mode: allow
+  # github.commit.list:
+  #   mode: allow
+  # github.file.read:
+  #   mode: allow
+
 # Per-integration notes: what the integration needs, and which environment variable or OS keychain
 # entry each credential comes from. See the ADR on credential handling for the rules.
 integrations: {}
+# For the GitHub plugin, export a fine-grained, read-only GITHUB_TOKEN. The manifest records the
+# variable name; never write the value here.

@@ -2176,7 +2176,7 @@ done:
 ```yaml
 id: TASK-080
 title: Implement the GitHub read-only plugin
-status: TODO
+status: IN_PROGRESS
 priority: HIGH
 phase: 5
 depends_on: [TASK-077]

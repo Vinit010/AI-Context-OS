@@ -76,6 +76,9 @@ gateway, the plugin sandbox, an MCP adapter, the hash-chained audit log, and
 `plugin install|list|remove`. The gateway is a library edge and nothing appends to the
 audit log yet: the CLI reads it, and the first command that executes a plugin becomes its writer.
 `plugin install` records a grant; it does not execute the plugin.
+Phase 5 has begun: `crates/aicontext-plugin-github` is a read-only GitHub plugin with seven tools,
+and its real binary is tested through the gateway's permission, execution, and untrusted-envelope
+path. The CLI loop that executes an installed plugin is still to come.
 The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
 being built, in what order, and what "done" means for each item.
 
@@ -486,6 +489,46 @@ input schemas must fit the gateway's closed subset, so a schema without
 the recorded permissions, deletes the plugin's state tree, and removes the lockfile when the last
 plugin goes. This build installs local paths only and has no signature verifier, so every install is
 shown as `unsigned`; a registry reference is refused rather than guessed at.
+
+### GitHub plugin (read-only)
+
+`crates/aicontext-plugin-github` is the first real plugin. It exposes seven read-only tools:
+
+| Tool | Reads |
+|------|-------|
+| `github.repo.read` | Repository metadata: default branch, visibility, language, counts, timestamps. |
+| `github.issue.list` | Issues in a repository, with pull requests filtered out and counted separately. |
+| `github.issue.read` | One issue's title, body, labels, assignees, milestone, and timestamps. |
+| `github.pr.read` | One pull request's title, body, head/base refs, merge state, and change counts. |
+| `github.branch.list` | Branch names, protection state, and head commit SHA. |
+| `github.commit.list` | Commit messages, authors, dates, and URLs. |
+| `github.file.read` | One UTF-8 text file, decoded from the contents API. |
+
+Build and install it like any native plugin:
+
+```sh
+cargo install --path crates/aicontext-plugin-github
+aicontext plugin install crates/aicontext-plugin-github
+```
+
+The manifest declares optional `GITHUB_TOKEN` authentication and `api.github.com` as the only
+egress host; it requests no filesystem access. The base policy grants none of the seven tools, so
+each one needs an explicit rule in `.ai/permissions/permissions.yaml`:
+
+```yaml
+tools:
+  github.repo.read:
+    mode: allow
+  github.issue.read:
+    mode: allow
+```
+
+A grant for one tool does not grant another. Issue bodies, pull request bodies, commit messages,
+branch names, and file contents are untrusted data: the host envelopes every result with
+`trust: "untrusted"`, and nothing in the plugin treats a remote string as an instruction.
+`--api-base` supports GitHub Enterprise and loopback tests; HTTPS is required except on loopback.
+The full tool, error, and limit contract is in
+[`crates/aicontext-plugin-github/README.md`](crates/aicontext-plugin-github/README.md).
 
 ---
 

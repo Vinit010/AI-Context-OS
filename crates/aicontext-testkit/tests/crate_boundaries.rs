@@ -59,12 +59,28 @@ const ALLOWED: &[(&str, &[&str])] = &[
         ],
     ),
     ("aicontext-plugin-sdk", &["aicontext-core"]),
+    ("aicontext-plugin-github", &["aicontext-plugin-sdk"]),
     ("aicontext-providers", &["aicontext-core"]),
     ("aicontext-testkit", &[]),
 ];
 
 /// Crates that any crate may depend on, but only for its own tests.
 const DEV_ONLY: &[&str] = &["aicontext-testkit"];
+
+/// Additional **test-only** internal dependencies for one crate.
+///
+/// A plugin crate is the first member whose production graph must stay tiny (the manifest and wire
+/// protocol) while its integration test needs the gateway, the permission resolver, and the
+/// permission vocabulary to prove the end-to-end path. Keeping those edges here, rather than in
+/// `ALLOWED`, means a future production `use` still fails the boundary check.
+const DEV_ALLOWED: &[(&str, &[&str])] = &[(
+    "aicontext-plugin-github",
+    &[
+        "aicontext-core",
+        "aicontext-permissions",
+        "aicontext-plugin-runtime",
+    ],
+)];
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -121,6 +137,13 @@ fn allowed_for(crate_name: &str) -> Option<&'static [&'static str]> {
         .map(|(_, deps)| *deps)
 }
 
+fn dev_allowed_for(crate_name: &str) -> &'static [&'static str] {
+    DEV_ALLOWED
+        .iter()
+        .find(|(name, _)| *name == crate_name)
+        .map_or(&[], |(_, deps)| *deps)
+}
+
 #[test]
 fn every_member_has_a_policy_entry() {
     for name in member_names() {
@@ -165,17 +188,43 @@ fn policy_entries_reference_only_known_crates() {
 fn declared_internal_dependencies_are_permitted() {
     let known = known_crates();
     for (name, manifest) in crate_manifests() {
-        let permitted: BTreeSet<String> = allowed_for(&name)
+        let production: BTreeSet<String> = allowed_for(&name)
             .expect("every member has an entry, checked above")
             .iter()
-            .chain(DEV_ONLY.iter())
             .map(|dep| (*dep).to_owned())
             .collect();
-        for declared in manifest.internal_dependencies(&known) {
+
+        for declared in manifest
+            .dependencies()
+            .iter()
+            .chain(manifest.build_dependencies().iter())
+        {
+            if !known.contains(declared) {
+                continue;
+            }
             assert!(
-                permitted.contains(&declared),
-                "`{name}` depends on `{declared}`, which ARCHITECTURE.md 3.2 does not permit. \
-                 Either the dependency is wrong, or the architecture must change with an ADR."
+                production.contains(declared),
+                "`{name}` has a production dependency on `{declared}`, which ARCHITECTURE.md 3.2 \
+                 does not permit. Either the dependency is wrong, or the architecture must change \
+                 with an ADR."
+            );
+        }
+
+        let test_only: BTreeSet<String> = production
+            .iter()
+            .cloned()
+            .chain(DEV_ONLY.iter().map(|dep| (*dep).to_owned()))
+            .chain(dev_allowed_for(&name).iter().map(|dep| (*dep).to_owned()))
+            .collect();
+        for declared in manifest.dev_dependencies() {
+            if !known.contains(declared) {
+                continue;
+            }
+            assert!(
+                test_only.contains(declared),
+                "`{name}` has a dev-dependency on `{declared}`, which is neither a permitted \
+                 production dependency nor listed in DEV_ONLY or DEV_ALLOWED. Add the edge to the \
+                 boundary matrix in the same commit (RULES.md 5)."
             );
         }
     }

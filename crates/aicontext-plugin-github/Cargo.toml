@@ -1,0 +1,45 @@
+[package]
+name = "aicontext-plugin-github"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Read-only GitHub plugin for AI Context OS"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The plugin speaks the published wire protocol through the SDK's `Request`, `Response`,
+# `ToolDefinition`, and `FrameCodec` types rather than re-describing them. The boundary test in
+# aicontext-testkit permits this edge. TASK-080.
+aicontext-plugin-sdk = { path = "../aicontext-plugin-sdk" }
+# GitHub's contents API returns base64, and decoding it here keeps the plugin from shipping a
+# second, hand-written decoder. Already in the lockfile through the CLI's tests. TASK-080.
+base64 = { workspace = true }
+# The HTTP client is synchronous because the plugin protocol is synchronous: one request frame,
+# one response frame, one deadline. `blocking` adds the adapter, `rustls-tls` comes from the
+# workspace dependency so no native TLS stack is pulled in. TASK-080.
+reqwest = { workspace = true, features = ["blocking"] }
+# Wire types and the structured result payload are JSON. Both are pre-justified in
+# ARCHITECTURE.md 2.2.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Error enums derive thiserror::Error per RULES.md 4.2.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The gateway test drives the real plugin binary through the real ToolGateway, so the untrusted
+# envelope and the permission gate are exercised as one call. These are test-only edges; the
+# boundary matrix records them as dev-only. TASK-080.
+aicontext-core = { path = "../aicontext-core" }
+aicontext-permissions = { path = "../aicontext-permissions" }
+aicontext-plugin-runtime = { path = "../aicontext-plugin-runtime" }
+# The manifest is a published Draft 2020-12 contract, so the test validates it with the same
+# engine CI uses. default-features = false keeps the resolver and TLS out of the tree. TASK-080.
+jsonschema = { workspace = true }
+# Temporary sandbox roots for the gateway test, so no test writes into the repository or the
+# developer's home directory (RULES.md 8).
+tempfile = { workspace = true }

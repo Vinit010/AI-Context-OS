@@ -1,0 +1,30 @@
+{
+  "manifest_version": 1,
+  "plugin_api_version": "1",
+  "name": "github",
+  "version": "0.1.0",
+  "description": "Read-only GitHub repository, issue, pull request, branch, commit, and file inspection",
+  "vendor": "aicontext",
+  "license": "Apache-2.0",
+  "entry": {
+    "command": "aicontext-plugin-github"
+  },
+  "minimum_aicontext_version": "0.1.0",
+  "capabilities": [
+    { "tool": "github.repo.read", "effect": "read" },
+    { "tool": "github.issue.list", "effect": "read" },
+    { "tool": "github.issue.read", "effect": "read" },
+    { "tool": "github.pr.read", "effect": "read" },
+    { "tool": "github.branch.list", "effect": "read" },
+    { "tool": "github.commit.list", "effect": "read" },
+    { "tool": "github.file.read", "effect": "read" }
+  ],
+  "auth": {
+    "type": "env_or_credential_command",
+    "references": [{ "name": "GITHUB_TOKEN", "source": "env" }],
+    "instructions": "Public repositories work without a token. For private repositories and a higher rate limit, create a fine-grained token with read-only repository access and export it as GITHUB_TOKEN. Never commit the value."
+  },
+  "filesystem": { "read": [], "write": [] },
+  "network": { "egress": ["api.github.com"] },
+  "limits": { "call_timeout_ms": 30000, "max_output_bytes": 1048576 }
+}

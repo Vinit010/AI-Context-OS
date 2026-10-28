@@ -201,7 +201,10 @@ granted and the auth requirements, confirms unless `--yes` was passed, then reco
 `--yes` is accepted here (install is not itself a tool call) but the recorded grant is still subject
 to `permissions.yaml`. Only the literal answer `yes` confirms; a run with no interactive terminal and
 no `--yes` exits 5 with `PLUGIN-004`. A relative `<path>` resolves against the project root and may
-name a directory containing `manifest.json` or a manifest file.
+name a directory containing `manifest.json` or a manifest file. Installing
+`crates/aicontext-plugin-github`, for example, records its seven read capabilities; the base policy
+grants none of them, so each tool still needs an explicit rule in `permissions.yaml` before the
+gateway will call it.
 
 `--as-plugin` registers a third-party MCP server (`PLUGIN_SPEC.md` §10). It is required when the
 manifest declares `protocol: "mcp"` and refused when it does not; either mismatch is `PLUGIN-012`
