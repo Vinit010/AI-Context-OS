@@ -11,7 +11,7 @@ updated: 2026-10-28
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-077
+**Current task:** TASK-078
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -2024,7 +2024,7 @@ done:
 ```yaml
 id: TASK-077
 title: Implement aicontext plugin list, install, and remove
-status: TODO
+status: DONE
 priority: HIGH
 phase: 4
 depends_on: [TASK-070, TASK-071]
@@ -2035,6 +2035,60 @@ acceptance:
   - A plugin requesting an unknown permission is refused
   - remove revokes permissions and deletes the local state it owned
   - A lockfile-style record of installed plugins and their granted permissions
+done:
+  - '`crates/aicontext-cli/src/plugin/` adds `mod.rs`, `error.rs`, `lockfile.rs`, and `manifest.rs`,
+    exported as `mod plugin` and wired into `args.rs`/`main.rs`. `plugin list` reads the record;
+    `plugin install <path>` validates a local manifest with `aicontext-plugin-sdk`, applies the
+    schema bounds the SDK does not (`maxLength`, `maxItems`, `uniqueItems`), negotiates the plugin
+    API version, prints the permission diff and auth requirements, confirms unless `--yes`, then
+    writes `.aicontext/plugins/<name>/manifest.json` and `.aicontext/plugins.lock.json`. A relative
+    path resolves against the project root; a registry reference is refused with `PLUGIN-003`
+    because this build has no registry client. `install` requires `.ai/` (`PROJ-001`); `list` and
+    `remove` do not'
+  - 'The lockfile is format version 1: plugins sorted by name, permissions sorted by kind and
+    identity, a tagged enum (`tool`, `filesystem`, `network`, `auth`), and a SHA-256 digest of the
+    validated manifest bytes. An unknown permission kind, a duplicate permission identity, a
+    duplicate or non-portable plugin name, a bad digest, or a wrong version is `PLUGIN-006`; an
+    absent file is an empty record and is never treated as damage. The permission diff is
+    `added`/`removed`/`unchanged` against the grant already recorded for the same name, so a
+    reinstall that narrows a grant revokes the difference'
+  - 'Only the literal answer `yes` confirms an interactive install; `--yes` is the one
+    non-interactive confirmation, and a run with no terminal and no `--yes` exits 5 with
+    `PLUGIN-004`. The preview is printed before the prompt, on stderr under `--json`, so the human
+    answering sees the grant. `remove` does not prompt: it deletes the per-plugin state tree first,
+    then the lockfile entry, and deletes the lockfile when the last plugin goes; a failed deletion
+    keeps the record so a second run can finish. State paths are canonicalized and refused with
+    `PLUGIN-009` if they resolve outside `.aicontext/plugins/`'
+  - 'Plugin names are checked as portable single path components, including Windows reserved device
+    names (`con`, `nul`, `com1`…), on every platform. Every local install is recorded and displayed
+    as `unsigned`; there is no signature verifier and no registry metadata.
+    `minimum_aicontext_version` is shown and recorded but not range-resolved, and the report says
+    "not checked by this build". The local record does not widen `.ai/permissions/permissions.yaml`;
+    it records what the developer confirmed'
+  - '`--json` publishes one envelope with `command: "plugin"` and `data.action` of `list`,
+    `install`, or `remove`; the payload carries `lockfile` and `plugins`, or `plugin` with `diff` /
+    `revoked`, `state_removed`, and `remaining`. Local failures use `PLUGIN-001`…`PLUGIN-011`; a
+    manifest failure keeps the SDK code (`PLG-011` or `PLG-004`). Exit codes: bad reference or
+    unknown plugin 2, invalid manifest or malformed lockfile 3, unconfirmed install 5, filesystem or
+    report failure 1'
+  - 'Tests: 29 unit tests across `plugin/error.rs` (4), `plugin/lockfile.rs` (8),
+    `plugin/manifest.rs` (10), and `plugin/mod.rs` (7), 1 parser test in `args.rs`, and 15
+    integration tests in `crates/aicontext-cli/tests/plugin.rs` covering install/list/remove,
+    `--yes`, the non-TTY refusal, the printed diff and auth lines, reinstall revocation, unknown
+    manifest permission, unknown lockfile kind, malformed lockfile, registry refusal, missing
+    manifest, missing `.ai/`, and the JSON shapes. The workspace suite is 1261 passed, 0 failed
+    across 49 suites. Gates: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets
+    --all-features -- -D warnings`; `cargo test --workspace`; `RUSTDOCFLAGS="-D warnings" cargo doc
+    --workspace --no-deps`; `cargo +1.85.0 build --workspace --all-targets --locked`; `cargo
+    +1.85.0 test --workspace --locked`; `aicontext doctor` (exit 0, only the pre-existing CTX-012
+    warning); `git diff --check`; and `cargo audit` (clean). No `unwrap` or `expect` outside tests,
+    no `unsafe`, and no secret'
+  - 'Deliberately not done: no registry client, publisher metadata, or signature verification;
+    every install is `unsigned` and a registry reference is refused. `plugin info`, `enable`,
+    `disable`, and `permissions` are not implemented. No plugin is executed by this command: the
+    gateway and sandbox remain library edges until the Phase 5 loop. `minimum_aicontext_version` is
+    not range-resolved. The lockfile is per-checkout local state under `.aicontext/`, not a
+    user-global install under `~/.config/aicontext/`'
 ```
 
 ### TASK-078 — Verify MCP compatibility
