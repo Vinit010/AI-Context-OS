@@ -168,8 +168,8 @@ This is a hard boundary, and `doctor` enforces it.
 | Path | Contents | Git |
 |------|----------|-----|
 | `.ai/` | Knowledge intended for humans, agents, and teammates | **Committed** |
-| `.aicontext/` | Audit log, index cache, local config, credential *references*, approval history, session state | **Ignored** |
-| `~/.config/aicontext/` | User-global config, installed plugins, provider profiles | Outside the repo |
+| `.aicontext/` | Audit log, index cache, local config, credential *references*, approval history, session state, the installed-plugin record, and per-plugin state | **Ignored** |
+| `~/.config/aicontext/` | User-global config and provider profiles | Outside the repo |
 
 `.aicontext/` is added to `.gitignore` by `init`. If a secret-shaped file ever appears under
 `.ai/`, `doctor` reports it as an error and `doctor --strict` exits non-zero.
@@ -202,7 +202,9 @@ Hard rules, checked in CI:
    `ContextPacket`; it never calls a model.
 4. `aicontext-permissions` is **pure**: no I/O, no clock, no randomness. Fully branch-covered tests.
 5. `aicontext-plugin-sdk` must not depend on the runtime or the CLI. Plugin authors get the SDK,
-   never our internals.
+   never our internals. The CLI may depend on the SDK (it does for `plugin install`, which validates
+   with the author's own types), and the edge is in the matrix in
+   `aicontext-testkit/tests/crate_boundaries.rs`.
 6. No crate may `use` another crate's private module. Public surfaces are `pub` and documented.
 7. `aicontext-context` owns the front-matter value type and keeps the YAML library to itself. `Value`
    is `#[non_exhaustive]`, so only a parsed document can produce one, and a test scans `src/` and

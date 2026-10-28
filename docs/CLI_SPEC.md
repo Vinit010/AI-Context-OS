@@ -194,12 +194,31 @@ worst case above the ceiling exits 3 with `AGENT-012` and makes no call; an actu
 an `AGENT-013` error finding after the plan is written; usage too incomplete to price is the
 `AGENT-014` warning; a ceiling with no prices is `AGENT-011` and stops before any call.
 
-### `aicontext plugin install <ref>`
+### `aicontext plugin list|install|remove`
 
-Validates the manifest, prints the permission diff and auth requirements, confirms, and records the
-result. `--yes` is accepted here (install is not itself a tool call) but the recorded grant is still
-subject to `permissions.yaml`. `--as-plugin` registers a third-party MCP server as a plugin
-(`PLUGIN_SPEC.md` §10).
+`install <path>` validates a local manifest, prints the permission diff against what is already
+granted and the auth requirements, confirms unless `--yes` was passed, then records the result.
+`--yes` is accepted here (install is not itself a tool call) but the recorded grant is still subject
+to `permissions.yaml`. Only the literal answer `yes` confirms; a run with no interactive terminal and
+no `--yes` exits 5 with `PLUGIN-004`. A relative `<path>` resolves against the project root and may
+name a directory containing `manifest.json` or a manifest file.
+
+This build installs local paths only: a registry reference is refused with `PLUGIN-003`, and every
+install is recorded and displayed as `unsigned` because no signature verifier exists yet.
+`--as-plugin` (registering a third-party MCP server) arrives with `TASK-078`.
+
+The record is `.aicontext/plugins.lock.json` (format version 1, plugins sorted by name, permissions
+sorted by kind and identity). `list` reads it and prints every installed plugin with its version,
+signature status, and permission count. `remove <name>` revokes the recorded permissions, deletes
+`.aicontext/plugins/<name>/`, and deletes the lockfile when the last plugin is removed; it does not
+prompt. `install` requires an existing `.ai/` tree; `list` and `remove` do not.
+
+`--json` publishes one envelope with `command: "plugin"` and `data.action` equal to `list`,
+`install`, or `remove`. The payload carries `lockfile` and `plugins` for `list`; `lockfile`, `plugin`,
+and `diff` for `install`; and `lockfile`, `plugin`, `revoked`, `state_removed`, and `remaining` for
+`remove`. Failures use `PLUGIN-001`…`PLUGIN-011`; a manifest failure keeps the SDK's `PLG-011` or
+`PLG-004`. A bad reference or an unknown plugin name exits 2, an invalid manifest or malformed
+lockfile exits 3, an unconfirmed install exits 5, and a filesystem or report failure exits 1.
 
 ### `aicontext export <archive>` / `aicontext import <archive>`
 

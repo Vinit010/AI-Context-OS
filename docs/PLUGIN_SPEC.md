@@ -295,6 +295,28 @@ A registry reference additionally shows the publisher, version, signature status
 permission set. **Signature verification is optional in the MVP but the status is always shown** —
 an unsigned plugin is displayed as unsigned, never as trusted.
 
+In this build (`TASK-077`) the record is `.aicontext/plugins.lock.json` — git-ignored local state,
+format version 1. Plugins are sorted by name and each plugin's permissions are sorted by kind and
+identity, so two runs that install the same set produce the same bytes. A permission is a tagged
+value (`tool`, `filesystem`, `network`, `auth`); an unknown kind is a malformed lockfile
+(`PLUGIN-006`), never a grant this build silently ignores. The validated manifest bytes are kept at
+`.aicontext/plugins/<name>/manifest.json`, and `manifest_digest` is the SHA-256 of exactly those
+bytes. The record is what the developer confirmed; it does not widen
+`.ai/permissions/permissions.yaml`, which is still resolved per call.
+
+The diff compares the requested set with what is already granted to the same plugin name: `+` is a
+new grant, `-` is a permission the reinstall revokes, and `=` is unchanged. Only the literal answer
+`yes` confirms an interactive install. `--yes` is the one non-interactive confirmation, and a run
+with neither an interactive terminal nor `--yes` exits 5 with `PLUGIN-004`. `remove <name>` revokes
+the recorded permissions, deletes `.aicontext/plugins/<name>/`, and deletes the lockfile when the
+last plugin is removed; it does not prompt.
+
+This build installs local paths only. There is no registry client and no signature verifier, so every
+install is displayed and recorded as `unsigned`, never as trusted, and a registry reference is
+refused with `PLUGIN-003`. `minimum_aicontext_version` is shown and recorded but not range-resolved;
+the report says so explicitly. Registry installation, publisher metadata, and `--as-plugin` remain
+future work (`TASK-078` and later).
+
 ---
 
 ## 9. Authoring a plugin

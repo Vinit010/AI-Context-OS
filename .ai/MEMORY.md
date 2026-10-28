@@ -1540,6 +1540,42 @@ plugin, while the plugin's own syscalls are constrained only by the operating sy
 §7/§12 and
 `PLUGIN_SPEC.md` §7 state that limit; kernel-level containment remains R-3.
 
+## MEM-045 — The install grant is local state, and the lockfile is not a second permission policy
+
+```yaml
+id: MEM-045
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-28
+supersedes: null
+tags: [plugin-system, install, lockfile, permissions, confirmation, task-077]
+```
+
+`TASK-077` adds `aicontext plugin list|install|remove`. `install` validates a local manifest with
+`aicontext-plugin-sdk`, applies the schema bounds the SDK does not (maximum lengths and
+`uniqueItems`), shows the permission diff against what is already granted, shows the auth
+references, then confirms. Only the literal answer `yes` confirms; `--yes` is the non-interactive
+confirmation, and a non-TTY without it is `PLUGIN-004` (exit 5). The preview is printed before the
+prompt, on stderr under `--json`, so the person answering can see the grant.
+
+The record is `.aicontext/plugins.lock.json`, format version 1, sorted by plugin name and permission
+identity. A permission is a tagged enum (`tool`, `filesystem`, `network`, `auth`), so an unknown kind
+is `PLUGIN-006` rather than a grant that is silently ignored. The validated manifest bytes live at
+`.aicontext/plugins/<name>/manifest.json`, and the digest covers exactly those bytes. The lockfile
+answers "what did this checkout install and what did the developer confirm?", not "may this call
+proceed?" — every call is still resolved against `.ai/permissions/permissions.yaml`, which the
+record cannot widen. `remove` deletes the state tree first and then the entry, so a failed deletion
+leaves the grant visible; the lockfile is deleted when the last plugin goes.
+
+This build has no registry client and no signature verifier, so it installs local paths only,
+refuses a registry reference with `PLUGIN-003`, and records every install as `unsigned`.
+`minimum_aicontext_version` is shown but not range-resolved, and the report says so. Plugin names
+are validated as portable single path components (Windows reserved devices included), and state
+paths are canonicalized before deletion so `remove` cannot follow a junction out of
+`.aicontext/plugins/`.
+
 ## Bugs encountered
 
 None shipped. Eight defects were found before a consumer saw them. Two were found by running the

@@ -62,10 +62,10 @@ fn version_works_without_a_subcommand() {
 #[test]
 fn a_command_that_is_not_built_yet_exits_two_and_names_its_task() {
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["plugin"]);
+    let run = run_in(&root, &["plan"]);
 
     assert_eq!(run.code, 2, "an unimplemented command is a usage failure");
-    assert!(run.stderr.contains("TASK-077"), "{}", run.stderr);
+    assert!(run.stderr.contains("not scheduled yet"), "{}", run.stderr);
     assert!(
         run.stdout.is_empty(),
         "the refusal belongs on stderr: {}",
@@ -76,13 +76,13 @@ fn a_command_that_is_not_built_yet_exits_two_and_names_its_task() {
 #[test]
 fn an_unimplemented_command_answers_json_when_asked() {
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["plugin", "--json"]);
+    let run = run_in(&root, &["plan", "--json"]);
 
     let body: serde_json::Value = serde_json::from_str(&run.stdout).expect("one JSON object");
-    assert_eq!(body["command"], "plugin");
+    assert_eq!(body["command"], "plan");
     assert_eq!(body["exit_code"], 2);
     assert_eq!(body["ok"], false);
-    assert_eq!(body["data"]["task"], "TASK-077");
+    assert_eq!(body["data"]["task"], "not scheduled yet");
 }
 
 #[test]
@@ -90,9 +90,9 @@ fn a_planned_command_is_refused_before_its_flags_are_validated() {
     // The developer is told what is missing before being told what else they typed, so a flag the
     // planned command may not even have still produces the named refusal rather than a usage error.
     let (_outer, root) = project("ledger");
-    let run = run_in(&root, &["plugin", "--not-a-flag"]);
+    let run = run_in(&root, &["plan", "--not-a-flag"]);
     assert_eq!(run.code, 2);
-    assert!(run.stderr.contains("TASK-077"), "{}", run.stderr);
+    assert!(run.stderr.contains("not scheduled yet"), "{}", run.stderr);
 }
 
 #[test]
@@ -118,8 +118,14 @@ fn help_lists_what_works_and_what_does_not() {
         run.stdout
     );
     assert!(
-        run.stdout.contains("TASK-077"),
-        "a planned command must name its task"
+        run.stdout.contains("plugin"),
+        "a built command must be listed: {}",
+        run.stdout
+    );
+    assert!(
+        !run.stdout.contains("TASK-077"),
+        "plugin is built, so its task must not appear as a planned command: {}",
+        run.stdout
     );
     assert!(
         !run.stdout.contains("TASK-013"),

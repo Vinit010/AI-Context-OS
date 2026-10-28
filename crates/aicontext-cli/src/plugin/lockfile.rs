@@ -236,12 +236,6 @@ impl Lockfile {
         root.join(".aicontext").join(LOCKFILE_NAME)
     }
 
-    /// The lockfile path as the report spells it.
-    #[must_use]
-    pub(crate) fn display_path(root: &Path) -> String {
-        project::display(&Self::path(root))
-    }
-
     /// Load the lockfile, treating an absent file as an empty record.
     ///
     /// An absent lockfile is not damage: a project that has installed nothing is in the state the
@@ -749,23 +743,25 @@ mod tests {
         let mut lockfile = Lockfile::empty();
         lockfile.upsert(plugin("zebra"));
         lockfile.upsert(plugin("alpha"));
-        lockfile.plugins[0].permissions = vec![
-            Permission::Network {
-                host: "api.example.com".to_owned(),
-            },
-            Permission::Filesystem {
+        lockfile.plugins[0].permissions.push(Permission::Network {
+            host: "api.example.com".to_owned(),
+        });
+        lockfile.plugins[0]
+            .permissions
+            .push(Permission::Filesystem {
                 access: FilesystemAccess::Write,
                 path: "out".to_owned(),
-            },
-            Permission::Filesystem {
+            });
+        lockfile.plugins[0]
+            .permissions
+            .push(Permission::Filesystem {
                 access: FilesystemAccess::Read,
                 path: "src".to_owned(),
-            },
-            Permission::Auth {
-                name: "DEMO_TOKEN".to_owned(),
-                source: AuthSource::Env,
-            },
-        ];
+            });
+        lockfile.plugins[0].permissions.push(Permission::Auth {
+            name: "DEMO_TOKEN".to_owned(),
+            source: AuthSource::Env,
+        });
         lockfile.save(root.path()).expect("save");
 
         let text = fs::read_to_string(Lockfile::path(root.path())).expect("read");
@@ -915,7 +911,8 @@ mod tests {
     fn write_and_remove_state_keep_the_manifest_copy_and_delete_it() {
         let root = TempDir::new().expect("temp dir");
         let copy = write_state(root.path(), "demo", b"{\"name\":\"demo\"}").expect("write");
-        assert!(copy.starts_with(root.path()), "{copy:?}");
+        let canonical_root = root.path().canonicalize().expect("canonical root");
+        assert!(copy.starts_with(&canonical_root), "{copy:?}");
         assert_eq!(
             copy.file_name().and_then(|name| name.to_str()),
             Some("manifest.json")

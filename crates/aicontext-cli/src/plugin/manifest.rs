@@ -426,7 +426,9 @@ mod tests {
     #[test]
     fn a_missing_reference_is_a_named_refusal() {
         let root = project();
-        let error = ValidatedManifest::load(root.path(), "not-here").expect_err("missing");
+        // A bare name is a registry reference; a path-shaped reference is a local path, so this
+        // one reaches the filesystem and is reported as missing rather than unsupported.
+        let error = ValidatedManifest::load(root.path(), "plugins/not-here").expect_err("missing");
         assert_eq!(error.code(), "PLUGIN-002");
         assert_eq!(error.exit().code(), 2);
     }

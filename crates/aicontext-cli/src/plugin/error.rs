@@ -150,21 +150,23 @@ pub(crate) enum PluginCommandError {
 
 impl PluginCommandError {
     /// The stable code, safe to branch on.
-    pub(crate) fn code(&self) -> &'static str {
+    pub(crate) fn code(&self) -> String {
         match self {
-            Self::Root(error) => error.code(),
-            Self::Manifest(error) => error.code().as_str(),
-            Self::ManifestRead { .. } => "PLUGIN-001",
-            Self::ManifestNotFound { .. } => "PLUGIN-002",
-            Self::RegistryUnsupported { .. } => "PLUGIN-003",
-            Self::NotConfirmed { .. } | Self::ConfirmationUnavailable { .. } => "PLUGIN-004",
-            Self::LockfileRead { .. } => "PLUGIN-005",
-            Self::LockfileMalformed { .. } => "PLUGIN-006",
-            Self::LockfileWrite { .. } => "PLUGIN-007",
-            Self::StateWrite { .. } => "PLUGIN-008",
-            Self::StateRemove { .. } | Self::UnsafeStatePath { .. } => "PLUGIN-009",
-            Self::UnknownPlugin { .. } => "PLUGIN-010",
-            Self::JsonReport { .. } => "PLUGIN-011",
+            Self::Root(error) => error.code().to_owned(),
+            Self::Manifest(error) => error.code().to_string(),
+            Self::ManifestRead { .. } => "PLUGIN-001".to_owned(),
+            Self::ManifestNotFound { .. } => "PLUGIN-002".to_owned(),
+            Self::RegistryUnsupported { .. } => "PLUGIN-003".to_owned(),
+            Self::NotConfirmed { .. } | Self::ConfirmationUnavailable { .. } => {
+                "PLUGIN-004".to_owned()
+            }
+            Self::LockfileRead { .. } => "PLUGIN-005".to_owned(),
+            Self::LockfileMalformed { .. } => "PLUGIN-006".to_owned(),
+            Self::LockfileWrite { .. } => "PLUGIN-007".to_owned(),
+            Self::StateWrite { .. } => "PLUGIN-008".to_owned(),
+            Self::StateRemove { .. } | Self::UnsafeStatePath { .. } => "PLUGIN-009".to_owned(),
+            Self::UnknownPlugin { .. } => "PLUGIN-010".to_owned(),
+            Self::JsonReport { .. } => "PLUGIN-011".to_owned(),
         }
     }
 
@@ -231,7 +233,7 @@ impl PluginCommandError {
     pub(crate) fn exit(&self) -> Exit {
         match self {
             Self::Root(error) => error.exit(),
-            Self::Manifest(_) => Exit::Validation,
+            Self::Manifest(_) | Self::LockfileMalformed { .. } => Exit::Validation,
             Self::ManifestRead { .. }
             | Self::LockfileRead { .. }
             | Self::LockfileWrite { .. }
@@ -242,7 +244,6 @@ impl PluginCommandError {
             Self::ManifestNotFound { .. }
             | Self::RegistryUnsupported { .. }
             | Self::UnknownPlugin { .. } => Exit::Usage,
-            Self::LockfileMalformed { .. } => Exit::Validation,
             Self::NotConfirmed { .. } | Self::ConfirmationUnavailable { .. } => {
                 Exit::ApprovalRequired
             }
@@ -252,7 +253,8 @@ impl PluginCommandError {
     /// Writes the report to stderr and returns the exit code, once and only once (`RULES.md` §4.5).
     pub(crate) fn report(&self, terminal: &mut Terminal) -> Exit {
         let exit = self.exit();
-        terminal.error_report(self.code(), &self.to_string(), &self.remediation());
+        let code = self.code();
+        terminal.error_report(&code, &self.to_string(), &self.remediation());
         exit
     }
 }
@@ -337,7 +339,7 @@ mod tests {
                 detail: "d".to_owned(),
             },
         ];
-        let mut codes: Vec<&str> = errors.iter().map(PluginCommandError::code).collect();
+        let mut codes: Vec<String> = errors.iter().map(PluginCommandError::code).collect();
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(

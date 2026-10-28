@@ -27,7 +27,7 @@
 //! rather than guessed at, because there is no registry client and no signature verifier. Every
 //! local install therefore displays `unsigned`, never `trusted`. `minimum_aicontext_version` is
 //! recorded and shown but not resolved: the workspace version and the canonical fixture disagree,
-//! and inventing a range comparison without a SemVer dependency would be a second opinion about a
+//! and inventing a range comparison without a `SemVer` dependency would be a second opinion about a
 //! question this task does not own.
 
 mod error;
@@ -144,6 +144,7 @@ fn run_remove(args: &PluginRemoveArgs, global: &GlobalArgs, terminal: &mut Termi
 }
 
 /// What an install would do, assembled before a human is asked.
+#[derive(Debug)]
 struct InstallPreview {
     /// The manifest that passed every check.
     validated: ValidatedManifest,
@@ -154,6 +155,7 @@ struct InstallPreview {
 }
 
 /// The result of a confirmed install.
+#[derive(Debug)]
 struct InstallOutcome {
     /// The entry written to the lockfile.
     plugin: InstalledPlugin,
@@ -162,6 +164,7 @@ struct InstallOutcome {
 }
 
 /// The result of a remove.
+#[derive(Debug)]
 struct RemoveOutcome {
     /// The entry that was taken out of the lockfile.
     plugin: InstalledPlugin,
@@ -208,13 +211,10 @@ fn execute_install(
             format!("\nInstall `{name}` and record these permissions? Type `yes` to confirm: ");
         match prompter.ask(&prompt) {
             Ok(answer) if answer.trim() == APPROVAL_ANSWER => {}
-            Ok(_) => {
-                return Err(PluginCommandError::NotConfirmed { name: name.clone() });
-            }
             Err(PromptError::Unavailable) => {
                 return Err(PluginCommandError::ConfirmationUnavailable { name: name.clone() });
             }
-            Err(_) => {
+            Ok(_) | Err(_) => {
                 return Err(PluginCommandError::NotConfirmed { name: name.clone() });
             }
         }

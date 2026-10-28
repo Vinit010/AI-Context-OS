@@ -156,6 +156,13 @@ Implemented per `ADR-002` and `PLUGIN_SPEC.md` §7.
 - A preparation refusal is a typed `PLG-009` (sandbox) or `PLG-011` (invalid declaration) error.
   The gateway records `SandboxRefused` before returning it, so a manifest that tries to leave the
   sandbox is audited even when no process was started.
+- `plugin install` records the confirmed grant in `.aicontext/plugins.lock.json`, a git-ignored
+  local file, and keeps the validated manifest at `.aicontext/plugins/<name>/manifest.json`. The
+  record is what the developer confirmed; it does not widen `.ai/permissions/permissions.yaml`,
+  which is still resolved per call. An unknown permission kind in the record is a malformed
+  lockfile (`PLUGIN-006`) rather than a grant this build does not understand. `plugin remove`
+  deletes the per-plugin state tree before dropping the record, so a failed deletion leaves the
+  grant visible and a second run can finish the job.
 
 The filesystem and network checks are **host-mediated**: they decide the reads, writes, and hosts
 the runtime performs on the plugin's behalf. They do not intercept a plugin's own syscalls. That
@@ -271,7 +278,8 @@ that cannot be audited is not an approval (§8).
 - Dependencies are minimal, pinned via a committed lockfile, and justified in writing.
 - `cargo audit` blocks the build on a new advisory.
 - Plugin install shows a permission diff and an explicit signature status; unsigned is displayed as
-  unsigned.
+  unsigned. The confirmed grant is recorded locally, and `plugin remove` revokes it and deletes the
+  plugin's state tree.
 - Release artefacts are checksummed and, from the first release, signed.
 - No telemetry and no network call in any command documented as offline.
 

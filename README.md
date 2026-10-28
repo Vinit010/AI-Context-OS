@@ -72,9 +72,10 @@ Every other command in the plan refuses to run and names the task that will buil
 complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
 adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has started with the
 plugin SDK, the pure permission resolver, the approval broker, the plugin supervisor, the tool
-gateway, the plugin sandbox, and the hash-chained audit log. The gateway is a library edge and
-nothing appends to the audit log yet: the CLI reads it, and the first command that executes a plugin
-becomes its writer.
+gateway, the plugin sandbox, the hash-chained audit log, and `plugin install|list|remove`. The
+gateway is a library edge and nothing appends to the audit log yet: the CLI reads it, and the first
+command that executes a plugin becomes its writer. `plugin install` records a grant; it does not
+execute the plugin.
 The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
 being built, in what order, and what "done" means for each item.
 
@@ -121,9 +122,10 @@ verification call before writing anything, and `agent run` is plan-only.
 Project knowledge is committed to the repository under `.ai/`. The CLI reads it, assembles a
 **context packet** for a specific task, and hands that packet to a model as *plan mode only*: the
 model proposes, the human approves, and only then does anything with write access run. The context
-engine, provider layer, plan-mode agent loop, approval broker, plugin supervisor, tool gateway, and
-plugin sandbox exist today. The gateway is not yet wired to a CLI command, so no plugin can be
-executed from `aicontext` itself; that arrives with the plugin command and the Phase 5 loop.
+engine, provider layer, plan-mode agent loop, approval broker, plugin supervisor, tool gateway,
+plugin sandbox, and local plugin registry exist today. The gateway is not yet wired to a CLI command,
+so no plugin can be executed from `aicontext` itself; `plugin install` records the permission grant,
+and execution arrives with the Phase 5 loop.
 
 ```mermaid
 flowchart LR
@@ -323,9 +325,9 @@ aicontext
 ├─ connect | disconnect     configure or remove a provider                   available
 ├─ agent run                plan a task with the configured provider         available
 ├─ audit                    read the hash-chained log (show, verify, tail)    available
+├─ plugin                   install, list, remove local plugins               available
 ├─ plan | task | memory | decision | bug | change | workflow                 planned
-├─ ai                       provider configuration                           planned
-└─ plugin                   plugin management                                TASK-077
+└─ ai                       provider configuration                           planned
 ```
 
 Global flags apply to every command: `--json`, `--quiet`, `-v`, `--color`, `--no-color`, `--cwd`,
@@ -457,6 +459,26 @@ Reads are bounded — 512 entries, 8 MiB per file, 16 path components, and 64 Mi
 a violation refuses the run instead of truncating. Full contract in
 [`docs/CLI_SPEC.md`](docs/CLI_SPEC.md) §4; format and rationale in
 [`ADR-008`](.ai/decisions/ADR-008-portable-archive-format.md).
+
+### `plugin list|install|remove`
+
+```sh
+aicontext plugin install <path> [--yes] [--json]
+aicontext plugin list [--json]
+aicontext plugin remove <name> [--json]
+```
+
+`install` validates a local manifest, prints the permission diff against what is already granted and
+the auth requirements, and asks for confirmation. Only the literal answer `yes` approves; `--yes` is
+the non-interactive confirmation, and a run with no terminal and no `--yes` exits 5. The confirmed
+grant is recorded in `.aicontext/plugins.lock.json`, and the validated manifest is copied to
+`.aicontext/plugins/<name>/manifest.json`. The record is local state: every tool call is still
+resolved against `.ai/permissions/permissions.yaml`, which the record cannot widen.
+
+`list` shows the installed plugins, their versions, and their signature status. `remove` revokes the
+recorded permissions, deletes the plugin's state tree, and removes the lockfile when the last plugin
+goes. This build installs local paths only and has no signature verifier, so every install is shown
+as `unsigned`; a registry reference is refused rather than guessed at.
 
 ---
 
