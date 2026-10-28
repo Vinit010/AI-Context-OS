@@ -276,11 +276,12 @@ impl Lockfile {
             path: spelled.clone(),
             reason: error.to_string(),
         })?;
-        let lockfile: Self =
-            serde_json::from_slice(&bytes).map_err(|error| PluginCommandError::LockfileMalformed {
+        let lockfile: Self = serde_json::from_slice(&bytes).map_err(|error| {
+            PluginCommandError::LockfileMalformed {
                 path: spelled.clone(),
                 detail: error.to_string(),
-            })?;
+            }
+        })?;
         lockfile.validate(&spelled)?;
         Ok(lockfile)
     }
@@ -365,15 +366,13 @@ impl Lockfile {
             Some(existing) => *existing = plugin,
             None => self.plugins.push(plugin),
         }
-        self.plugins.sort_by(|left, right| left.name.cmp(&right.name));
+        self.plugins
+            .sort_by(|left, right| left.name.cmp(&right.name));
     }
 
     /// Remove one plugin and return what was recorded, or `None` when it was absent.
     pub(crate) fn remove(&mut self, name: &str) -> Option<InstalledPlugin> {
-        let index = self
-            .plugins
-            .iter()
-            .position(|plugin| plugin.name == name)?;
+        let index = self.plugins.iter().position(|plugin| plugin.name == name)?;
         Some(self.plugins.remove(index))
     }
 
@@ -396,7 +395,9 @@ impl Lockfile {
         let spelled = project::display(&path);
 
         let mut sorted = self.clone();
-        sorted.plugins.sort_by(|left, right| left.name.cmp(&right.name));
+        sorted
+            .plugins
+            .sort_by(|left, right| left.name.cmp(&right.name));
         for plugin in &mut sorted.plugins {
             sort_permissions(&mut plugin.permissions);
         }
@@ -787,7 +788,10 @@ mod tests {
                 Permission::Auth { .. } => "auth",
             })
             .collect();
-        assert_eq!(kinds, ["tool", "filesystem", "filesystem", "network", "auth"]);
+        assert_eq!(
+            kinds,
+            ["tool", "filesystem", "filesystem", "network", "auth"]
+        );
     }
 
     #[test]
@@ -866,7 +870,15 @@ mod tests {
 
     #[test]
     fn a_name_that_is_not_portable_is_refused() {
-        for name in ["con", "nul", "com1", "UPPER", "../escape", "a", "with space"] {
+        for name in [
+            "con",
+            "nul",
+            "com1",
+            "UPPER",
+            "../escape",
+            "a",
+            "with space",
+        ] {
             assert!(!is_portable_plugin_name(name), "{name} must be refused");
         }
         for name in ["aws", "demo-plugin", "a1", "plugin-2"] {
@@ -894,14 +906,8 @@ mod tests {
         assert_eq!(diff.unchanged, vec![permission()]);
         assert_eq!(diff.removed.len(), 1);
         assert_eq!(diff.added.len(), 1);
-        assert!(matches!(
-            diff.removed[0],
-            Permission::Network { .. }
-        ));
-        assert!(matches!(
-            diff.added[0],
-            Permission::Filesystem { .. }
-        ));
+        assert!(matches!(diff.removed[0], Permission::Network { .. }));
+        assert!(matches!(diff.added[0], Permission::Filesystem { .. }));
         assert_eq!(diff.summary(), "1 added, 1 removed, 1 unchanged");
     }
 
@@ -910,7 +916,10 @@ mod tests {
         let root = TempDir::new().expect("temp dir");
         let copy = write_state(root.path(), "demo", b"{\"name\":\"demo\"}").expect("write");
         assert!(copy.starts_with(root.path()), "{copy:?}");
-        assert_eq!(copy.file_name().and_then(|name| name.to_str()), Some("manifest.json"));
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some("manifest.json")
+        );
         assert_eq!(
             fs::read(&copy).expect("read"),
             b"{\"name\":\"demo\"}".to_vec()

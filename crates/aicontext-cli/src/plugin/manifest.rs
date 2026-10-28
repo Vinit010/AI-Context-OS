@@ -15,9 +15,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use aicontext_plugin_sdk::{
-    ApiVersion, MAX_MANIFEST_BYTES, PluginError, PluginManifest,
-};
+use aicontext_plugin_sdk::{ApiVersion, MAX_MANIFEST_BYTES, PluginError, PluginManifest};
 
 use crate::archive::sha256_hex;
 use crate::plugin::error::PluginCommandError;
@@ -47,13 +45,13 @@ impl ValidatedManifest {
     pub(crate) fn load(root: &Path, reference: &str) -> Result<Self, PluginCommandError> {
         let path = resolve(root, reference)?;
         let bytes = read(&path)?;
-        let text = std::str::from_utf8(&bytes).map_err(|error| PluginCommandError::ManifestRead {
-            path: project::display(&path),
-            reason: format!("it is not UTF-8: {error}"),
-        })?;
+        let text =
+            std::str::from_utf8(&bytes).map_err(|error| PluginCommandError::ManifestRead {
+                path: project::display(&path),
+                reason: format!("it is not UTF-8: {error}"),
+            })?;
 
-        let manifest =
-            PluginManifest::from_json(text).map_err(PluginCommandError::Manifest)?;
+        let manifest = PluginManifest::from_json(text).map_err(PluginCommandError::Manifest)?;
         manifest
             .negotiate(ApiVersion::CURRENT)
             .map_err(PluginCommandError::Manifest)?;
@@ -219,11 +217,7 @@ fn read(path: &Path) -> Result<Vec<u8>, PluginCommandError> {
 /// exceeds one is refused with the SDK's `PLG-011`, so the author sees the same code and
 /// remediation whichever check caught it.
 fn check_schema_bounds(manifest: &PluginManifest) -> Result<(), PluginError> {
-    check_len(
-        "plugin_api_version",
-        &manifest.plugin_api_version,
-        4,
-    )?;
+    check_len("plugin_api_version", &manifest.plugin_api_version, 4)?;
     check_len("version", &manifest.version, 256)?;
     check_optional_len("description", manifest.description.as_deref(), 2000)?;
     check_optional_len("vendor", manifest.vendor.as_deref(), 200)?;
@@ -296,10 +290,7 @@ fn check_unique(field: &'static str, values: &[String]) -> Result<(), PluginErro
     let mut seen = BTreeSet::new();
     for value in values {
         if !seen.insert(value.as_str()) {
-            return Err(rule(
-                field,
-                format!("`{value}` appears more than once"),
-            ));
+            return Err(rule(field, format!("`{value}` appears more than once")));
         }
     }
     Ok(())
@@ -504,7 +495,10 @@ mod tests {
     #[test]
     fn an_unsupported_api_version_is_plg_004() {
         let root = project();
-        let text = CANONICAL.replace("\"plugin_api_version\": \"1\"", "\"plugin_api_version\": \"2\"");
+        let text = CANONICAL.replace(
+            "\"plugin_api_version\": \"1\"",
+            "\"plugin_api_version\": \"2\"",
+        );
         write_manifest(root.path(), &text);
         let error = ValidatedManifest::load(root.path(), "plugin").expect_err("api version");
         assert_eq!(error.code(), "PLG-004");

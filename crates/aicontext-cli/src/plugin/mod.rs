@@ -204,9 +204,8 @@ fn execute_install(
 
     if !yes {
         let name = &preview.validated.manifest.name;
-        let prompt = format!(
-            "\nInstall `{name}` and record these permissions? Type `yes` to confirm: "
-        );
+        let prompt =
+            format!("\nInstall `{name}` and record these permissions? Type `yes` to confirm: ");
         match prompter.ask(&prompt) {
             Ok(answer) if answer.trim() == APPROVAL_ANSWER => {}
             Ok(_) => {
@@ -370,10 +369,7 @@ fn print_install_human(outcome: &InstallOutcome, terminal: &mut Terminal) {
         &format!(".aicontext/plugins/{}/manifest.json", outcome.plugin.name),
     );
     terminal.summary(
-        &format!(
-            "{} permission(s) granted",
-            outcome.plugin.permissions.len()
-        ),
+        &format!("{} permission(s) granted", outcome.plugin.permissions.len()),
         Exit::Ok,
         "`aicontext plugin list`",
     );
@@ -405,20 +401,11 @@ fn print_list_human(lockfile: &Lockfile, name: &str, root: &Path, terminal: &mut
         1 => "1 plugin installed".to_owned(),
         count => format!("{count} plugins installed"),
     };
-    terminal.summary(
-        &counts,
-        Exit::Ok,
-        "`aicontext plugin install <path>`",
-    );
+    terminal.summary(&counts, Exit::Ok, "`aicontext plugin install <path>`");
 }
 
 /// Print the human remove result.
-fn print_remove_human(
-    outcome: &RemoveOutcome,
-    name: &str,
-    root: &Path,
-    terminal: &mut Terminal,
-) {
+fn print_remove_human(outcome: &RemoveOutcome, name: &str, root: &Path, terminal: &mut Terminal) {
     let ok = terminal.mark_ok();
     let info = terminal.mark_info();
     terminal.identity("aicontext", name, project::vcs_label(root));
@@ -547,9 +534,7 @@ mod tests {
     use aicontext_plugin_runtime::approval::{PromptError, Prompter};
     use tempfile::TempDir;
 
-    use super::{
-        Lockfile, execute_install, execute_remove, prepare_install,
-    };
+    use super::{Lockfile, execute_install, execute_remove, prepare_install};
     use crate::args::PluginInstallArgs;
     use crate::output::Terminal;
 
@@ -724,26 +709,12 @@ mod tests {
         let mut yes = FakePrompter {
             answer: Answer::Yes,
         };
-        execute_install(
-            &args(),
-            true,
-            root.path(),
-            &mut terminal,
-            false,
-            &mut yes,
-        )
-        .expect("first install");
+        execute_install(&args(), true, root.path(), &mut terminal, false, &mut yes)
+            .expect("first install");
 
         write_plugin(root.path(), MANIFEST_TWO);
-        let outcome = execute_install(
-            &args(),
-            true,
-            root.path(),
-            &mut terminal,
-            false,
-            &mut yes,
-        )
-        .expect("second install");
+        let outcome = execute_install(&args(), true, root.path(), &mut terminal, false, &mut yes)
+            .expect("second install");
 
         assert_eq!(outcome.diff.added.len(), 1);
         assert_eq!(outcome.diff.removed.len(), 1);
@@ -751,14 +722,16 @@ mod tests {
         let record = Lockfile::load(root.path()).expect("record");
         assert_eq!(record.plugins[0].version, "1.1.0");
         assert_eq!(record.plugins[0].permissions.len(), 1);
-        assert!(record.plugins[0]
-            .permissions
-            .iter()
-            .any(|permission| matches!(
-                permission,
-                crate::plugin::lockfile::Permission::Tool { tool, .. }
-                    if tool == "demo.items.write"
-            )));
+        assert!(
+            record.plugins[0]
+                .permissions
+                .iter()
+                .any(|permission| matches!(
+                    permission,
+                    crate::plugin::lockfile::Permission::Tool { tool, .. }
+                        if tool == "demo.items.write"
+                ))
+        );
     }
 
     #[test]
