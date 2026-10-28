@@ -5,13 +5,13 @@ title: AI Context OS — Task Register
 status: active
 version: 0.1.0
 created: 2026-09-27
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # TASKS
 
 **Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-076
+**Current task:** TASK-077
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -1956,7 +1956,7 @@ done:
 ```yaml
 id: TASK-076
 title: Implement the plugin sandbox
-status: TODO
+status: DONE
 priority: CRITICAL
 phase: 4
 depends_on: [TASK-073]
@@ -1967,6 +1967,56 @@ acceptance:
   - Declared network egress allowlist; denied by default
   - No ambient access to the host home directory or unrelated environment variables
   - Escape attempts fail with a typed, audited error
+done:
+  - '`crates/aicontext-plugin-runtime/src/sandbox/` adds `mod.rs`, `error.rs`, `path.rs`,
+    `network.rs`, and `environment.rs`, exported as `pub mod sandbox`. `Sandbox::prepare(manifest,
+    &SandboxRoots { state, project })` creates or reuses `state/plugins/<name>/{work,home,tmp}`,
+    refuses a symlink where a directory is required, and checks after canonicalisation that the
+    `plugins` directory and the per-plugin root remain under the state root, so a junction cannot
+    redirect the tree. On Unix each directory is mode 0700. `Sandbox` exposes the root, work, home,
+    temp, the resolved policies, and host-mediated `check_read`/`check_write`/`check_host`.
+    `tempfile` is a dev-dependency only'
+  - 'The filesystem policy resolves relative declarations against the canonical project root and
+    refuses `..`, a symlink that leaves the project, a dangling symlink whose target could appear
+    later, and non-portable names (Windows reserved devices, alternate-data-stream colons, trailing
+    dots or spaces, control characters) on every platform. The longest existing ancestor is
+    canonicalised and the missing tail appended, so a declared output file need not exist yet. Only
+    the declared or requested components are validated, never the host-chosen project prefix. The
+    checks are host-mediated and return the canonical path that was checked'
+  - 'The network policy accepts only bare lowercase DNS hostnames. An empty `egress` list is
+    `DenyAll`; a declared host matches case-insensitively; a malformed declaration is `PLG-011`, and
+    a host outside the list is `PLG-009`. The environment starts from `env_clear()` and contains a
+    fixed base set plus only the manifest''s `source: env` auth references. `HOME`, `USERPROFILE`,
+    and `TMP`/`TEMP`/`TMPDIR` point into the sandbox; on Windows the verbatim `\\?\` prefix is
+    stripped; a reference to a controlled name such as `HOME` or `PATH` is refused rather than
+    allowed to override the sandbox'
+  - '`start_plugin(manifest, &sandbox)` applies the working directory and environment before spawn
+    and refuses a sandbox prepared for another plugin with `SupervisorError::Sandbox` (`PLG-009`).
+    `ToolGateway::start(manifest, &roots, ...)` prepares the sandbox first and records
+    `GatewayEvent::SandboxRefused { plugin, code, detail }` before returning
+    `GatewayError::Sandbox`; a sink that refuses that record becomes `PLG-010`. There is no event on
+    successful preparation, so the existing exact event counts are unchanged. `ErrorCode::PLG_009`
+    is added to the core catalogue, which now has 43 codes'
+  - 'Tests: 96 unit tests in `aicontext-plugin-runtime` (including the sandbox policy, path,
+    environment, and error modules), 24 gateway integration tests, 6 sandbox integration tests, and
+    17 supervisor integration tests. The sandbox tests drive the real `misbehaving-plugin` `stats`
+    mode and assert the child''s actual cwd, zero-entry work directory, HOME/USERPROFILE/TEMP/TMPDIR/
+    TMP, PATH presence, and the absence of an ambient variable; they also cover default-deny egress,
+    allowlists, typed refusals, a sandbox/manifest mismatch, and Unix symlink and dangling-symlink
+    escapes. The workspace suite is 1216 passed, 0 failed across 48 suites (was 1182 across 47).
+    Gates: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets --all-features -- -D
+    warnings`; `cargo test --workspace`; `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+    --no-deps`; `cargo +1.85.0 build --workspace --all-targets --locked`; `cargo +1.85.0 test
+    --workspace --locked`; `aicontext doctor` (exit 0, only the pre-existing CTX-012 warning);
+    `git diff --check`; and `cargo audit` (clean). No `unwrap` or `expect` outside tests, no
+    `unsafe`, and no secret in the crate, tests, or fixture'
+  - 'Deliberately not done: no kernel-level containment (seccomp, AppContainer, sandbox profiles).
+    The filesystem and network checks are host-mediated, and a plugin''s own syscalls are constrained
+    only by the OS, which is the R-3 limitation stated in `SECURITY.md` §7/§12 and `PLUGIN_SPEC.md`
+    §7. No CLI command executes a plugin yet, so the gateway and sandbox remain library edges until
+    `TASK-077` and the Phase 5 loop. No host-mediated read, write, or network operation is exposed
+    through the gateway yet, so a runtime `Denied` result is library-level; the audited refusal is
+    the preparation path. Policy narrowing beyond the manifest allowlists is not implemented'
 ```
 
 ### TASK-077 — Implement aicontext plugin

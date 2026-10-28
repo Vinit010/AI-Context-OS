@@ -143,9 +143,9 @@ Implemented per `ADR-002` and `PLUGIN_SPEC.md` §7.
 - Separate process, versioned JSON-RPC, no shared memory.
 - Per-plugin tree at `state/plugins/<name>/{work,home,tmp}`; the working directory is `work`, never
   the repository, and on Unix the directories are mode `0700`.
-- Filesystem read and write allowlists, both declared in the manifest and narrowable by policy.
-  Relative declarations resolve against the project root. `..`, a symlink that leaves the project,
-  a dangling symlink, and a non-portable name are refused before the process starts.
+- Filesystem read and write allowlists, both declared in the manifest. Relative declarations resolve
+  against the project root. `..`, a symlink that leaves the project, a dangling symlink, and a
+  non-portable name are refused before the process starts.
 - Network egress allowlist of bare hostnames; an empty list is `DenyAll`, and a host outside the
   list is refused.
 - Minimal environment: the child starts with `env_clear()`. Only a fixed base set and the manifest's
@@ -153,15 +153,15 @@ Implemented per `ADR-002` and `PLUGIN_SPEC.md` §7.
   into the sandbox, and a manifest cannot override a controlled name.
 - Per-call timeout, output cap, guaranteed kill.
 - One path to execution, enforced by review and by `no_bypass_path_to_plugin`.
-- A refusal is a typed `PLG-009` (sandbox) or `PLG-011` (invalid declaration) error. The gateway
-  records `SandboxRefused` before returning it, so an escape attempt is audited even when no process
-  was started.
+- A preparation refusal is a typed `PLG-009` (sandbox) or `PLG-011` (invalid declaration) error.
+  The gateway records `SandboxRefused` before returning it, so a manifest that tries to leave the
+  sandbox is audited even when no process was started.
 
 The filesystem and network checks are **host-mediated**: they decide the reads, writes, and hosts
 the runtime performs on the plugin's behalf. They do not intercept a plugin's own syscalls. That
 boundary is the operating system's, and its strength differs across Linux, macOS, and Windows
-(§12, risk R-3). Where the host cannot establish a control structurally, the runtime fails closed
-and names the control rather than claiming a guarantee it does not provide.
+(§12, risk R-3). Where a host-mediated control cannot be established, the manifest is refused
+rather than weakened; OS-level containment is not claimed.
 
 ---
 

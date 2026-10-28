@@ -201,7 +201,7 @@ flowchart TD
     SDK["aicontext-plugin-sdk<br/>manifest and protocol types for plugin authors"]
     PERM["aicontext-permissions<br/>policy model and pure resolver"]
     PROV["aicontext-providers<br/>AIProvider trait and adapters"]
-    RT["aicontext-plugin-runtime<br/>approval broker, supervisor, tool gateway"]
+    RT["aicontext-plugin-runtime<br/>approval broker, supervisor, sandbox, tool gateway"]
     AUD["aicontext-audit<br/>hash-chained append-only log"]
     TK["aicontext-testkit<br/>fixtures and workspace boundary checks"]
 
@@ -245,7 +245,7 @@ crates/
   aicontext-permissions    # policy model and pure permission resolver
   aicontext-audit          # hash-chained, append-only audit log
   aicontext-plugin-sdk     # manifest and protocol types for plugin authors
-  aicontext-plugin-runtime # approval broker, supervisor, tool gateway
+  aicontext-plugin-runtime # approval broker, supervisor, sandbox, tool gateway
   aicontext-providers      # AIProvider trait, neutral types, and the registry
   aicontext-cli            # the `aicontext` binary
   aicontext-testkit        # test support: manifest reader, boundary policy

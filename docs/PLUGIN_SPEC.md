@@ -273,9 +273,9 @@ call trains the developer to say yes, which is worse than no prompt at all.
 The filesystem and network rows describe the **host-mediated** boundary: what the runtime checks
 when it performs an operation for the plugin. A plugin that opens a path or a socket directly is
 constrained by the operating system, not by these checks, and isolation strength is therefore
-**OS-dependent** (risk R-3). Where a control cannot be established structurally, the runtime
-**fails closed** and states which control is unavailable on this platform. It never claims a
-guarantee it does not provide, and it does not claim kernel-level parity across platforms.
+**OS-dependent** (risk R-3). Where a host-mediated control cannot be established, the manifest is
+refused rather than weakened. The runtime never claims a guarantee it does not provide, and it does
+not claim kernel-level parity across platforms.
 
 ---
 
