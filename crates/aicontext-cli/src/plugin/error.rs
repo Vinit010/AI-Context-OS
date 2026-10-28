@@ -53,6 +53,16 @@ pub(crate) enum PluginCommandError {
         reference: String,
     },
 
+    /// An MCP manifest was installed without `--as-plugin`, or `--as-plugin` named a native
+    /// manifest.
+    #[error("`{name}` {detail}")]
+    ProtocolRegistration {
+        /// The plugin whose manifest was refused.
+        name: String,
+        /// Which side of the requirement was violated.
+        detail: String,
+    },
+
     /// A human did not answer `yes` to the install preview.
     #[error("installation of `{name}` was not confirmed")]
     NotConfirmed {
@@ -157,6 +167,7 @@ impl PluginCommandError {
             Self::ManifestRead { .. } => "PLUGIN-001".to_owned(),
             Self::ManifestNotFound { .. } => "PLUGIN-002".to_owned(),
             Self::RegistryUnsupported { .. } => "PLUGIN-003".to_owned(),
+            Self::ProtocolRegistration { .. } => "PLUGIN-012".to_owned(),
             Self::NotConfirmed { .. } | Self::ConfirmationUnavailable { .. } => {
                 "PLUGIN-004".to_owned()
             }
@@ -185,6 +196,11 @@ impl PluginCommandError {
             }
             Self::RegistryUnsupported { .. } => {
                 "install from a local path; registry installation arrives with a later task"
+                    .to_owned()
+            }
+            Self::ProtocolRegistration { .. } => {
+                "MCP manifests require `--as-plugin`, and `--as-plugin` requires \
+                 `protocol: \"mcp\"`; check the manifest's protocol field"
                     .to_owned()
             }
             Self::NotConfirmed { .. } => {
@@ -243,6 +259,7 @@ impl PluginCommandError {
             | Self::JsonReport { .. } => Exit::General,
             Self::ManifestNotFound { .. }
             | Self::RegistryUnsupported { .. }
+            | Self::ProtocolRegistration { .. }
             | Self::UnknownPlugin { .. } => Exit::Usage,
             Self::NotConfirmed { .. } | Self::ConfirmationUnavailable { .. } => {
                 Exit::ApprovalRequired
@@ -299,6 +316,10 @@ mod tests {
             PluginCommandError::RegistryUnsupported {
                 reference: "x@1".to_owned(),
             },
+            PluginCommandError::ProtocolRegistration {
+                name: "x".to_owned(),
+                detail: "d".to_owned(),
+            },
             PluginCommandError::NotConfirmed {
                 name: "x".to_owned(),
             },
@@ -344,7 +365,7 @@ mod tests {
         codes.dedup();
         assert_eq!(
             codes.len(),
-            11,
+            12,
             "each local failure has one stable PLUGIN- code"
         );
     }

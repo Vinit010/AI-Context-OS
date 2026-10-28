@@ -517,6 +517,14 @@ pub(crate) struct PluginInstallArgs {
     /// build installs local paths only; a registry reference is refused by name.
     #[arg(value_name = "path", value_parser = required_value)]
     pub(crate) path: String,
+
+    /// Register a third-party MCP server. The manifest must declare `protocol: "mcp"`.
+    ///
+    /// The flag is required for an MCP manifest and refused for a native one, so a server is never
+    /// registered as a native plugin by accident and a native plugin is never mistaken for a
+    /// server.
+    #[arg(long)]
+    pub(crate) as_plugin: bool,
 }
 
 /// `aicontext plugin remove`.

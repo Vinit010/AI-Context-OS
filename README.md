@@ -70,12 +70,12 @@ digest a reviewer can witness.
 
 Every other command in the plan refuses to run and names the task that will build it. Phase 3 is
 complete: provider-neutral request/response types, the `AIProvider` trait, the registry, three
-adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 has started with the
+adapters, credential resolution, and a plan-mode agent loop all exist. Phase 4 is complete: the
 plugin SDK, the pure permission resolver, the approval broker, the plugin supervisor, the tool
-gateway, the plugin sandbox, the hash-chained audit log, and `plugin install|list|remove`. The
-gateway is a library edge and nothing appends to the audit log yet: the CLI reads it, and the first
-command that executes a plugin becomes its writer. `plugin install` records a grant; it does not
-execute the plugin.
+gateway, the plugin sandbox, an MCP adapter, the hash-chained audit log, and
+`plugin install|list|remove`. The gateway is a library edge and nothing appends to the
+audit log yet: the CLI reads it, and the first command that executes a plugin becomes its writer.
+`plugin install` records a grant; it does not execute the plugin.
 The task register in [`.ai/TASKS.md`](.ai/TASKS.md) is the authoritative list of what is
 being built, in what order, and what "done" means for each item.
 
@@ -123,9 +123,9 @@ Project knowledge is committed to the repository under `.ai/`. The CLI reads it,
 **context packet** for a specific task, and hands that packet to a model as *plan mode only*: the
 model proposes, the human approves, and only then does anything with write access run. The context
 engine, provider layer, plan-mode agent loop, approval broker, plugin supervisor, tool gateway,
-plugin sandbox, and local plugin registry exist today. The gateway is not yet wired to a CLI command,
-so no plugin can be executed from `aicontext` itself; `plugin install` records the permission grant,
-and execution arrives with the Phase 5 loop.
+plugin sandbox, MCP adapter, and local plugin registry exist today. The gateway is not yet wired to a
+CLI command, so no plugin can be executed from `aicontext` itself; `plugin install` records the
+permission grant, and execution arrives with the Phase 5 loop.
 
 ```mermaid
 flowchart LR
@@ -463,7 +463,7 @@ a violation refuses the run instead of truncating. Full contract in
 ### `plugin list|install|remove`
 
 ```sh
-aicontext plugin install <path> [--yes] [--json]
+aicontext plugin install <path> [--as-plugin] [--yes] [--json]
 aicontext plugin list [--json]
 aicontext plugin remove <name> [--json]
 ```
@@ -475,10 +475,17 @@ grant is recorded in `.aicontext/plugins.lock.json`, and the validated manifest 
 `.aicontext/plugins/<name>/manifest.json`. The record is local state: every tool call is still
 resolved against `.ai/permissions/permissions.yaml`, which the record cannot widen.
 
-`list` shows the installed plugins, their versions, and their signature status. `remove` revokes the
-recorded permissions, deletes the plugin's state tree, and removes the lockfile when the last plugin
-goes. This build installs local paths only and has no signature verifier, so every install is shown
-as `unsigned`; a registry reference is refused rather than guessed at.
+`--as-plugin` registers a third-party MCP server. The manifest declares `protocol: "mcp"`, and each
+capability maps the name the model sees onto the server's tool with `mcp_tool`. The flag and the
+manifest must agree; a mismatch is `PLUGIN-012`. The server's annotations are untrusted, and its
+input schemas must fit the gateway's closed subset, so a schema without
+`additionalProperties: false` is refused rather than widened
+([`docs/PLUGIN_SPEC.md`](docs/PLUGIN_SPEC.md) §10).
+
+`list` shows the installed plugins, their versions, protocol, and signature status. `remove` revokes
+the recorded permissions, deletes the plugin's state tree, and removes the lockfile when the last
+plugin goes. This build installs local paths only and has no signature verifier, so every install is
+shown as `unsigned`; a registry reference is refused rather than guessed at.
 
 ---
 

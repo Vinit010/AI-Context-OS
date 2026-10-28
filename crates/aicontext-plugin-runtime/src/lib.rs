@@ -51,6 +51,7 @@
 
 pub mod approval;
 pub mod gateway;
+pub mod mcp;
 pub mod sandbox;
 pub mod supervisor;
 

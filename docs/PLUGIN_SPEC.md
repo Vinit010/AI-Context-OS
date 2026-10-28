@@ -30,6 +30,7 @@ There is exactly one path from an action to a plugin. There is no second, faster
 {
   "manifest_version": 1,
   "plugin_api_version": "1",
+  "protocol": "aiplugin",
   "name": "aws",
   "version": "1.0.0",
   "description": "Read-only AWS resource inspection",
@@ -69,6 +70,15 @@ There is exactly one path from an action to a plugin. There is no second, faster
 7. `minimum_aicontext_version` is a SemVer range. An unsatisfiable range is refused at install.
 8. `plugin_api_version` is negotiated at handshake. A mismatch fails with `PLG-004` and states both
    versions.
+9. `protocol` is `aiplugin` (the default) or `mcp`. It selects the adapter the runtime runs; the
+   manifest is the registration for either, and there is no second MCP configuration file. An MCP
+   manifest is installed with `--as-plugin`, and a native manifest without it (§10).
+10. On an MCP manifest, `mcp_tool` names the tool the server lists and accepts in `tools/call`; it
+    defaults to the capability's `tool`. It is refused on a native manifest, and the capability's
+    `tool` remains the permission identity and the name the model sees.
+11. MCP has no `effect` or `destructive` field. On an MCP manifest those two capability fields are
+    the host's declaration and the only permission floor; server annotations are untrusted data
+    (§10).
 
 ---
 
@@ -105,6 +115,10 @@ There is exactly one path from an action to a plugin. There is no second, faster
   32 levels; `pattern` is compiled once with the linear-time `regex` engine under a 1 MiB size cap.
 - `summary` is shown verbatim in the approval prompt. It is a safety surface, not decoration.
 - MCP-compatible annotations are carried through unchanged.
+- On an MCP manifest the descriptor is the server's: `input_schema` is its `inputSchema`, `summary`
+  is `description` (falling back to `title`, then the server's name), and annotations are carried
+  through. `effect` and `destructive` still come from the manifest's capability, never from the
+  server (§10). The schema is enforced against the same closed subset above.
 
 ---
 
@@ -295,11 +309,13 @@ A registry reference additionally shows the publisher, version, signature status
 permission set. **Signature verification is optional in the MVP but the status is always shown** —
 an unsigned plugin is displayed as unsigned, never as trusted.
 
-In this build (`TASK-077`) the record is `.aicontext/plugins.lock.json` — git-ignored local state,
-format version 1. Plugins are sorted by name and each plugin's permissions are sorted by kind and
-identity, so two runs that install the same set produce the same bytes. A permission is a tagged
-value (`tool`, `filesystem`, `network`, `auth`); an unknown kind is a malformed lockfile
-(`PLUGIN-006`), never a grant this build silently ignores. The validated manifest bytes are kept at
+In this build (`TASK-077`, extended by `TASK-078`) the record is `.aicontext/plugins.lock.json` —
+git-ignored local state, format version 1. Plugins are sorted by name and each plugin's permissions
+are sorted by kind and identity, so two runs that install the same set produce the same bytes. A
+permission is a tagged value (`tool`, `filesystem`, `network`, `auth`); an unknown kind is a
+malformed lockfile (`PLUGIN-006`), never a grant this build silently ignores. An MCP plugin records
+`protocol: "mcp"`; a native plugin omits the field and is read as `aiplugin`, so a record written
+before MCP support stays valid. The validated manifest bytes are kept at
 `.aicontext/plugins/<name>/manifest.json`, and `manifest_digest` is the SHA-256 of exactly those
 bytes. The record is what the developer confirmed; it does not widen
 `.ai/permissions/permissions.yaml`, which is still resolved per call.
@@ -314,8 +330,9 @@ last plugin is removed; it does not prompt.
 This build installs local paths only. There is no registry client and no signature verifier, so every
 install is displayed and recorded as `unsigned`, never as trusted, and a registry reference is
 refused with `PLUGIN-003`. `minimum_aicontext_version` is shown and recorded but not range-resolved;
-the report says so explicitly. Registry installation, publisher metadata, and `--as-plugin` remain
-future work (`TASK-078` and later).
+the report says so explicitly. Registry installation and publisher metadata remain future work. An
+MCP manifest is installed with `--as-plugin` (§10), and the preview, record, and `list` name its
+protocol.
 
 ---
 
@@ -350,14 +367,74 @@ is optional; the wire protocol is the contract.
 
 ## 10. MCP compatibility
 
-The runtime speaks MCP-compatible tool definitions and transports, so an existing MCP server can be
-registered by adding a manifest that declares its tools and permissions:
+The runtime can register an existing MCP server as a plugin. The manifest is the registration; there
+is no separate MCP configuration file and no second discovery path. `protocol: "mcp"` selects the
+adapter, and each capability maps the plugin-facing name onto the server's tool:
+
+```json
+{
+  "manifest_version": 1,
+  "plugin_api_version": "1",
+  "protocol": "mcp",
+  "name": "filesystem",
+  "version": "1.0.0",
+  "description": "Third-party MCP filesystem server",
+  "entry": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  },
+  "capabilities": [
+    { "tool": "filesystem.file.read", "effect": "read", "mcp_tool": "read_file" },
+    { "tool": "filesystem.directory.list", "effect": "read", "mcp_tool": "list_directory" }
+  ],
+  "filesystem": { "read": ["."], "write": [] },
+  "network": { "egress": [] },
+  "limits": { "call_timeout_ms": 30000, "max_output_bytes": 1048576 }
+}
+```
 
 ```bash
 aicontext plugin install ./my-mcp-server --as-plugin
 ```
 
-Compatibility is a stated goal, not a claim of full equivalence, and the following are **not**
-provided in the MVP: MCP server-initiated sampling, MCP-provided resources, and elicitation
-surfaces. Unknown U-2 in `ARCHITECTURE.md` §13 — whether the permission model maps cleanly onto
-MCP — must be resolved in TASK-078 before Phase 5 depends on it.
+`--as-plugin` and `protocol: "mcp"` must agree. An MCP manifest installed without the flag is
+refused with `PLUGIN-012` (exit 2), and a native manifest installed with the flag is refused the same
+way. The host never guesses which handshake to run.
+
+**Transport and lifecycle.** stdio only. The host sends `initialize` with the newest revision it
+implements (`2025-06-18`), accepts `2024-11-05`, `2025-03-26`, or `2025-06-18`, then sends
+`notifications/initialized`. Any other revision is `PLG-004` and names the server's revision and the
+supported set. Shutdown closes stdin; a server that does not exit within the grace period is killed.
+
+**Discovery.** `tools/list` is followed through `nextCursor` up to 64 pages and 1024 tools. A server
+tool the manifest does not declare is `PLG-008`; a repeated cursor or a tool listed twice is
+`PLG-005`; an omitted `inputSchema` is `PLG-005`. A server tool name is 1–128 bytes with no
+whitespace or control characters, and the effective server names must be unique; MCP's
+`[A-Za-z0-9_-]` recommendation is not narrowed. The host sends the capability's `mcp_tool` (or its
+`tool` when absent) in `tools/call`.
+
+**Invocation.** A JSON-RPC error from the server is `PLG-005` and keeps the server's code and
+message. A result with `isError: true` is data, not a runtime failure, and reaches the caller in the
+same untrusted envelope as a native result.
+
+**Server-initiated traffic.** `ping` is answered with `{}`. `notifications/message` becomes a host
+log; other `notifications/*` are ignored. `sampling/createMessage`, `roots/list`, and
+`elicitation/create` are refused with `-32601`, and every other server-initiated request is refused
+the same way.
+
+**Permissions.** MCP has no `effect` or `destructive` field, so the manifest's capability is the
+authority: the permission resolver, approval broker, and audit chain see only the manifest's
+declaration. Server annotations (`readOnlyHint`, `destructiveHint`, and so on) are carried as
+untrusted data and never raise or lower the host's floor. This resolves `ARCHITECTURE.md` §13 U-2:
+the permission layer sits strictly outside the protocol, and MCP is one adapter beneath it.
+
+**Stated limitations.**
+
+- stdio only; HTTP, SSE, and streamable HTTP transports are not implemented.
+- The gateway's closed schema subset applies unchanged. A server schema that omits
+  `additionalProperties: false`, or uses `oneOf`, `$ref`, `format`, or another keyword outside the
+  subset, is refused with `PLG-012`; it is not silently widened.
+- MCP resources, prompts, sampling, roots, and elicitation are not implemented.
+- Server annotations are not trusted and cannot grant permissions.
+- `serverInfo` and `instructions` are not shown in the approval prompt; the manifest's capability
+  and the server's `description` are the surfaces a human sees.

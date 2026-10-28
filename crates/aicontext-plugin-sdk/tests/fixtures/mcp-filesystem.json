@@ -1,0 +1,20 @@
+{
+  "manifest_version": 1,
+  "plugin_api_version": "1",
+  "protocol": "mcp",
+  "name": "filesystem",
+  "version": "1.0.0",
+  "description": "Third-party MCP filesystem server",
+  "entry": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  },
+  "capabilities": [
+    { "tool": "filesystem.file.read", "effect": "read", "mcp_tool": "read_file" },
+    { "tool": "filesystem.directory.list", "effect": "read", "mcp_tool": "list_directory" },
+    { "tool": "filesystem.file.search", "effect": "read", "mcp_tool": "search_files" }
+  ],
+  "filesystem": { "read": ["."], "write": [] },
+  "network": { "egress": [] },
+  "limits": { "call_timeout_ms": 30000, "max_output_bytes": 1048576 }
+}

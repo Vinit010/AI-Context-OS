@@ -15,7 +15,8 @@ use aicontext_core::ErrorCode;
 use aicontext_plugin_runtime::supervisor::{PluginProcess, SupervisorError, start_plugin};
 use aicontext_plugin_runtime::{Sandbox, SandboxRoots};
 use aicontext_plugin_sdk::{
-    Capability, Effect, EntryPoint, FilesystemScope, Limits, LogLevel, NetworkScope, PluginManifest,
+    Capability, Effect, EntryPoint, FilesystemScope, Limits, LogLevel, NetworkScope,
+    PluginManifest, PluginProtocol,
 };
 use serde_json::json;
 
@@ -26,6 +27,7 @@ fn manifest(mode: &str) -> PluginManifest {
     PluginManifest {
         manifest_version: 1,
         plugin_api_version: "1".to_owned(),
+        protocol: PluginProtocol::AiPlugin,
         name: "fixture".to_owned(),
         version: "1.0.0".to_owned(),
         description: None,
@@ -40,6 +42,7 @@ fn manifest(mode: &str) -> PluginManifest {
             tool: TOOL.to_owned(),
             effect: Effect::Write,
             destructive: false,
+            mcp_tool: None,
         }],
         auth: None,
         filesystem: FilesystemScope {

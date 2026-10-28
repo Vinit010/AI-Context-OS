@@ -10,8 +10,8 @@ updated: 2026-10-28
 
 # TASKS
 
-**Current phase:** Phase 4 — Plugin system
-**Current task:** TASK-078
+**Current phase:** Phase 5 — GitHub plugin (first real plugin)
+**Current task:** TASK-080
 **Rules:** one task at a time; do not start a task whose dependencies are not `DONE`.
 
 Status values: `BACKLOG` · `TODO` · `IN_PROGRESS` · `BLOCKED` · `IN_REVIEW` · `TESTING` · `DONE` ·
@@ -2096,7 +2096,7 @@ done:
 ```yaml
 id: TASK-078
 title: Verify MCP interoperability
-status: TODO
+status: DONE
 priority: MEDIUM
 phase: 4
 depends_on: [TASK-073, TASK-074]
@@ -2106,6 +2106,67 @@ acceptance:
   - A third-party MCP server can be registered as a plugin with a permission declaration
   - Tool discovery, invocation, and error shapes match the MCP specification
   - Documented limitations are listed explicitly
+done:
+  - 'Scope note: the declared touches were `crates/aicontext-plugin-runtime/**` and
+    `docs/PLUGIN_SPEC.md`. Registration and verification also required additive changes to
+    `crates/aicontext-plugin-sdk/**` (`protocol`, `Capability.mcp_tool`),
+    `schemas/plugin-manifest.schema.json`, `crates/aicontext-cli/**` (`--as-plugin`, `PLUGIN-012`,
+    the recorded protocol), `docs/CLI_SPEC.md`, and `README.md`. No dependency was added, and a
+    native manifest that omits `protocol` is unchanged on the wire'
+  - 'The manifest gains `protocol: "aiplugin" | "mcp"` (default `aiplugin`) and
+    `Capability.mcp_tool`, the server name sent in `tools/call` (default: the capability `tool`).
+    The schema rejects `mcp_tool` on a native manifest. On an MCP manifest every effective server
+    name must be unique and 1–128 bytes with no whitespace or control characters; MCP''s
+    `[A-Za-z0-9_-]` recommendation is not narrowed. The capability `tool` remains the permission
+    identity and the name the model sees, so `filesystem.file.read` can map to `read_file`'
+  - '`crates/aicontext-plugin-runtime/src/mcp.rs` adds the adapter types and translation helpers.
+    The supervisor branches on `protocol`: MCP `initialize` carries `protocolVersion`,
+    `capabilities`, and `clientInfo`, then sends `notifications/initialized`; revisions
+    `2024-11-05`, `2025-03-26`, and `2025-06-18` are accepted, and any other revision is `PLG-004`
+    naming the server''s revision and the supported set. `tools/list` follows `nextCursor` up to 64
+    pages and 1024 tools; an undeclared server tool is `PLG-008`, a repeated cursor or duplicate
+    tool is `PLG-005`, and an omitted `inputSchema` is `PLG-005`. `tools/call` translates the
+    plugin-facing name to `mcp_tool`; a JSON-RPC error is `PLG-005` with the server''s code and
+    message, while `isError: true` stays data. Shutdown closes stdin instead of inventing a
+    `shutdown` method'
+  - 'Server-initiated traffic is handled rather than left waiting: `ping` is answered with `{}`,
+    `notifications/message` becomes a bounded host log, other `notifications/*` are ignored, and
+    `sampling/createMessage`, `roots/list`, `elicitation/create`, and every other server-initiated
+    request are refused with `-32601`. A call that never answers is still `PLG-003` and kills the
+    process; the manifest''s timeout and output cap apply unchanged'
+  - 'Permissions stay outside the protocol. MCP has no `effect` or `destructive` field, so the
+    manifest''s capability is the only authority; server annotations (`readOnlyHint`,
+    `destructiveHint`, and so on) are carried as untrusted data and never raise or lower the
+    host''s floor. This resolves `ARCHITECTURE.md` §13 U-2 and is recorded in `MEM-046`'
+  - '`aicontext plugin install <path> --as-plugin` registers an MCP manifest. The flag is required
+    for `protocol: "mcp"` and refused for a native manifest; either mismatch is `PLUGIN-012`
+    (usage, exit 2) with no state written. The lockfile records `protocol`, omitting the default so
+    records written before MCP support remain readable; the install preview, human `list`, and
+    `list --json` all name the protocol'
+  - 'Documented limitations are listed in `docs/PLUGIN_SPEC.md` §10: stdio only (no HTTP, SSE, or
+    streamable HTTP); the gateway''s closed schema subset applies unchanged, so an MCP schema
+    without `additionalProperties: false` or with `oneOf`, `$ref`, `format`, or another
+    unsupported keyword is `PLG-012` rather than silently widened; MCP resources, prompts,
+    sampling, roots, and elicitation are not implemented; annotations cannot grant permissions;
+    and `serverInfo`/`instructions` are not shown in the approval prompt. `docs/CLI_SPEC.md` §4 and
+    `README.md` state the registration rule and the `PLUGIN-012` failure'
+  - 'Tests: SDK 53 unit + 15 schema + 2 doc; runtime 102 unit + 24 gateway + 8 MCP + 6 sandbox + 17
+    supervisor + 1 doc, where `tests/mcp.rs` drives a separate `mcp-server` fixture over the real
+    stdio transport (handshake, pagination, name translation, server requests and logs, bad
+    revision, undeclared tool, missing schema, JSON-RPC error, `isError`, timeout); CLI plugin 18
+    integration tests, including MCP registration, both `PLUGIN-012` directions, and protocol in
+    `list --json`. The workspace suite is 1288 passed, 0 failed across 50 suites on the pinned
+    toolchain, and the same count on 1.85.0. Gates: `cargo fmt --all --check`; `cargo clippy
+    --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace`;
+    `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`; `cargo +1.85.0 build --workspace
+    --all-targets --locked`; `cargo +1.85.0 test --workspace --locked`; `aicontext doctor` (exit 0,
+    only the pre-existing CTX-012 warning); `git diff --check`; and `cargo audit` (clean). No
+    `unwrap` or `expect` outside tests, no `unsafe`, and no secret'
+  - 'Deliberately not done: HTTP, SSE, and streamable HTTP transports; MCP resources, prompts,
+    sampling, roots, and elicitation; surfacing `serverInfo` or `instructions` in a prompt; and a
+    live vendor server in CI. The fixture is a separate process speaking the MCP wire protocol, so
+    discovery, invocation, and error shapes are exercised over stdio rather than through a mock.
+    The gateway is still a library edge: no CLI command executes an MCP server or a native plugin'
 ```
 
 ---

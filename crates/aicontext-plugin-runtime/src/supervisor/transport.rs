@@ -65,6 +65,22 @@ pub(super) enum Incoming {
         /// The size of the line that carried it.
         bytes: usize,
     },
+    /// A method outside the plugin contract's closed set.
+    ///
+    /// MCP servers may send notifications and server-initiated requests that the plugin contract
+    /// does not define. The transport keeps the frame intact and lets the supervisor decide:
+    /// the native protocol refuses it (`PLG-005`), while the MCP adapter answers or ignores it as
+    /// `docs/PLUGIN_SPEC.md` §10 requires.
+    Other {
+        /// The method name exactly as the plugin wrote it.
+        method: String,
+        /// The request id, or `None` for a notification.
+        id: Option<RequestId>,
+        /// The untyped params.
+        params: Value,
+        /// The size of the line that carried it.
+        bytes: usize,
+    },
     /// The plugin wrote something that is not a frame this protocol allows.
     Protocol {
         /// The concrete violation.
@@ -305,27 +321,26 @@ fn parse_value(value: &Value, bytes: usize) -> Incoming {
         },
     };
 
-    let method = match object.get("method") {
+    let raw_method = match object.get("method") {
         None => None,
-        Some(raw) => match serde_json::from_value::<Method>(raw.clone()) {
-            Ok(method) => Some(method),
-            Err(source) => {
-                return Incoming::Protocol {
-                    detail: format!(
-                        "the frame's `method` is not one this protocol defines: {source}"
-                    ),
-                };
-            }
-        },
+        Some(Value::String(name)) => Some(name.as_str()),
+        Some(_) => {
+            return Incoming::Protocol {
+                detail: "the frame's `method` is not a string".to_owned(),
+            };
+        }
     };
+
+    let method = raw_method
+        .and_then(|name| serde_json::from_value::<Method>(Value::String(name.to_owned())).ok());
 
     let params = object
         .get("params")
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
-    match (method, id) {
-        (Some(Method::Log), None) => match serde_json::from_value::<LogParams>(params) {
+    match (method, raw_method, id) {
+        (Some(Method::Log), _, None) => match serde_json::from_value::<LogParams>(params) {
             Ok(params) => Incoming::Log { params, bytes },
             Err(source) => Incoming::Protocol {
                 detail: format!(
@@ -333,7 +348,7 @@ fn parse_value(value: &Value, bytes: usize) -> Incoming {
                 ),
             },
         },
-        (Some(Method::RequestApproval), Some(id)) => {
+        (Some(Method::RequestApproval), _, Some(id)) => {
             match serde_json::from_value::<ApprovalParams>(params) {
                 Ok(params) => Incoming::Approval { id, params, bytes },
                 Err(source) => Incoming::Protocol {
@@ -343,13 +358,19 @@ fn parse_value(value: &Value, bytes: usize) -> Incoming {
                 },
             }
         }
-        (Some(method), Some(_)) => Incoming::Protocol {
+        (Some(method), _, Some(_)) => Incoming::Protocol {
             detail: format!("the plugin sent the host-only method `{method}` as a request"),
         },
-        (Some(method), None) => Incoming::Protocol {
+        (Some(method), _, None) => Incoming::Protocol {
             detail: format!("the plugin sent the request-only method `{method}` as a notification"),
         },
-        (None, Some(id)) => match (object.get("result"), object.get("error")) {
+        (None, Some(method), id) => Incoming::Other {
+            method: method.to_owned(),
+            id,
+            params,
+            bytes,
+        },
+        (None, None, Some(id)) => match (object.get("result"), object.get("error")) {
             (Some(result), None) => Incoming::Response {
                 id,
                 result: Ok(result.clone()),
@@ -372,7 +393,7 @@ fn parse_value(value: &Value, bytes: usize) -> Incoming {
                 detail: "a response carries neither `result` nor `error`".to_owned(),
             },
         },
-        (None, None) => Incoming::Protocol {
+        (None, None, None) => Incoming::Protocol {
             detail: "the frame is neither a request, a notification, nor a response".to_owned(),
         },
     }

@@ -28,6 +28,47 @@ pub const MANIFEST_VERSION: u32 = 1;
 /// denial-of-service attempt rather than a plugin.
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
+/// The largest MCP tool name this build will translate.
+///
+/// MCP's 2025-06-18 revision says tool names SHOULD be at most 128 characters and use
+/// `[A-Za-z0-9_-]`. The host enforces the length and refuses whitespace and control characters,
+/// which is the safety-relevant part; the character set is deliberately not narrowed, because
+/// existing servers use dots and other separators and the name is only ever sent as a JSON string.
+pub const MAX_MCP_TOOL_NAME_BYTES: usize = 128;
+
+/// The wire protocol a plugin's entry point speaks.
+///
+/// The plugin contract in `docs/PLUGIN_SPEC.md` §4 is the default. [`Mcp`](Self::Mcp) is a
+/// registration of a third-party MCP server over stdio (`docs/PLUGIN_SPEC.md` §10): the manifest is
+/// still the permission declaration, and the runtime adapts the MCP handshake and tool shapes.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum PluginProtocol {
+    /// The `aicontext` plugin protocol.
+    #[default]
+    AiPlugin,
+    /// The Model Context Protocol over stdio.
+    Mcp,
+}
+
+impl PluginProtocol {
+    /// The wire form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AiPlugin => "aiplugin",
+            Self::Mcp => "mcp",
+        }
+    }
+
+    /// Whether this is the default protocol, which is omitted when serialized.
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::AiPlugin)
+    }
+}
+
 /// A plugin manifest.
 ///
 /// The field order matches `docs/PLUGIN_SPEC.md` §2 so the documentation and the type can be read
@@ -41,6 +82,10 @@ pub struct PluginManifest {
 
     /// The plugin API version, negotiated at handshake (`docs/PLUGIN_SPEC.md` §2 rule 8).
     pub plugin_api_version: String,
+
+    /// The wire protocol the entry point speaks. Omitted means [`PluginProtocol::AiPlugin`].
+    #[serde(default, skip_serializing_if = "PluginProtocol::is_default")]
+    pub protocol: PluginProtocol,
 
     /// The plugin's globally unique name, matching `^[a-z0-9][a-z0-9-]{1,63}$`.
     pub name: String,
@@ -171,6 +216,7 @@ impl PluginManifest {
         )?;
 
         self.validate_capabilities()?;
+        self.validate_protocol()?;
         self.validate_auth()?;
         self.validate_filesystem()?;
         self.validate_network()?;
@@ -246,6 +292,64 @@ impl PluginManifest {
                         capability.effect.as_str()
                     ),
                 ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check the protocol-specific part of a capability declaration.
+    ///
+    /// `mcp_tool` is a translation, not a second permission: the permission identity remains
+    /// `capabilities[].tool`, so a native manifest that carries an MCP name is refused rather than
+    /// ignored. For an MCP manifest every effective server name must be usable as a JSON-RPC tool
+    /// name and unique, or two capabilities would translate to the same call.
+    fn validate_protocol(&self) -> Result<(), PluginError> {
+        match self.protocol {
+            PluginProtocol::AiPlugin => {
+                if let Some(capability) = self
+                    .capabilities
+                    .iter()
+                    .find(|capability| capability.mcp_tool.is_some())
+                {
+                    return Err(rule(
+                        "capabilities[].mcp_tool",
+                        format!(
+                            "`{}` names an MCP tool, but the manifest does not declare \
+                             `protocol: \"mcp\"`",
+                            capability.tool
+                        ),
+                    ));
+                }
+            }
+            PluginProtocol::Mcp => {
+                let mut seen = BTreeSet::new();
+                for capability in &self.capabilities {
+                    let name = capability
+                        .mcp_tool
+                        .as_deref()
+                        .unwrap_or(capability.tool.as_str());
+                    if name.is_empty()
+                        || name.len() > MAX_MCP_TOOL_NAME_BYTES
+                        || name.chars().any(char::is_control)
+                        || name.chars().any(char::is_whitespace)
+                    {
+                        return Err(rule(
+                            "capabilities[].mcp_tool",
+                            format!(
+                                "`{name}` is not a usable MCP tool name: one to \
+                                 {MAX_MCP_TOOL_NAME_BYTES} bytes, no whitespace or control \
+                                 characters"
+                            ),
+                        ));
+                    }
+                    if !seen.insert(name) {
+                        return Err(rule(
+                            "capabilities[].mcp_tool",
+                            format!("the MCP tool `{name}` is declared more than once"),
+                        ));
+                    }
+                }
             }
         }
 
@@ -340,6 +444,15 @@ pub struct Capability {
     /// a manifest cannot lower the floor its own flag sets.
     #[serde(default)]
     pub destructive: bool,
+
+    /// The name an MCP server uses for this tool, when [`PluginManifest::protocol`] is
+    /// [`PluginProtocol::Mcp`].
+    ///
+    /// The plugin-facing [`tool`](Self::tool) keeps the `provider.service.action` shape the
+    /// permission resolver and approval prompt use; this field is the translation the MCP adapter
+    /// sends in `tools/call`. Omitted means the server uses the same name as `tool`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_tool: Option<String>,
 }
 
 impl Capability {
@@ -565,10 +678,11 @@ fn is_identifier_sequence(value: &str) -> bool {
 mod tests {
     use aicontext_core::{ErrorCode, PermissionMode};
 
-    use super::{MAX_MANIFEST_BYTES, PluginManifest};
+    use super::{MAX_MANIFEST_BYTES, PluginManifest, PluginProtocol};
     use crate::version::ApiVersion;
 
     const CANONICAL: &str = include_str!("../tests/fixtures/aws.json");
+    const MCP: &str = include_str!("../tests/fixtures/mcp-filesystem.json");
 
     fn canonical() -> PluginManifest {
         PluginManifest::from_json(CANONICAL).expect("the canonical manifest is valid")
@@ -740,11 +854,72 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::PLG_011);
     }
 
+    #[test]
+    fn the_default_protocol_is_the_aiplugin_protocol() {
+        assert_eq!(canonical().protocol, PluginProtocol::AiPlugin);
+    }
+
+    #[test]
+    fn an_mcp_manifest_maps_each_tool_to_the_server_name() {
+        let manifest = PluginManifest::from_json(MCP).expect("the MCP fixture is valid");
+        assert_eq!(manifest.protocol, PluginProtocol::Mcp);
+        assert_eq!(
+            manifest.capabilities[0].mcp_tool.as_deref(),
+            Some("read_file")
+        );
+        assert_eq!(
+            manifest.capabilities[1].mcp_tool.as_deref(),
+            Some("list_directory")
+        );
+        assert_eq!(
+            manifest.capabilities[2].mcp_tool.as_deref(),
+            Some("search_files")
+        );
+    }
+
+    #[test]
+    fn an_mcp_tool_name_must_be_unique() {
+        let error = mutate_mcp(|value| {
+            value["capabilities"][1]["mcp_tool"] = serde_json::json!("read_file");
+        });
+        assert!(error.to_string().contains("more than once"), "{error}");
+    }
+
+    #[test]
+    fn an_mcp_tool_name_with_whitespace_is_rejected() {
+        let error = mutate_mcp(|value| {
+            value["capabilities"][0]["mcp_tool"] = serde_json::json!("read file");
+        });
+        assert!(
+            error.to_string().contains("usable MCP tool name"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_mcp_tool_on_a_native_manifest_is_refused() {
+        let error = mutate(|value| {
+            value["capabilities"][0]["mcp_tool"] = serde_json::json!("read_file");
+        });
+        assert!(
+            error
+                .to_string()
+                .contains("does not declare `protocol: \"mcp\"`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_mcp_manifest_round_trips_without_losing_the_protocol() {
+        let manifest = PluginManifest::from_json(MCP).expect("the MCP fixture is valid");
+        let encoded = serde_json::to_string(&manifest).expect("serialisable");
+        assert!(encoded.contains("\"protocol\":\"mcp\""), "{encoded}");
+        let decoded = PluginManifest::from_json(&encoded).expect("round trip");
+        assert_eq!(decoded, manifest);
+    }
+
     fn mutate(change: impl FnOnce(&mut serde_json::Value)) -> crate::error::PluginError {
-        let mut value: serde_json::Value =
-            serde_json::from_str(CANONICAL).expect("valid JSON fixture");
-        change(&mut value);
-        PluginManifest::from_json(&value.to_string()).expect_err("the mutation must be rejected")
+        mutate_in(CANONICAL, change)
     }
 
     fn mutate_ok(change: impl FnOnce(&mut serde_json::Value)) -> PluginManifest {
@@ -752,5 +927,18 @@ mod tests {
             serde_json::from_str(CANONICAL).expect("valid JSON fixture");
         change(&mut value);
         PluginManifest::from_json(&value.to_string()).expect("the mutation must be accepted")
+    }
+
+    fn mutate_mcp(change: impl FnOnce(&mut serde_json::Value)) -> crate::error::PluginError {
+        mutate_in(MCP, change)
+    }
+
+    fn mutate_in(
+        raw: &str,
+        change: impl FnOnce(&mut serde_json::Value),
+    ) -> crate::error::PluginError {
+        let mut value: serde_json::Value = serde_json::from_str(raw).expect("valid JSON fixture");
+        change(&mut value);
+        PluginManifest::from_json(&value.to_string()).expect_err("the mutation must be rejected")
     }
 }

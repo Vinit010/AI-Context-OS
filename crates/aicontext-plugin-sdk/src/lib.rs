@@ -57,7 +57,8 @@ mod error;
 pub use error::PluginError;
 pub use manifest::{
     Auth, AuthKind, AuthReference, AuthSource, Capability, Effect, EntryPoint, FilesystemScope,
-    Limits, MANIFEST_VERSION, MAX_MANIFEST_BYTES, NetworkScope, PluginManifest,
+    Limits, MANIFEST_VERSION, MAX_MANIFEST_BYTES, MAX_MCP_TOOL_NAME_BYTES, NetworkScope,
+    PluginManifest, PluginProtocol,
 };
 pub use protocol::{
     Annotations, ApprovalParams, ApprovalResult, CallToolParams, CallToolResult, ContentBlock,

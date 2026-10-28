@@ -1576,6 +1576,40 @@ are validated as portable single path components (Windows reserved devices inclu
 paths are canonicalized before deletion so `remove` cannot follow a junction out of
 `.aicontext/plugins/`.
 
+## MEM-046 — MCP is an adapter beneath the permission layer, and the manifest stays the authority
+
+```yaml
+id: MEM-046
+category: constraint
+scope: plugin-system
+status: active
+confidence: high
+recorded: 2026-10-28
+supersedes: null
+tags: [plugin-system, mcp, permissions, protocol, task-078]
+```
+
+`TASK-078` registers a third-party MCP server as a plugin without weakening the permission model.
+The manifest gains `protocol: "aiplugin" | "mcp"` and `Capability.mcp_tool`; the capability's `tool`
+remains the permission identity, and `mcp_tool` is only the name sent to the server. This resolves
+`ARCHITECTURE.md` §13 U-2: MCP has no `effect` or `destructive` floor and its annotations are hints,
+so the permission layer sits strictly outside the protocol. The manifest's `effect` and
+`destructive` are the only authority; server annotations are carried as untrusted data.
+
+The adapter is deliberately narrow. stdio only; revisions `2024-11-05`, `2025-03-26`, and
+`2025-06-18`; `initialize` then `notifications/initialized`; paginated `tools/list` bounded at 64
+pages and 1024 tools; `tools/call` translates the plugin name to `mcp_tool`. A server tool the
+manifest does not declare is `PLG-008`, a repeated cursor or duplicate tool is `PLG-005`, an
+unsupported revision is `PLG-004`, and a JSON-RPC error is `PLG-005`; `isError: true` stays data.
+Server `ping` is answered `{}`, `notifications/message` becomes a log, and sampling, roots, and
+elicitation are refused with `-32601`. Shutdown closes stdin rather than inventing a method.
+
+Registration is explicit: `plugin install --as-plugin` and `protocol: "mcp"` must agree, or the
+install is `PLUGIN-012` (exit 2). The lockfile records `protocol` (omitting the default for backward
+compatibility), so a native plugin and an MCP server are never confused after install. The documented
+limit that matters most: an MCP schema outside the gateway's closed subset (missing
+`additionalProperties: false`, `oneOf`, `$ref`, `format`) is refused with `PLG-012`, not widened.
+
 ## Bugs encountered
 
 None shipped. Eight defects were found before a consumer saw them. Two were found by running the

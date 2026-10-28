@@ -203,12 +203,17 @@ to `permissions.yaml`. Only the literal answer `yes` confirms; a run with no int
 no `--yes` exits 5 with `PLUGIN-004`. A relative `<path>` resolves against the project root and may
 name a directory containing `manifest.json` or a manifest file.
 
+`--as-plugin` registers a third-party MCP server (`PLUGIN_SPEC.md` §10). It is required when the
+manifest declares `protocol: "mcp"` and refused when it does not; either mismatch is `PLUGIN-012`
+and exits 2. The preview and the record name the protocol, so a native plugin and an MCP server are
+never confused after install.
+
 This build installs local paths only: a registry reference is refused with `PLUGIN-003`, and every
 install is recorded and displayed as `unsigned` because no signature verifier exists yet.
-`--as-plugin` (registering a third-party MCP server) arrives with `TASK-078`.
 
 The record is `.aicontext/plugins.lock.json` (format version 1, plugins sorted by name, permissions
-sorted by kind and identity). `list` reads it and prints every installed plugin with its version,
+sorted by kind and identity). A record written before MCP support omits `protocol` and is read as
+`aiplugin`. `list` reads the record and prints every installed plugin with its version, protocol,
 signature status, and permission count. `remove <name>` revokes the recorded permissions, deletes
 `.aicontext/plugins/<name>/`, and deletes the lockfile when the last plugin is removed; it does not
 prompt. `install` requires an existing `.ai/` tree; `list` and `remove` do not.
@@ -216,9 +221,11 @@ prompt. `install` requires an existing `.ai/` tree; `list` and `remove` do not.
 `--json` publishes one envelope with `command: "plugin"` and `data.action` equal to `list`,
 `install`, or `remove`. The payload carries `lockfile` and `plugins` for `list`; `lockfile`, `plugin`,
 and `diff` for `install`; and `lockfile`, `plugin`, `revoked`, `state_removed`, and `remaining` for
-`remove`. Failures use `PLUGIN-001`…`PLUGIN-011`; a manifest failure keeps the SDK's `PLG-011` or
-`PLG-004`. A bad reference or an unknown plugin name exits 2, an invalid manifest or malformed
-lockfile exits 3, an unconfirmed install exits 5, and a filesystem or report failure exits 1.
+`remove`. An MCP plugin's `plugin` object includes `protocol: "mcp"`; a native plugin omits it.
+Failures use `PLUGIN-001`…`PLUGIN-012`; a manifest failure keeps the SDK's `PLG-011` or `PLG-004`.
+A bad reference, a protocol mismatch, or an unknown plugin name exits 2, an invalid manifest or
+malformed lockfile exits 3, an unconfirmed install exits 5, and a filesystem or report failure exits
+1.
 
 ### `aicontext export <archive>` / `aicontext import <archive>`
 

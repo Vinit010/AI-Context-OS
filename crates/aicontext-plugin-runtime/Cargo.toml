@@ -63,3 +63,13 @@ path = "tests/fixtures/misbehaving_plugin.rs"
 test = false
 doc = false
 bench = false
+
+# A small, real MCP server for tests/mcp.rs. It speaks MCP's stdio transport so the adapter is
+# exercised over the wire rather than through a mock: initialize, paginated tools/list, tools/call,
+# server-initiated requests, notifications, and EOF shutdown. TASK-078.
+[[bin]]
+name = "mcp-server"
+path = "tests/fixtures/mcp_server.rs"
+test = false
+doc = false
+bench = false

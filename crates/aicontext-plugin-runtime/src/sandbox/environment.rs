@@ -194,7 +194,7 @@ fn path_value(path: &Path) -> OsString {
 mod tests {
     use aicontext_plugin_sdk::{
         Auth, AuthKind, AuthReference, AuthSource, Capability, Effect, EntryPoint, FilesystemScope,
-        Limits, NetworkScope, PluginManifest,
+        Limits, NetworkScope, PluginManifest, PluginProtocol,
     };
 
     use super::Environment;
@@ -204,6 +204,7 @@ mod tests {
         PluginManifest {
             manifest_version: 1,
             plugin_api_version: "1".to_owned(),
+            protocol: PluginProtocol::AiPlugin,
             name: "fixture".to_owned(),
             version: "1.0.0".to_owned(),
             description: None,
@@ -218,6 +219,7 @@ mod tests {
                 tool: "fixture.echo.run".to_owned(),
                 effect: Effect::Read,
                 destructive: false,
+                mcp_tool: None,
             }],
             auth,
             filesystem: FilesystemScope {

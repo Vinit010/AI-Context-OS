@@ -17,7 +17,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use aicontext_plugin_sdk::{AuthSource, Effect};
+use aicontext_plugin_sdk::{AuthSource, Effect, PluginProtocol};
 use serde::{Deserialize, Serialize};
 
 use crate::plugin::error::PluginCommandError;
@@ -193,6 +193,12 @@ pub(crate) struct InstalledPlugin {
     pub(crate) version: String,
     /// The plugin API version the manifest declared.
     pub(crate) plugin_api_version: String,
+    /// The wire protocol the manifest declared.
+    ///
+    /// Omitted in records written before MCP registration existed, where the only protocol was
+    /// `aiplugin`; the default keeps those records readable rather than calling them malformed.
+    #[serde(default, skip_serializing_if = "PluginProtocol::is_default")]
+    pub(crate) protocol: PluginProtocol,
     /// The manifest's one-line description, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
@@ -707,7 +713,7 @@ pub(crate) fn remove_state(root: &Path, name: &str) -> Result<bool, PluginComman
 mod tests {
     use std::fs;
 
-    use aicontext_plugin_sdk::{AuthSource, Effect};
+    use aicontext_plugin_sdk::{AuthSource, Effect, PluginProtocol};
     use tempfile::TempDir;
 
     use super::{
@@ -728,6 +734,7 @@ mod tests {
             name: name.to_owned(),
             version: "1.0.0".to_owned(),
             plugin_api_version: "1".to_owned(),
+            protocol: PluginProtocol::AiPlugin,
             description: Some("A demo".to_owned()),
             minimum_aicontext_version: None,
             manifest_digest: "a".repeat(64),

@@ -37,6 +37,7 @@ mod manifest;
 use std::path::Path;
 
 use aicontext_plugin_runtime::approval::{APPROVAL_ANSWER, PromptError, Prompter};
+use aicontext_plugin_sdk::{PluginManifest, PluginProtocol};
 use serde::Serialize;
 
 use crate::approval::TerminalPrompter;
@@ -203,6 +204,7 @@ fn execute_install(
     prompter: &mut dyn Prompter,
 ) -> Result<InstallOutcome, PluginCommandError> {
     let preview = prepare_install(root, &args.path)?;
+    check_protocol_registration(&preview.validated.manifest, args.as_plugin)?;
     print_preview(&preview, terminal, json);
 
     if !yes {
@@ -234,6 +236,34 @@ fn execute_install(
         plugin,
         diff: preview.diff,
     })
+}
+
+/// Require the install flag and the manifest protocol to agree.
+///
+/// An MCP server is not a native plugin: its handshake, tool descriptors, and shutdown differ. The
+/// explicit flag is the developer saying they know which one they are installing, and the manifest
+/// says which one it is. Refusing the mismatch is `PLUGIN-012` (usage, exit 2) rather than a
+/// best-effort guess, because guessing would run the wrong protocol against the process.
+fn check_protocol_registration(
+    manifest: &PluginManifest,
+    as_plugin: bool,
+) -> Result<(), PluginCommandError> {
+    if manifest.protocol == PluginProtocol::Mcp && !as_plugin {
+        return Err(PluginCommandError::ProtocolRegistration {
+            name: manifest.name.clone(),
+            detail: "declares protocol `mcp` but was installed without `--as-plugin`".to_owned(),
+        });
+    }
+    if manifest.protocol != PluginProtocol::Mcp && as_plugin {
+        return Err(PluginCommandError::ProtocolRegistration {
+            name: manifest.name.clone(),
+            detail: format!(
+                "declares protocol `{}`, so `--as-plugin` does not apply",
+                manifest.protocol.as_str()
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Remove the record, delete the state tree, and drop the lockfile when it becomes empty.
@@ -295,6 +325,7 @@ fn preview_lines(preview: &InstallPreview) -> Vec<String> {
         format!("  source      {}", preview.validated.source),
         format!("  signature   {}", "unsigned"),
         format!("  api         {}", manifest.plugin_api_version),
+        format!("  protocol    {}", manifest.protocol.as_str()),
     ];
     if let Some(description) = &manifest.description {
         lines.push(format!("  description {description}"));
@@ -388,8 +419,9 @@ fn print_list_human(lockfile: &Lockfile, name: &str, root: &Path, terminal: &mut
                 &ok,
                 &plugin.name,
                 &format!(
-                    "{}  {}  {} permission(s)",
+                    "{}  {}  {}  {} permission(s)",
                     plugin.version,
+                    plugin.protocol.as_str(),
                     plugin.signature,
                     plugin.permissions.len()
                 ),
@@ -598,6 +630,7 @@ mod tests {
     fn args() -> PluginInstallArgs {
         PluginInstallArgs {
             path: "plugin".to_owned(),
+            as_plugin: false,
         }
     }
 

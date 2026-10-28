@@ -582,7 +582,11 @@ Empty abstractions are worse than absent ones (RULES §2).
 - U-1: Whether a single `ContextPacket` can carry a large enough codebase slice for real work
   before the budget forces a hierarchical summarise-then-expand loop. Resolve with a real
   repository during Phase 2, not a synthetic one.
-- U-2: Whether MCP's tool-definition shape can carry our permission model cleanly, or whether the
-  permission layer must sit strictly outside the protocol. Resolve in TASK-078 before Phase 5.
+- U-2: **Resolved in `TASK-078`.** MCP's tool-definition shape cannot carry our permission model: it
+  has no `effect` or `destructive` floor, and annotations such as `readOnlyHint` are untrusted
+  hints. The permission layer therefore sits strictly outside the protocol. An MCP server is
+  registered by a manifest whose `capabilities` declare `effect` and `destructive`, the gateway
+  resolves every call as usual, and server annotations are carried as data
+  (`PLUGIN_SPEC.md` §10).
 - U-3: Whether the dashboard (Phase 8) can be served entirely from the same crates with no
   additional write paths. Defer until Phase 4 is proven; a "no" here changes the roadmap.

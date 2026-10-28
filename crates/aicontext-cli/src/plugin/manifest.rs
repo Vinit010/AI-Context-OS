@@ -85,6 +85,7 @@ impl ValidatedManifest {
             name: self.manifest.name.clone(),
             version: self.manifest.version.clone(),
             plugin_api_version: self.manifest.plugin_api_version.clone(),
+            protocol: self.manifest.protocol,
             description: self.manifest.description.clone(),
             minimum_aicontext_version: self.manifest.minimum_aicontext_version.clone(),
             manifest_digest: self.digest.clone(),

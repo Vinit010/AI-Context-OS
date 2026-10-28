@@ -57,6 +57,29 @@ pub enum SupervisorError {
         host: ApiVersion,
     },
 
+    /// An MCP server selected a protocol revision this host does not implement.
+    ///
+    /// MCP negotiates its own revision inside `initialize`; it is not the plugin API version. The
+    /// server may answer with an older revision it supports, and this host accepts the three
+    /// revisions named by `supported`.
+    #[error(
+        "the MCP server selected protocol version {server}, which this host does not support; \
+         supported versions are {supported}"
+    )]
+    McpVersion {
+        /// The revision the server reported.
+        server: String,
+        /// The comma-separated revisions this host reads.
+        supported: String,
+    },
+
+    /// An MCP server listed a tool the manifest does not declare.
+    #[error("the MCP server listed the tool `{tool}`, which the manifest does not declare")]
+    Undeclared {
+        /// The server's tool name.
+        tool: String,
+    },
+
     /// A request did not complete before `limits.call_timeout_ms` elapsed.
     #[error("the plugin did not answer `{method}` within {timeout_ms} ms and was killed")]
     Timeout {
@@ -114,11 +137,12 @@ impl SupervisorError {
             Self::Sandbox(error) => error.code(),
             Self::Spawn { .. } => ErrorCode::PLG_001,
             Self::Handshake { .. } => ErrorCode::PLG_002,
-            Self::ApiVersion { .. } => ErrorCode::PLG_004,
+            Self::ApiVersion { .. } | Self::McpVersion { .. } => ErrorCode::PLG_004,
             Self::Timeout { .. } => ErrorCode::PLG_003,
             Self::Protocol { .. } => ErrorCode::PLG_005,
             Self::OutputLimit { .. } => ErrorCode::PLG_006,
             Self::Exited { .. } | Self::NotRunning | Self::Io { .. } => ErrorCode::PLG_007,
+            Self::Undeclared { .. } => ErrorCode::PLG_008,
         }
     }
 
@@ -141,6 +165,14 @@ impl SupervisorError {
             Self::ApiVersion { host, .. } => format!(
                 "install a plugin built for plugin API version {host}, or upgrade aicontext to a \
                  version that supports the plugin's version"
+            ),
+            Self::McpVersion { supported, .. } => format!(
+                "install an MCP server that speaks one of {supported}, or upgrade aicontext to a \
+                 version that supports the server's revision"
+            ),
+            Self::Undeclared { tool } => format!(
+                "add `{tool}` to the manifest's `capabilities` with its effect and destructive \
+                 flag, or remove it from the MCP server"
             ),
             Self::Timeout { .. } => {
                 "raise `limits.call_timeout_ms` only if the operation is legitimately slow; \
@@ -228,6 +260,19 @@ mod tests {
                     host: ApiVersion::CURRENT,
                 },
                 ErrorCode::PLG_004,
+            ),
+            (
+                SupervisorError::McpVersion {
+                    server: "2026-01-01".to_owned(),
+                    supported: "2024-11-05, 2025-03-26, 2025-06-18".to_owned(),
+                },
+                ErrorCode::PLG_004,
+            ),
+            (
+                SupervisorError::Undeclared {
+                    tool: "secret_tool".to_owned(),
+                },
+                ErrorCode::PLG_008,
             ),
             (
                 SupervisorError::Protocol {

@@ -347,6 +347,7 @@ mod tests {
 
     use aicontext_plugin_sdk::{
         Capability, Effect, EntryPoint, FilesystemScope, Limits, NetworkScope, PluginManifest,
+        PluginProtocol,
     };
 
     use super::{Sandbox, SandboxRoots};
@@ -355,6 +356,7 @@ mod tests {
         PluginManifest {
             manifest_version: 1,
             plugin_api_version: "1".to_owned(),
+            protocol: PluginProtocol::AiPlugin,
             name: "fixture".to_owned(),
             version: "1.0.0".to_owned(),
             description: None,
@@ -369,6 +371,7 @@ mod tests {
                 tool: "fixture.echo.run".to_owned(),
                 effect: Effect::Read,
                 destructive: false,
+                mcp_tool: None,
             }],
             auth: None,
             filesystem: FilesystemScope {

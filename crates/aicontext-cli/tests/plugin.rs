@@ -86,6 +86,27 @@ const MANIFEST_UPGRADE: &str = r#"{
   "limits": { "call_timeout_ms": 5000, "max_output_bytes": 1048576 }
 }"#;
 
+/// A third-party MCP server: the manifest is the registration, and the tool name the model sees is
+/// mapped onto the name the server lists.
+const MCP_MANIFEST: &str = r#"{
+  "manifest_version": 1,
+  "plugin_api_version": "1",
+  "protocol": "mcp",
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "A third-party MCP server",
+  "entry": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  },
+  "capabilities": [
+    { "tool": "demo.files.read", "effect": "read", "mcp_tool": "read_file" }
+  ],
+  "filesystem": { "read": ["."], "write": [] },
+  "network": { "egress": [] },
+  "limits": { "call_timeout_ms": 30000, "max_output_bytes": 1048576 }
+}"#;
+
 /// Writes `plugins/demo/manifest.json` under `root` and returns the relative reference to install.
 fn write_plugin(root: &Path, manifest: &str) -> String {
     let directory = root.join("plugins").join("demo");
@@ -450,5 +471,85 @@ fn the_json_install_shape_names_the_lockfile_the_plugin_and_the_diff() {
         run.stderr.contains("permissions (3 added"),
         "under --json the human preview still reaches stderr: {}",
         run.stderr
+    );
+}
+
+#[test]
+fn an_mcp_server_is_registered_with_the_plugin_flag_and_records_its_protocol() {
+    let (_outer, root) = project();
+    let reference = write_plugin(&root, MCP_MANIFEST);
+
+    let run = run_in(
+        &root,
+        &[
+            "plugin",
+            "install",
+            &reference,
+            "--as-plugin",
+            "--yes",
+            "--json",
+        ],
+    );
+
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("protocol    mcp"),
+        "the preview names the protocol before the prompt: {}",
+        run.stderr
+    );
+
+    let record = lockfile(&root);
+    assert_eq!(record["plugins"][0]["protocol"], "mcp");
+    assert_eq!(
+        record["plugins"][0]["permissions"][0]["tool"],
+        "demo.files.read"
+    );
+
+    let list = run_in(&root, &["plugin", "list", "--json"]);
+    assert_eq!(list.code, 0, "{}", list.stderr);
+    let body: serde_json::Value = serde_json::from_str(&list.stdout).expect("one JSON object");
+    assert_eq!(body["data"]["plugins"][0]["protocol"], "mcp");
+
+    let human = run_in(&root, &["plugin", "list"]);
+    assert_eq!(human.code, 0, "{}", human.stderr);
+    assert!(
+        human.stdout.contains("mcp"),
+        "the human list names the protocol: {}",
+        human.stdout
+    );
+}
+
+#[test]
+fn an_mcp_manifest_without_the_plugin_flag_is_plugin_012() {
+    let (_outer, root) = project();
+    let reference = write_plugin(&root, MCP_MANIFEST);
+
+    let run = run_in(&root, &["plugin", "install", &reference, "--yes"]);
+
+    assert_eq!(run.code, 2, "a protocol mismatch is a usage error");
+    assert!(run.stderr.contains("PLUGIN-012"), "{}", run.stderr);
+    assert!(run.stderr.contains("--as-plugin"), "{}", run.stderr);
+    assert!(
+        !root.join(".aicontext").exists(),
+        "a refusal must write no state"
+    );
+}
+
+#[test]
+fn the_plugin_flag_on_a_native_manifest_is_plugin_012() {
+    let (_outer, root) = project();
+    let reference = write_plugin(&root, MANIFEST);
+
+    let run = run_in(
+        &root,
+        &["plugin", "install", &reference, "--as-plugin", "--yes"],
+    );
+
+    assert_eq!(run.code, 2, "a protocol mismatch is a usage error");
+    assert!(run.stderr.contains("PLUGIN-012"), "{}", run.stderr);
+    assert!(run.stderr.contains("aiplugin"), "{}", run.stderr);
+    assert!(
+        !root.join(".aicontext").exists(),
+        "a refusal must write no state"
     );
 }

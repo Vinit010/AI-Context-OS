@@ -13,6 +13,7 @@ use jsonschema::Validator;
 use serde_json::{Value, json};
 
 const CANONICAL: &str = include_str!("fixtures/aws.json");
+const MCP: &str = include_str!("fixtures/mcp-filesystem.json");
 
 fn schema_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/plugin-manifest.schema.json")
@@ -159,6 +160,45 @@ fn a_missing_filesystem_block_is_rejected() {
 fn an_unknown_auth_source_is_rejected() {
     let mut instance = canonical();
     instance["auth"]["references"][0]["source"] = json!("plaintext");
+    let validator = validator();
+    assert!(!validator.is_valid(&instance));
+}
+
+#[test]
+fn an_mcp_registration_validates_and_parses() {
+    let instance: Value = serde_json::from_str(MCP).expect("the fixture is valid JSON");
+    let validator = validator();
+    if let Err(error) = validator.validate(&instance) {
+        panic!("the MCP manifest does not validate: {error}");
+    }
+    let manifest = PluginManifest::from_json(MCP).expect("the SDK accepts the same manifest");
+    assert_eq!(manifest.protocol, aicontext_plugin_sdk::PluginProtocol::Mcp);
+    assert_eq!(manifest.capabilities.len(), 3);
+}
+
+#[test]
+fn an_mcp_tool_name_on_a_native_manifest_is_rejected() {
+    let mut instance = canonical();
+    instance["capabilities"][0]["mcp_tool"] = json!("describe_instances");
+    let validator = validator();
+    assert!(
+        !validator.is_valid(&instance),
+        "a translation that only makes sense for MCP must fail the schema, not only the SDK"
+    );
+}
+
+#[test]
+fn an_mcp_tool_name_with_whitespace_is_rejected() {
+    let mut instance: Value = serde_json::from_str(MCP).expect("the fixture is valid JSON");
+    instance["capabilities"][0]["mcp_tool"] = json!("read file");
+    let validator = validator();
+    assert!(!validator.is_valid(&instance));
+}
+
+#[test]
+fn an_unknown_protocol_is_rejected() {
+    let mut instance: Value = serde_json::from_str(MCP).expect("the fixture is valid JSON");
+    instance["protocol"] = json!("http");
     let validator = validator();
     assert!(!validator.is_valid(&instance));
 }

@@ -27,6 +27,11 @@
       "maxLength": 4,
       "description": "The plugin API version negotiated at handshake. A single decimal number; a valid but unsupported version is refused with PLG-004 rather than a schema failure."
     },
+    "protocol": {
+      "enum": ["aiplugin", "mcp"],
+      "default": "aiplugin",
+      "description": "The wire protocol the entry point speaks. aiplugin is docs/PLUGIN_SPEC.md 4; mcp registers a third-party MCP server over stdio (docs/PLUGIN_SPEC.md 10). The manifest remains the permission declaration either way."
+    },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
@@ -73,6 +78,21 @@
     "network": { "$ref": "#/$defs/network" },
     "limits": { "$ref": "#/$defs/limits" }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "protocol": { "const": "mcp" } },
+        "required": ["protocol"]
+      },
+      "else": {
+        "properties": {
+          "capabilities": {
+            "items": { "not": { "required": ["mcp_tool"] } }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "entry": {
       "type": "object",
@@ -110,6 +130,13 @@
           "type": "boolean",
           "default": false,
           "description": "True forces at least EXPLICIT_APPROVAL regardless of the policy file. A manifest cannot lower the floor its own flag sets."
+        },
+        "mcp_tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\s\\u0000-\\u001F\\u007F]+$",
+          "description": "The name an MCP server uses for this tool, when protocol is mcp. The permission identity remains `tool`; this field is the translation sent in tools/call. Omitted means the server uses the same name as `tool`."
         }
       },
       "allOf": [

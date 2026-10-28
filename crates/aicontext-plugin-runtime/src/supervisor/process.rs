@@ -20,7 +20,7 @@
 //! The supervisor validates that the sandbox belongs to the same plugin, applies the sandbox's
 //! environment, and spawns with `env_clear()` rather than inheriting the host's environment.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
@@ -29,14 +29,16 @@ use std::time::{Duration, Instant};
 
 use aicontext_plugin_sdk::{
     ApiVersion, ApprovalResult, CallToolParams, CallToolResult, FrameCodec, InitializeParams,
-    InitializeResult, LogLevel, Method, PluginError, PluginManifest, Request, RequestId, Response,
-    ToolDefinition, ToolsListResult, negotiate,
+    InitializeResult, JSONRPC_VERSION, JsonRpcVersion, LogLevel, Method, PluginError,
+    PluginManifest, PluginProtocol, Request, RequestId, Response, RpcError, ToolDefinition,
+    ToolsListResult, negotiate,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::json::{MAX_JSON_DEPTH, json_depth};
+use crate::mcp;
 use crate::sandbox::Sandbox;
 
 use super::error::SupervisorError;
@@ -178,6 +180,7 @@ pub fn start_plugin(
         dead: false,
         logs: VecDeque::new(),
         capabilities: Vec::new(),
+        manifest: manifest.clone(),
     };
     process.initialize(negotiated)?;
     Ok(process)
@@ -201,6 +204,7 @@ pub struct PluginProcess {
     dead: bool,
     logs: VecDeque<PluginLog>,
     capabilities: Vec<String>,
+    manifest: PluginManifest,
 }
 
 impl PluginProcess {
@@ -259,10 +263,87 @@ impl PluginProcess {
     /// malformed result (`PLG-005`), an output overflow (`PLG-006`), or a process that has already
     /// exited (`PLG-007`). A failure kills the process.
     pub fn list_tools(&mut self) -> Result<Vec<ToolDefinition>, SupervisorError> {
-        let id = RequestId::from(self.next_id());
-        let request = Request::tools_list(id.clone());
-        let result: ToolsListResult = self.exchange(Method::ToolsList, &id, &request)?;
-        Ok(result.tools)
+        match self.manifest.protocol {
+            PluginProtocol::AiPlugin => {
+                let id = RequestId::from(self.next_id());
+                let request = Request::tools_list(id.clone());
+                let result: ToolsListResult = self.exchange(Method::ToolsList, &id, &request)?;
+                Ok(result.tools)
+            }
+            PluginProtocol::Mcp => self.list_mcp_tools(),
+            other => Err(self.fail(SupervisorError::Protocol {
+                detail: format!("this host does not implement the plugin protocol {other:?}"),
+            })),
+        }
+    }
+
+    /// Follow MCP's `tools/list` pages and translate every descriptor.
+    ///
+    /// The manifest is the authority for the plugin-facing tool name, `effect`, and `destructive`;
+    /// the server supplies only the name it will accept in `tools/call`, the summary, the input
+    /// schema, and annotations. A server tool the manifest does not declare is refused with
+    /// `PLG-008` before it can reach the gateway. Pagination is bounded so a server cannot make
+    /// discovery unbounded.
+    fn list_mcp_tools(&mut self) -> Result<Vec<ToolDefinition>, SupervisorError> {
+        let mut tools = Vec::new();
+        let mut seen_tools = BTreeSet::new();
+        let mut seen_cursors = BTreeSet::new();
+        let mut cursor = None;
+
+        for _ in 0..mcp::MAX_PAGES {
+            let id = RequestId::from(self.next_id());
+            let request = Request {
+                jsonrpc: JsonRpcVersion::V2,
+                id: id.clone(),
+                method: Method::ToolsList,
+                params: mcp::ToolsListParams {
+                    cursor: cursor.clone(),
+                },
+            };
+            let result: mcp::ToolsListResult = self.exchange(Method::ToolsList, &id, &request)?;
+
+            for tool in result.tools {
+                if tools.len() == mcp::MAX_TOOLS {
+                    return Err(self.output_limit(format!(
+                        "the MCP server listed more than {} tools",
+                        mcp::MAX_TOOLS
+                    )));
+                }
+                let Some(capability) = self
+                    .manifest
+                    .capabilities
+                    .iter()
+                    .find(|capability| mcp::server_name(capability) == tool.name)
+                else {
+                    return Err(self.fail(SupervisorError::Undeclared { tool: tool.name }));
+                };
+                if !seen_tools.insert(capability.tool.clone()) {
+                    let detail = format!(
+                        "the MCP server listed the tool `{}` more than once",
+                        capability.tool
+                    );
+                    return Err(self.protocol(detail));
+                }
+                tools.push(mcp::definition(capability, tool));
+            }
+
+            match result.next_cursor {
+                Some(next) if !next.is_empty() => {
+                    if !seen_cursors.insert(next.clone()) {
+                        let detail =
+                            format!("the MCP server repeated the tools/list cursor `{next}`");
+                        return Err(self.protocol(detail));
+                    }
+                    cursor = Some(next);
+                }
+                _ => return Ok(tools),
+            }
+        }
+
+        Err(self.output_limit(format!(
+            "the MCP server paginated tools/list beyond {} pages",
+            mcp::MAX_PAGES
+        )))
     }
 
     /// Call one tool with already-validated arguments.
@@ -282,14 +363,51 @@ impl PluginProcess {
         tool: &str,
         arguments: Value,
     ) -> Result<CallToolResult, SupervisorError> {
+        match self.manifest.protocol {
+            PluginProtocol::AiPlugin => {
+                let id = RequestId::from(self.next_id());
+                let request = Request::call_tool(
+                    id.clone(),
+                    CallToolParams {
+                        name: tool.to_owned(),
+                        arguments,
+                    },
+                );
+                self.exchange(Method::ToolsCall, &id, &request)
+            }
+            PluginProtocol::Mcp => self.call_mcp_tool(tool, arguments),
+            other => Err(self.fail(SupervisorError::Protocol {
+                detail: format!("this host does not implement the plugin protocol {other:?}"),
+            })),
+        }
+    }
+
+    /// Translate a plugin tool name into the MCP server's name and call it.
+    fn call_mcp_tool(
+        &mut self,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult, SupervisorError> {
+        let name = match self
+            .manifest
+            .capabilities
+            .iter()
+            .find(|capability| capability.tool == tool)
+        {
+            Some(capability) => mcp::server_name(capability).to_owned(),
+            None => {
+                return Err(self.fail(SupervisorError::Undeclared {
+                    tool: tool.to_owned(),
+                }));
+            }
+        };
         let id = RequestId::from(self.next_id());
-        let request = Request::call_tool(
-            id.clone(),
-            CallToolParams {
-                name: tool.to_owned(),
-                arguments,
-            },
-        );
+        let request = Request {
+            jsonrpc: JsonRpcVersion::V2,
+            id: id.clone(),
+            method: Method::ToolsCall,
+            params: CallToolParams { name, arguments },
+        };
         self.exchange(Method::ToolsCall, &id, &request)
     }
 
@@ -309,14 +427,38 @@ impl PluginProcess {
             return Ok(());
         }
 
-        let id = RequestId::from(self.next_id());
-        let request = Request::shutdown(id.clone());
-        let _: Value = self.exchange(Method::Shutdown, &id, &request)?;
+        match self.manifest.protocol {
+            PluginProtocol::AiPlugin => {
+                let id = RequestId::from(self.next_id());
+                let request = Request::shutdown(id.clone());
+                let _: Value = self.exchange(Method::Shutdown, &id, &request)?;
+            }
+            PluginProtocol::Mcp => {
+                // MCP's lifecycle ends by closing the transport; sending a `shutdown` method is
+                // not part of the tool contract every revision shares. Closing stdin lets a server
+                // observe EOF and exit, and the grace period still kills one that does not.
+            }
+            other => {
+                return Err(self.fail(SupervisorError::Protocol {
+                    detail: format!("this host does not implement the plugin protocol {other:?}"),
+                }));
+            }
+        }
         self.finish_cleanly();
         Ok(())
     }
 
     fn initialize(&mut self, expected: ApiVersion) -> Result<(), SupervisorError> {
+        match self.manifest.protocol {
+            PluginProtocol::AiPlugin => self.initialize_aiplugin(expected),
+            PluginProtocol::Mcp => self.initialize_mcp(),
+            other => Err(self.fail(SupervisorError::Protocol {
+                detail: format!("this host does not implement the plugin protocol {other:?}"),
+            })),
+        }
+    }
+
+    fn initialize_aiplugin(&mut self, expected: ApiVersion) -> Result<(), SupervisorError> {
         let id = RequestId::from(self.next_id());
         let request = Request::initialize(
             id.clone(),
@@ -356,6 +498,35 @@ impl PluginProcess {
 
         self.capabilities = result.capabilities;
         Ok(())
+    }
+
+    /// Complete MCP's `initialize` exchange and acknowledge it.
+    ///
+    /// MCP negotiates a protocol revision rather than the plugin API version. The host asks for
+    /// the newest revision it implements, accepts any revision in [`mcp::SUPPORTED_PROTOCOL_VERSIONS`],
+    /// and refuses anything else with `PLG-004` naming both sides. The `notifications/initialized`
+    /// notification completes the handshake; a server that requires it sees it before `tools/list`.
+    fn initialize_mcp(&mut self) -> Result<(), SupervisorError> {
+        let id = RequestId::from(self.next_id());
+        let request = Request {
+            jsonrpc: JsonRpcVersion::V2,
+            id: id.clone(),
+            method: Method::Initialize,
+            params: mcp::InitializeParams::default(),
+        };
+        let result: mcp::InitializeResult = self.exchange(Method::Initialize, &id, &request)?;
+
+        if !mcp::supports(&result.protocol_version) {
+            let supported = mcp::supported_versions();
+            let server = result.protocol_version;
+            return Err(self.fail(SupervisorError::McpVersion { server, supported }));
+        }
+
+        self.capabilities = result.capabilities.keys().cloned().collect();
+        self.send_frame(&serde_json::json!({
+            "jsonrpc": JSONRPC_VERSION,
+            "method": "notifications/initialized"
+        }))
     }
 
     /// Send one request and wait for the response with the same id.
@@ -448,6 +619,14 @@ impl PluginProcess {
                     }
                     self.deny_approval(id, &params)?;
                 }
+                Incoming::Other {
+                    method,
+                    id,
+                    params,
+                    bytes,
+                } => {
+                    self.handle_other(&method, id, &params, bytes, &mut notification_bytes)?;
+                }
                 Incoming::Protocol { detail } => return Err(self.protocol(detail)),
                 Incoming::OutputLimit { detail } => return Err(self.output_limit(detail)),
                 Incoming::Eof => return Err(self.exited()),
@@ -501,15 +680,128 @@ impl PluginProcess {
                 ),
             },
         );
-        let codec = self.codec;
-        let line = match codec.encode_line(&response) {
-            Ok(line) => line,
-            Err(error) => {
-                let detail = format!("the approval denial could not be encoded: {error}");
-                return Err(self.protocol(detail));
+        self.send_frame(&response)
+    }
+
+    /// Handle a frame whose method is outside the plugin contract.
+    ///
+    /// The native protocol has no extension methods, so an unknown method is `PLG-005`. The MCP
+    /// adapter reads server notifications and requests; the frame is handed on intact.
+    fn handle_other(
+        &mut self,
+        method: &str,
+        id: Option<RequestId>,
+        params: &Value,
+        bytes: usize,
+        notification_bytes: &mut usize,
+    ) -> Result<(), SupervisorError> {
+        match self.manifest.protocol {
+            PluginProtocol::AiPlugin => {
+                let detail = format!("the plugin sent the unknown method `{method}`");
+                Err(self.protocol(detail))
             }
-        };
-        self.send(line.into_bytes())
+            PluginProtocol::Mcp => {
+                self.handle_mcp_frame(method, id, params, bytes, notification_bytes)
+            }
+            other => {
+                let detail = format!(
+                    "the plugin sent `{method}`, which this host cannot interpret for the plugin \
+                     protocol {other:?}"
+                );
+                Err(self.protocol(detail))
+            }
+        }
+    }
+
+    /// Handle one MCP frame whose method is outside the plugin contract.
+    ///
+    /// Notifications are ignored except `notifications/message`, which becomes a host log.
+    /// `ping` is answered with an empty result; sampling, roots, and elicitation are refused with
+    /// `-32601` rather than left waiting, because this host implements none of them. Every other
+    /// server-initiated request is refused the same way.
+    fn handle_mcp_frame(
+        &mut self,
+        method: &str,
+        id: Option<RequestId>,
+        params: &Value,
+        bytes: usize,
+        notification_bytes: &mut usize,
+    ) -> Result<(), SupervisorError> {
+        *notification_bytes = notification_bytes.saturating_add(bytes);
+        if *notification_bytes > self.max_output_bytes {
+            return Err(self.output_limit(
+                "the MCP server wrote more non-response traffic during the call than the manifest \
+                 allows",
+            ));
+        }
+
+        match id {
+            None => {
+                if method == "notifications/message" {
+                    let message: mcp::LogMessage = match serde_json::from_value(params.clone()) {
+                        Ok(message) => message,
+                        Err(source) => {
+                            let detail = format!(
+                                "the `notifications/message` params do not match MCP: {source}"
+                            );
+                            return Err(self.protocol(detail));
+                        }
+                    };
+                    let Some(level) = message.severity() else {
+                        let detail = format!(
+                            "the MCP server logged the unknown level `{}`",
+                            message.level
+                        );
+                        return Err(self.protocol(detail));
+                    };
+                    let rendered = message.render();
+                    self.capture_log(level, &rendered);
+                } else if !method.starts_with("notifications/") {
+                    let detail = format!("the MCP server sent the unknown notification `{method}`");
+                    return Err(self.protocol(detail));
+                }
+                Ok(())
+            }
+            Some(id) if method == "ping" => {
+                self.respond(id, Ok(Value::Object(serde_json::Map::new())))
+            }
+            Some(id) => {
+                let detail = match method {
+                    "sampling/createMessage" | "roots/list" | "elicitation/create" => format!(
+                        "aicontext does not implement the MCP server-initiated `{method}` request"
+                    ),
+                    _ => format!("aicontext does not implement the MCP method `{method}`"),
+                };
+                self.respond(id, Err(RpcError::method_not_found(detail)))
+            }
+        }
+    }
+
+    /// Send one JSON-RPC response, successful or not.
+    fn respond(
+        &mut self,
+        id: RequestId,
+        result: Result<Value, RpcError>,
+    ) -> Result<(), SupervisorError> {
+        match result {
+            Ok(value) => self.send_frame(&Response::success(id, value)),
+            Err(error) => {
+                let response: Response<Value> = Response::error(Some(id), error);
+                self.send_frame(&response)
+            }
+        }
+    }
+
+    /// Encode and send one frame, failing the process if it cannot be encoded.
+    fn send_frame<T: Serialize>(&mut self, frame: &T) -> Result<(), SupervisorError> {
+        let codec = self.codec;
+        match codec.encode_line(frame) {
+            Ok(line) => self.send(line.into_bytes()),
+            Err(error) => {
+                let detail = format!("the frame could not be encoded: {error}");
+                Err(self.fail(SupervisorError::Protocol { detail }))
+            }
+        }
     }
 
     fn send(&mut self, bytes: Vec<u8>) -> Result<(), SupervisorError> {
