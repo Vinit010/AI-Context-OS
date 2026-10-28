@@ -48,6 +48,11 @@ thiserror = { workspace = true }
 # dev-dependency only: the runtime does not carry a schema engine. TASK-074.
 jsonschema = { workspace = true }
 
+# Sandbox tests need a project tree and a state tree that live outside the developer's home and are
+# removed when each test ends. The process cwd outlives the test body only until the process is
+# dropped, so one tree per test is retained for its duration. TASK-076.
+tempfile = { workspace = true }
+
 # A deliberately misbehaving plugin for tests/supervisor.rs. It lives outside src/ so the library
 # does not expose it, and Cargo gives integration tests its path as
 # CARGO_BIN_EXE_misbehaving-plugin. One binary with a mode argument keeps the fixture list in one

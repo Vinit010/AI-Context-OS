@@ -2,7 +2,8 @@
 //!
 //! The runtime is the layer between a tool call the model proposed and a plugin process that may
 //! act on the world. `TASK-072` builds the part that decides whether a human approved the call;
-//! `TASK-073` adds the process supervisor and `TASK-074` the single gateway that uses both.
+//! `TASK-073` adds the process supervisor, `TASK-074` the single gateway that uses both, and
+//! `TASK-076` the sandbox that decides where the process runs and what it may reach.
 //!
 //! # What this crate is
 //!
@@ -22,6 +23,9 @@
 //! - [`ToolGateway`]: the one path from a proposed call to a plugin. It validates the arguments,
 //!   resolves the policy, asks the broker, dispatches once, normalises the result, and audits every
 //!   stage.
+//! - [`Sandbox`]: the per-plugin working tree, environment, filesystem allowlist, and network
+//!   policy. It is prepared from the manifest and the host's state/project roots, and every
+//!   refusal is a typed `PLG-009` (or `PLG-011` for an invalid manifest declaration).
 //! - [`UntrustedToolResult`]: the only form of a plugin result the gateway returns: sanitised data
 //!   marked `trust: "untrusted"`, with host-recorded metadata and plugin metadata dropped.
 //!
@@ -31,8 +35,10 @@
 //! `String`, but writing it belongs to the CLI, and the audit event is described, but storing it
 //! belongs to `aicontext-audit`. Those boundaries are what let the approval matrix be tested with
 //! no terminal and no temporary file. The supervisor owns the process and the deadline; the
-//! gateway owns argument validation and the untrusted-result envelope. The sandbox is still
-//! `TASK-076`, and the durable log is still `TASK-075`.
+//! gateway owns argument validation and the untrusted-result envelope; the sandbox owns the
+//! working directory, environment, and allowlists. The sandbox is not a kernel boundary: a plugin's
+//! own syscalls are constrained only by the operating system, and that strength differs across
+//! platforms (`docs/SECURITY.md` §12, risk R-3).
 //!
 //! # Default deny
 //!
@@ -45,6 +51,7 @@
 
 pub mod approval;
 pub mod gateway;
+pub mod sandbox;
 pub mod supervisor;
 
 mod hash;
@@ -59,5 +66,8 @@ pub use gateway::{
     CallSummary, EnvelopeError, GatewayAudit, GatewayError, GatewayEvent, GatewayOutcome, HostMeta,
     Refusal, RefusalStage, ResultSummary, TRUST_UNTRUSTED, ToolCall, ToolGateway,
     UntrustedToolResult,
+};
+pub use sandbox::{
+    Environment, FilesystemPolicy, NetworkPolicy, Sandbox, SandboxError, SandboxRoots,
 };
 pub use supervisor::{MAX_RESULT_DEPTH, PluginLog, PluginProcess, SupervisorError, start_plugin};

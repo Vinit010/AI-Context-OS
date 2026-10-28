@@ -25,6 +25,10 @@ pub enum SupervisorError {
     #[error(transparent)]
     Manifest(#[from] PluginError),
 
+    /// The sandbox was not prepared for this plugin, or could not be applied.
+    #[error(transparent)]
+    Sandbox(#[from] crate::sandbox::SandboxError),
+
     /// The executable named by the manifest could not be started.
     #[error("the plugin executable `{program}` could not be started: {source}")]
     Spawn {
@@ -107,6 +111,7 @@ impl SupervisorError {
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::Manifest(error) => error.code(),
+            Self::Sandbox(error) => error.code(),
             Self::Spawn { .. } => ErrorCode::PLG_001,
             Self::Handshake { .. } => ErrorCode::PLG_002,
             Self::ApiVersion { .. } => ErrorCode::PLG_004,
@@ -122,6 +127,7 @@ impl SupervisorError {
     pub fn remediation(&self) -> String {
         match self {
             Self::Manifest(error) => error.remediation(),
+            Self::Sandbox(error) => error.remediation(),
             Self::Spawn { .. } => {
                 "check that the executable exists, is executable, and matches `entry.command` in \
                  the plugin manifest"
@@ -177,6 +183,7 @@ mod tests {
     use aicontext_plugin_sdk::{ApiVersion, PluginError};
 
     use super::SupervisorError;
+    use crate::sandbox::SandboxError;
 
     fn version(number: u16) -> ApiVersion {
         match ApiVersion::new(number) {
@@ -194,6 +201,13 @@ mod tests {
                     source: io::Error::other("not found"),
                 },
                 ErrorCode::PLG_001,
+            ),
+            (
+                SupervisorError::Sandbox(SandboxError::Mismatch {
+                    plugin: "fixture".to_owned(),
+                    sandbox: "other".to_owned(),
+                }),
+                ErrorCode::PLG_009,
             ),
             (
                 SupervisorError::Handshake {

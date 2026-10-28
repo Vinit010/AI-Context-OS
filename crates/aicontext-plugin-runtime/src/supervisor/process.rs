@@ -15,6 +15,10 @@
 //! command-line flag, so a plugin cannot talk its way into a longer deadline. The output cap is
 //! enforced in three places: one frame (the encoded line), the total notification traffic during a
 //! call, and the depth of the decoded result (32 levels, `docs/PLUGIN_SPEC.md` §4).
+//!
+//! The working directory and the child environment come from the [`Sandbox`] the caller prepared.
+//! The supervisor validates that the sandbox belongs to the same plugin, applies the sandbox's
+//! environment, and spawns with `env_clear()` rather than inheriting the host's environment.
 
 use std::collections::VecDeque;
 use std::io;
@@ -33,6 +37,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::json::{MAX_JSON_DEPTH, json_depth};
+use crate::sandbox::Sandbox;
 
 use super::error::SupervisorError;
 use super::transport::{Incoming, StderrHandle, spawn_reader, spawn_stderr, spawn_writer};
@@ -63,11 +68,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// Start a plugin and complete the `initialize` handshake.
 ///
 /// The manifest is validated again even if it came from [`PluginManifest::from_json`], because a
-/// caller can construct the struct directly and an invalid limit must not reach a spawn.
+/// caller can construct the struct directly and an invalid limit must not reach a spawn. The
+/// sandbox must have been prepared from this same manifest: a sandbox for `other` is refused with
+/// [`SandboxError::Mismatch`](crate::sandbox::SandboxError::Mismatch) before a process exists.
 ///
 /// # Errors
 ///
-/// Before a process exists: [`SupervisorError::Manifest`] for an invalid manifest,
+/// Before a process exists: [`SupervisorError::Sandbox`] (`PLG-009`) for a sandbox prepared for a
+/// different plugin, [`SupervisorError::Manifest`] for an invalid manifest,
 /// [`SupervisorError::ApiVersion`] (`PLG-004`) for a version this host does not implement, and
 /// [`SupervisorError::Spawn`] (`PLG-001`) when the executable cannot be started.
 ///
@@ -75,7 +83,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// handshake, [`SupervisorError::Timeout`] (`PLG-003`) when it does not answer in time,
 /// [`SupervisorError::Protocol`] (`PLG-005`) for a frame outside the protocol, and
 /// [`SupervisorError::OutputLimit`] (`PLG-006`) when it writes more than the manifest allows.
-pub fn start_plugin(manifest: &PluginManifest) -> Result<PluginProcess, SupervisorError> {
+pub fn start_plugin(
+    manifest: &PluginManifest,
+    sandbox: &Sandbox,
+) -> Result<PluginProcess, SupervisorError> {
+    sandbox.ensure_matches(manifest)?;
     manifest.validate().map_err(SupervisorError::Manifest)?;
     let negotiated = match manifest.negotiate(ApiVersion::CURRENT) {
         Ok(version) => version,
@@ -94,6 +106,7 @@ pub fn start_plugin(manifest: &PluginManifest) -> Result<PluginProcess, Supervis
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    sandbox.configure(&mut command);
 
     let mut child = command.spawn().map_err(|source| SupervisorError::Spawn {
         program: manifest.entry.command.clone(),
