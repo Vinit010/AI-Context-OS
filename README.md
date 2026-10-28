@@ -5,7 +5,7 @@
 [![CI](https://github.com/Vinit010/AI-Context-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/Vinit010/AI-Context-OS/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV: Rust 1.85](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](rust-toolchain.toml)
-[![Status: Phase 4 of 11](https://img.shields.io/badge/status-phase%204%20of%2011-yellow.svg)](#status)
+[![Status: Phase 5 of 11](https://img.shields.io/badge/status-phase%205%20of%2011-yellow.svg)](#status)
 
 AI coding agents are individually capable and collectively unreliable, because they are *stateless
 with respect to the project*. AI Context OS gives them a persistent, structured, reviewable
@@ -41,7 +41,7 @@ and portable between machines and between AI tools.
 
 ## Status
 
-**Specification complete. Implementation in progress (Phase 4 of 11).**
+**Specification complete. Implementation in progress (Phase 5 of 11).**
 
 | Phase | Scope | State |
 |-------|-------|-------|
@@ -49,12 +49,12 @@ and portable between machines and between AI tools.
 | 1 | Context MVP: `init`, `status`, `doctor`, `export`, `import` | Done |
 | 2 | Discovery, indexing, retrieval, budgets, `health`, `context` | Done |
 | 3 | AI provider layer: adapters, credentials, `connect`, `agent run` (plan mode) | Done |
-| 4 | Plugin system, permissions, audit | In progress |
-| 5-7 | GitHub plugin, AWS plugin, hardening | Not started |
+| 4 | Plugin system, permissions, audit | Done |
+| 5-7 | GitHub plugin, AWS plugin, hardening | In progress |
 | 8-10 | Dashboard, multi-agent, marketplace | Deferred |
 
-**Eleven commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, `import`,
-`connect`, `disconnect`, `agent run`, and `audit`.**
+**Twelve commands ship today: `init`, `status`, `doctor`, `health`, `context`, `export`, `import`,
+`connect`, `disconnect`, `agent run`, `audit`, and `plugin`.**
 
 `init` creates the `.ai` skeleton, `status` reports where the project and its task register stand,
 `doctor` validates the `.ai/` tree and explains what is wrong with it, `health` reports transparent
